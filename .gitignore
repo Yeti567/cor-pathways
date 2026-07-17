@@ -1,0 +1,52 @@
+node_modules
+.next
+out
+coverage
+output/playwright
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.vercel
+*.tsbuildinfo
+supabase/.branches
+supabase/.temp
+
+.vercel
+
+# Confidential client and reference material. Named customer folders are excluded
+# locally via .git/info/exclude rather than here, so this file does not publish a
+# customer list. If you keep client source material in this working tree, add it
+# there, not to this file.
+
+# The COR program library. The app is open source; this content is not. It is the
+# deliverable of a paid build (policies, procedures, and forms written and mapped to
+# a certifying partner's audit), and it is the part a template cannot replace.
+# Untracked when the repo went open source.
+/cor documents/
+
+# Local QA exploration harness. state.json holds LIVE Supabase auth tokens, and the
+# screenshots/logs are throwaway. Never commit these.
+/playwright-explore/
+/.cor_devserver.log
+
+# Claude Code local settings hold a per-machine permission allowlist that can embed
+# secrets (e.g. webhook bearer tokens) and local paths. Keep it out of git.
+# .claude/launch.json (shared dev-server config) is tracked.
+/.claude/settings.local.json
+
+# Working screenshots of a live admin console. These contain REAL personal data:
+# worker names, job titles, and personal mobile numbers of people who never agreed
+# to have it published. They were tracked by accident and are not product assets.
+# Never commit a screenshot taken against real data; use the local seed fixtures
+# (supabase/seed.sql) instead.
+/*.png
+/*.jpg
+/*.jpeg
+
+# Business strategy and product roadmap. Working notes, not part of the product.
+/docs/open-source-pivot-plan.md
+/docs/ai-assistant-plan.md
+/docs/inventory-tracking-plan.md
+/docs/sales-deck/
