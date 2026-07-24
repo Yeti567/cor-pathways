@@ -13,6 +13,7 @@ export type HelpCategory =
   | "Workers & Locations"
   | "Workflows & Automation"
   | "Equipment"
+  | "Inventory"
   | "Transport & ELD"
   | "Documents & Resources"
   | "Analytics & Reports"
@@ -25,6 +26,7 @@ export const helpCategories: HelpCategory[] = [
   "Workers & Locations",
   "Workflows & Automation",
   "Equipment",
+  "Inventory",
   "Transport & ELD",
   "Documents & Resources",
   "Analytics & Reports",
@@ -599,6 +601,198 @@ Click **Subscribe** on the paywall page or the trial banner. The button currentl
 ## After subscribing
 
 The moment your tenant flips to Active, every queued offline submission flushes and every paused action resumes. Nothing is lost in the gap.`,
+  },
+  {
+    slug: "set-up-inventory-tracking",
+    title: "Set up inventory tracking",
+    category: "Inventory",
+    summary: "Turn on the Inventory module and answer two questions about anything you count: how many, and where.",
+    tags: ["inventory", "stock", "setup", "enable", "module", "how many", "where"],
+    body: `## What Inventory is for
+
+Inventory answers two questions about anything you count: how many, and where. Rental units on customer sites, tools out with a crew, parts on a truck, PPE and consumables in the yard. If you never count stock, leave the module off and nothing changes.
+
+## Turn it on
+
+Open the admin panel, go to **Setup**, find **Inventory**, and switch it **On**. A new **Inventory** entry appears in the side navigation. You can switch it off any time; your data stays, it is just hidden.
+
+## The one rule worth knowing first
+
+A quantity is never edited by hand. Stock only ever moves from one place to another, and the count at each place is added up from those moves. To fix a mistake you record the move that puts it right, so the history always explains itself. Everything else in the module follows from that.
+
+## Where to start
+
+- Add your **items**: the things you stock.
+- Add your **stocking places**: your yards, customer sites, trucks, and crews.
+- Then record what you have under **Stock**.
+
+Start with the handful of things you move most. You do not have to enter everything before the module is useful.`,
+  },
+  {
+    slug: "inventory-items-and-places",
+    title: "Add inventory items and stocking places",
+    category: "Inventory",
+    summary: "Describe the things you stock, and the places they can sit. A yard, a customer site, a truck, and a worker are all just places.",
+    tags: ["items", "stocking places", "locations", "bulk", "serial", "returnable", "billable", "reorder point"],
+    body: `## Items describe the thing, not the amount
+
+Open **Inventory**, then **Items**, and add what you stock. An item describes the thing; how many you have arrives later with movements, and always belongs to a place. Three choices shape how each item behaves:
+
+- **How it is counted:** **Bulk** for anything interchangeable such as mats, gloves, or oil, or **Serialized** for a unit you identify one by one.
+- **Comes back:** on for rentals and tools, off for anything consumed such as PPE or filters.
+- **Billable:** on if time on a customer site is charged. Set the rate and how it is charged: per day, week, month, or unit.
+
+You can also set a **reorder point** for low-stock alerts and group items with **categories**. A serialized unit that also needs a service life can link to an **Equipment** record; Inventory tracks where it is, Equipment tracks its condition.
+
+## Stocking places are where stock sits
+
+Open **Inventory**, then **Stocking Places**. A place is one of several kinds, and most point at something you already have:
+
+- **Yard:** your own yard or shop, the usual home for stock.
+- **Customer site:** a customer or lease site where your stock sits while it is out.
+- **Vehicle:** a truck, backed by an Equipment record. Loading a truck is a move, not a special case.
+- **Worker:** tools checked out to a person.
+- **Vendor** or **Job:** a supplier holding your stock, or a project that consumes it.
+
+Because every one of these is just a place, a rental, a tool check-out, truck stock, and a write-off are all the same kind of move with different ends.
+
+## The two built-in places
+
+Turning the module on creates two places you cannot remove: **In transit**, a load that has left one place but not arrived at the next, and **Loss and write-off**, where damage, shrinkage, and count corrections land. They keep the numbers honest, and they never show up as somewhere a worker could be assigned.`,
+  },
+  {
+    slug: "inventory-record-movements",
+    title: "Record stock movements and read On Hand",
+    category: "Inventory",
+    summary: "Bring stock in, move it between places, write it off. Every change is a move between two places, and On Hand shows the result.",
+    tags: ["movements", "receive", "transfer", "write-off", "on hand", "balance", "ledger"],
+    body: `## Every change is a move
+
+Open **Inventory**, then **Stock**, and use **Record a movement**. Pick what happened, the item, the quantity, and the places:
+
+- **Received:** new stock arriving from outside, into a place.
+- **Moved:** stock going from one of your places to another.
+- **Used on a job:** stock consumed at a job or site.
+- **Written off:** stock damaged or lost. It always lands in the built-in loss place.
+
+Quantity is always a positive number. Direction comes from the two places you pick, never from a minus sign, so a number can never quietly mean the opposite of what you intended.
+
+## You never edit a balance
+
+There is no field that sets a quantity. If a number is wrong, record the move that corrects it, for example a write-off, or a move back to the yard. The correction sits in the history beside the mistake, so the books always explain themselves. This is what makes the numbers trustworthy a year later.
+
+## On Hand shows where everything is
+
+Open **Inventory**, then **On Hand**, for a grid of every item against every place that holds it. Empty places and used-up items drop out, so what is left is only what you actually have. Filter by category or by kind of place, and select any number to see the full list of moves behind it. From there you can also start a count for that exact item and place.`,
+  },
+  {
+    slug: "inventory-truck-transfers",
+    title: "Move a load between places with transfers",
+    category: "Inventory",
+    summary: "Send a truckload in two legs: it leaves, it sits in transit, it arrives. A load that never arrives stays visible instead of quietly vanishing.",
+    tags: ["transfers", "transit", "truck", "load", "depart", "arrive", "residual"],
+    body: `## Why transfers have two legs
+
+A truckload does not teleport. It leaves one place, spends time on the road, and arrives at another. Inventory records that as two moves through the built-in **In transit** place, so stock in flight is visible instead of missing while the truck is rolling.
+
+## Record a departure
+
+Open **Inventory**, then **Transfers**, and start a load. Pick the truck, the driver, where it is coming from, where it is going, and the item lines with quantities. Recording the departure takes the stock off the origin and puts it in transit. If a line would take more than the origin holds, the whole load is refused with a plain message, so a load never posts half true.
+
+## Record the arrival
+
+When the load lands, open it and record what was delivered. The delivered quantities are measured against what actually left, so any shortfall is obvious. What arrives comes out of transit and into the destination.
+
+## Loads that do not add up
+
+- If less is delivered than was loaded, the difference stays **in transit** as a residual, visible and worth chasing, rather than disappearing.
+- A load that is still on the road shows in an in-transit list with its age, so nothing is forgotten.
+- Made a load by mistake? **Cancel** it, and the stock goes straight back to where it started.`,
+  },
+  {
+    slug: "inventory-field-capture",
+    title: "Record stock moves from the field, offline",
+    category: "Inventory",
+    summary: "A driver records a pickup or a drop from their phone. It saves on the device right away and syncs when signal returns, exactly once.",
+    tags: ["field", "worker app", "offline", "driver", "pickup", "drop", "sync"],
+    body: `## For the driver's phone
+
+On the worker app, a **Move stock** panel lets a worker record stock going from one place to another, right where the work happens. Pick the from place, the to place, the item, and the quantity, and record it.
+
+## It works with no signal
+
+The move saves on the phone immediately, whether or not there is a connection. So a driver loading mats in a dead zone has it on the books the moment they are back in range. A small note under the panel shows how many moves are still waiting to sync.
+
+## It posts exactly once
+
+Every move carries a hidden one-time key. If a shaky connection makes the phone send the same move more than once, the system recognises it and keeps only one. A pickup recorded in the field can never double post, no matter how many times the sync runs.
+
+## What the office sees
+
+Once synced, the move is an ordinary movement in the ledger. It shows up under **Stock**, in the **On Hand** grid, and everywhere else, the same as a move an admin recorded by hand.`,
+  },
+  {
+    slug: "inventory-counts-reconciliation",
+    title: "Count stock and reconcile the difference",
+    category: "Inventory",
+    summary: "Count what is actually on the shelf, enter the real number, and the system posts the difference for you. Nobody edits a balance by hand.",
+    tags: ["counts", "reconciliation", "variance", "loss", "shrinkage", "cycle count"],
+    body: `## Why counts are special
+
+A count is the one place you state an absolute number: there are 46 mats in the yard. Everywhere else, stock only moves. A count keeps that promise: it reads what the books say, takes the number you counted, and records the difference as a move into the loss place. Nobody overwrites a balance, so a correction always says where the stock went.
+
+## Record a count
+
+Open **Inventory**, then **Counts**, pick the item and the place, and enter the quantity you counted. As you type, the form shows what the books say and previews the correction before you commit it:
+
+- Count fewer than the books say, and the shortage moves out to loss.
+- Count more, and the extra is pulled back from loss.
+- Count exactly what the books say, and nothing is posted.
+
+## The variance report
+
+The loss place is not a black hole. The Counts page shows, per item, what has piled up there from write-offs and short counts, so shrinkage stays reviewable. A recent-counts list shows every count with the books figure, the counted figure, and the variance.`,
+  },
+  {
+    slug: "inventory-low-stock-alerts",
+    title: "Get low-stock alerts with reorder points",
+    category: "Inventory",
+    summary: "Set a floor under the things you must not run out of, and get told before you hit it.",
+    tags: ["reorder point", "low stock", "alerts", "notifications", "ppe", "consumables"],
+    body: `## Set a reorder point
+
+On any item under **Inventory**, then **Items**, set a **reorder point**: the level at or below which someone should reorder. Leave it blank for things you do not need to watch, like rental units. It earns its keep on PPE, filters, and consumables, the cheap things whose absence stops a job.
+
+## How the alert works
+
+The on-hand total is added up across your real places (stock in transit or written off does not count) and compared to the reorder point. When it drops to that number or below, the item surfaces as low. Nothing is stored as a flag, so the alert is always current with the ledger.
+
+## Where you are told
+
+- A **banner** on the Inventory home and on **On Hand** lists everything at or below its reorder point, worst first, with an item that has nothing on hand called out as out of stock.
+- A **notification** goes to your managers and admins through the same reminder system that handles equipment service. A steady shortage is not repeated, but one that gets worse is raised again.`,
+  },
+  {
+    slug: "inventory-rental-billing",
+    title: "Bill rental charges from the ledger",
+    category: "Inventory",
+    summary: "See what each customer site owes for a period, worked out from the moves themselves. Partial pickups are handled for you.",
+    tags: ["billing", "rental", "charges", "invoice", "customer", "rate"],
+    body: `## What the billing report does
+
+Open **Inventory**, then **Billing**, for a report of what each customer site owes over a date range. For every billable item at every customer site, it works out how many units sat there, for how long, at the item's rate, and adds it up. It is a report to bill from, not an invoice, and it is admin only.
+
+## Set the rate on the item
+
+Charges come from the item. Under **Items**, mark an item **billable**, set its **rate**, and choose how it is charged: per day, week, month, or per unit. An item with no rate does not appear on the report.
+
+## Partial pickups take care of themselves
+
+Because the charge is worked out from the moves, a partial pickup needs no special handling. Pick up half a load and the quantity on that site simply drops for the rest of the period, and the total comes out right on its own. Stock delivered before the period that is still on site is billed for its time inside the period.
+
+## Reading the report
+
+Pick a **From** and a **To** date and run it. Charges are grouped by customer site, with a line per item showing the rate and the amount, a subtotal per site, and a grand total for the period.`,
   },
 ];
 
