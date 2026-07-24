@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuthRedirectUrl, getSafeRedirectPath } from "@/lib/auth-redirect";
+import { getDemoLoginCredentials } from "@/lib/demo";
 import { publicEnv } from "@/lib/env";
 import { getConfiguredSsoProvider } from "@/lib/sso";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -65,6 +66,30 @@ export async function login(formData: FormData) {
 
   revalidatePath("/", "layout");
   redirect(nextPath);
+}
+
+/**
+ * One-click sign-in to the shared demo tenant. Bound to a button on the landing page, and
+ * only reachable when DEMO_LOGIN_EMAIL and DEMO_LOGIN_PASSWORD are set on the deployment.
+ * The credentials never touch the client: they are read here, server-side, and exchanged
+ * for a session exactly like a normal password login.
+ */
+export async function demoLogin() {
+  const credentials = getDemoLoginCredentials();
+
+  if (!credentials) {
+    redirectToLogin("The live demo is not available right now.", "/");
+  }
+
+  const supabase = await getSupabaseOrRedirect();
+  const { error } = await supabase.auth.signInWithPassword(credentials);
+
+  if (error) {
+    redirectToLogin("The live demo is not available right now.", "/");
+  }
+
+  revalidatePath("/", "layout");
+  redirect("/");
 }
 
 export async function loginWithSso(formData: FormData) {
