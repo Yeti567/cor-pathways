@@ -55,9 +55,10 @@ const upcomingAreas = [
   {
     description:
       "A grid of what you have and where it is, filtered by category and place, with the full movement history behind every number.",
+    href: "/admin/inventory/on-hand",
     icon: Package,
-    stage: "Next",
-    title: "On Hand grid",
+    stage: "Ready",
+    title: "On Hand",
   },
   {
     description:

@@ -187,9 +187,15 @@ export default async function InventoryStockPage({ searchParams }: StockPageProp
       <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_420px]">
         <div className="space-y-5">
           <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
-            <h3 className="border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-              On hand
-            </h3>
+            <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">On hand</h3>
+              <Link
+                className="text-sm font-semibold text-[var(--primary)] hover:underline"
+                href="/admin/inventory/on-hand"
+              >
+                Full grid
+              </Link>
+            </div>
             {nonZeroBalances.length > 0 ? (
               <div className="divide-y divide-[var(--border)]">
                 {nonZeroBalances.map((balance) => (

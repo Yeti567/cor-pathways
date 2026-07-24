@@ -184,13 +184,13 @@ furniture. Seeding inserts only what is missing rather than upserting, because t
 uniqueness of the virtual pair is a partial index and Postgres cannot match ON CONFLICT
 against one.
 
-**Slice 4: the ledger and balances.**
+**Slice 4: the ledger and balances.** DONE.
 Migration for `inventory_movement` and `inventory_balance`, the trigger, the insert only
 grants, and the negative balance constraint. A simple "receive stock" and "adjust" admin
 screen so quantity can get into the system at all. **Write the tests in this slice**, not
 later: this is the piece everything else stands on.
 
-**Slice 5: the on hand view.**
+**Slice 5: the on hand view.** DONE.
 The screen that pays for the module: a grid of item by location with quantities, filters
 by category and location kind, and a drill down into the movement history for any cell.
 Read only, and it is the first slice with obvious daily value.
