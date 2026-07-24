@@ -253,14 +253,24 @@ worsening one is announced again), raised on the inventory landing and the admin
 The reorder point is set on the items form; low stock is shown as a banner on the inventory
 landing and on On hand. The `Low Stock Alerts` module card is now Ready.
 
-**Slice 10 (deferred until asked): billing from the ledger.**
-An interval series per (customer, site, item): quantity, start, end. Charge is the sum of
-quantity times days times rate. A partial pickup shortens one interval and opens a smaller
-one, so partial return billing falls out of the model for free rather than being special
-cased. Rate ladders and retroactive re-rating stay out until a client's pricing genuinely
-tiers.
+**Slice 10: billing from the ledger.** DONE.
+Rental charges, derived, storing nothing: no invoice table, no interval table, no running
+total a movement has to remember to update. For each billable item at each customer site,
+the quantity-on-site timeline is reconstructed from the same movements that move the
+balances, clipped to the billing period, carrying an opening balance from before it. Charge
+is the sum over intervals of quantity times duration times rate. This is why a partial
+pickup needs no special handling: it simply lowers the quantity for the rest of the period,
+and the sum comes out right. Duration is proportional (exact elapsed time in the rate's
+unit), not rounded up per segment, so a unit that sits still while others move around it is
+not double charged by the ledger happening to slice its stay. `each` is a one-time per-unit
+charge (units delivered in the period). Rate ladders, monthly minimums, a day-started
+convention, credit lines, and GL postings stay out until a client's pricing genuinely needs
+them (open question 2). The pure `buildRentalCharges` in `src/lib/inventory-billing.ts`
+holds all of this; `/admin/inventory/billing` is a read-only report over a date range,
+grouped by site with a per-site and grand total. **Admin side only.** No migration: like
+counts and low stock, it is a view over the ledger. The `Billing` module card is Ready.
 
-**Admin side only**, per the standing rule that field workers never see pricing.
+**The inventory module is now complete: all ten slices shipped.**
 
 ## Tests to add
 

@@ -8,6 +8,7 @@ import {
   Layers,
   MapPin,
   Package,
+  Receipt,
   Smartphone,
   Truck,
 } from "lucide-react";
@@ -99,6 +100,14 @@ const upcomingAreas = [
     icon: BellRing,
     stage: "Ready",
     title: "Low Stock Alerts",
+  },
+  {
+    description:
+      "What each customer site owes for a period, worked out from the ledger: how many units sat there, for how long, at the item's rate. A report to bill from, admin only.",
+    href: "/admin/inventory/billing",
+    icon: Receipt,
+    stage: "Ready",
+    title: "Billing",
   },
 ] as const;
 
