@@ -9,6 +9,7 @@ import {
   coerceInventoryRateBasis,
   coerceInventoryTrackingMode,
 } from "@/lib/inventory";
+import { buildInventoryLocationWrite, coerceInventoryLocationKind } from "@/lib/inventory-locations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 
@@ -356,4 +357,89 @@ export async function deleteInventoryItem(formData: FormData) {
 
   revalidatePath(ITEMS_PATH);
   backToItems("Item removed.", "notice");
+}
+
+// --- Stocking places --------------------------------------------------------
+
+const LOCATIONS_PATH = "/admin/inventory/locations";
+
+function backToLocations(message: string, kind: "error" | "notice" = "error"): never {
+  redirect(`${LOCATIONS_PATH}?${kind}=${encodeURIComponent(message)}`);
+}
+
+export async function createInventoryLocation(formData: FormData) {
+  const context = await requireInventoryManager();
+  const result = buildInventoryLocationWrite({
+    backingId: optionalString(formData, "backingId"),
+    kind: coerceInventoryLocationKind(stringValue(formData, "kind")),
+  });
+
+  if (!result.ok) {
+    backToLocations(result.error);
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("inventory_location")
+    .insert({ ...result.write, created_by: context.appUser.id, tenant_id: context.appUser.tenant_id })
+    .select("id")
+    .single();
+
+  if (error) {
+    // The unique indexes exist so one yard cannot end up with two balances that each
+    // hold half its stock. Say that, rather than naming the index.
+    backToLocations(
+      error.code === "23505" ? "That place is already set up as a stocking place." : error.message,
+    );
+  }
+
+  await audit(context, {
+    action: "inventory.location.create",
+    entityId: data.id,
+    entityTable: "inventory_location",
+    metadata: { kind: result.write.kind },
+  });
+
+  revalidatePath(LOCATIONS_PATH);
+  backToLocations("Stocking place added.", "notice");
+}
+
+export async function setInventoryLocationActive(formData: FormData) {
+  const context = await requireInventoryManager();
+  const inventoryLocationId = stringValue(formData, "inventoryLocationId");
+  const active = stringValue(formData, "active") === "true";
+
+  if (!inventoryLocationId) {
+    backToLocations("Choose a stocking place.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // Deactivate rather than delete, and never touch the virtual pair. Their balances are
+  // the record of what is in flight and what was lost; removing them would take the
+  // explanation with them.
+  const { data, error } = await supabase
+    .from("inventory_location")
+    .update({ active })
+    .eq("id", inventoryLocationId)
+    .eq("tenant_id", context.appUser.tenant_id)
+    .not("kind", "in", "(transit,loss)")
+    .select("id");
+
+  if (error) {
+    backToLocations(error.message);
+  }
+
+  if (!data || data.length === 0) {
+    backToLocations("That stocking place cannot be changed.");
+  }
+
+  await audit(context, {
+    action: active ? "inventory.location.activate" : "inventory.location.deactivate",
+    entityId: inventoryLocationId,
+    entityTable: "inventory_location",
+  });
+
+  revalidatePath(LOCATIONS_PATH);
+  backToLocations(active ? "Stocking place turned back on." : "Stocking place turned off.", "notice");
 }

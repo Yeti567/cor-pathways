@@ -44,7 +44,8 @@ export type TenantScopedTable =
   | "company_settings"
   | "print_settings"
   | "inventory_category"
-  | "inventory_item";
+  | "inventory_item"
+  | "inventory_location";
 
 type TenantScopedRow = {
   id: string;
@@ -287,16 +288,6 @@ type TransportMedicalRecordRow = TenantScopedRow & {
 };
 
 /**
- * What sort of place a location is, for inventory purposes.
- *
- * The physical kinds are real places stock can sit. The two virtual kinds are what keep
- * the ledger honest: `transit` holds a load that has left but not arrived, and `loss`
- * absorbs damage, shrinkage, and count corrections. Virtual locations are the only ones
- * allowed to carry a negative balance.
- *
- * Not to be confused with `equipment.tracking_mode`, which is a different axis entirely.
- */
-/**
  * How an inventory item is counted. Fixed per item, and mutually exclusive.
  *
  * Deliberately NOT the same axis as `equipment.tracking_mode`, which is mileage or
@@ -307,19 +298,42 @@ export type InventoryTrackingMode = "bulk" | "serial";
 /** The period a billable item's rate is charged against. Null unless the item bills. */
 export type InventoryRateBasis = "day" | "week" | "month" | "each";
 
-export type LocationKind =
+/**
+ * Where stock can sit.
+ *
+ * The physical kinds are backed by something that already exists: a location, a truck in
+ * equipment, or a worker. The two virtual kinds are backed by nothing and are what keep
+ * the ledger honest: `transit` holds a load that has left but not arrived, and `loss`
+ * absorbs damage, shrinkage, and count corrections. Virtual places are the only ones
+ * that will be allowed to carry a negative balance.
+ *
+ * These live on `inventory_location`, NOT on `public.locations`. Locations is the
+ * human-facing list of places people go, and rows nobody can visit must never reach its
+ * pickers.
+ */
+export type InventoryLocationKind =
   | "yard"
   | "customer_site"
-  | "transit"
-  | "loss"
   | "vendor"
-  | "worker"
+  | "job"
   | "vehicle"
-  | "job";
+  | "worker"
+  | "transit"
+  | "loss";
 
 // Declared as standalone aliases rather than inline, so Insert and Update can be derived
 // from Row without indexing back into Database from inside its own definition, which TS
 // reads as a circular annotation.
+type InventoryLocationRow = TenantScopedRow & {
+  kind: InventoryLocationKind;
+  location_id: string | null;
+  equipment_id: string | null;
+  user_id: string | null;
+  name: string | null;
+  active: boolean;
+  created_by: string | null;
+};
+
 type InventoryCategoryRow = TenantScopedRow & {
   name: string;
   sort_order: number;
@@ -801,10 +815,15 @@ export type Database = {
           visibility_rule: string;
           start_date: string | null;
           default_for_new_workers: boolean;
-          location_kind: LocationKind;
         };
         Insert: Partial<Database["public"]["Tables"]["locations"]["Row"]> & Pick<Database["public"]["Tables"]["locations"]["Row"], "tenant_id" | "name">;
         Update: Partial<Database["public"]["Tables"]["locations"]["Row"]>;
+        Relationships: [];
+      };
+      inventory_location: {
+        Row: InventoryLocationRow;
+        Insert: Partial<InventoryLocationRow> & Pick<InventoryLocationRow, "tenant_id" | "kind">;
+        Update: Partial<InventoryLocationRow>;
         Relationships: [];
       };
       inventory_category: {

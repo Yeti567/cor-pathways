@@ -38,15 +38,16 @@ const upcomingAreas = [
   {
     description:
       "Your yards, customer sites, trucks, and crews all become places stock can sit, so the same movement covers a delivery, a tool check-out, and truck stock.",
+    href: "/admin/inventory/locations",
     icon: MapPin,
-    stage: "Next",
-    title: "Stocking Locations",
+    stage: "Ready",
+    title: "Stocking Places",
   },
   {
     description:
       "A grid of what you have and where it is, with the full movement history behind every number. The screen that answers how many are at each site.",
     icon: Package,
-    stage: "Planned",
+    stage: "Next",
     title: "On Hand",
   },
   {

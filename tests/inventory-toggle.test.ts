@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 
 const migration = read("supabase/migrations/20260723000000_inventory_module_toggle.sql");
+const stockingMigration = read("supabase/migrations/20260723020000_inventory_stocking_locations.sql");
 const adminShell = read("src/app/admin/_components/AdminShell.tsx");
 const inventoryPage = read("src/app/admin/inventory/page.tsx");
 const setupPage = read("src/app/admin/setup/page.tsx");
@@ -39,16 +40,19 @@ describe("inventory module migration", () => {
     expect(normalized).toContain("add column if not exists inventory_enabled boolean default false not null");
   });
 
-  it("adds location_kind to locations, defaulting to yard so existing rows stay valid", () => {
-    const normalized = migration.toLowerCase().replace(/"/g, "");
+  // Slice 1 put a location_kind column on public.locations. Slice 3 removed it: that
+  // table feeds worker assignment, visitors, equipment and the worker app through around
+  // thirty queries that mostly filter nothing, so virtual places would have surfaced in
+  // every picker. Stocking places live on their own table instead.
+  it("leaves public.locations without an inventory column", () => {
+    const normalized = stockingMigration.toLowerCase().replace(/"/g, "");
 
-    expect(normalized).toContain("alter table public.locations");
-    expect(normalized).toContain("add column if not exists location_kind text default 'yard' not null");
+    expect(normalized).toContain("alter table public.locations drop column if exists location_kind");
   });
 
-  it("constrains location_kind to exactly the kinds the app knows about", () => {
-    const normalized = migration.toLowerCase().replace(/"/g, "");
-    const constraint = normalized.slice(normalized.indexOf("locations_location_kind_check"));
+  it("constrains a stocking place to exactly the kinds the app knows about", () => {
+    const normalized = stockingMigration.toLowerCase().replace(/"/g, "");
+    const constraint = normalized.slice(normalized.indexOf("inventory_location_kind_check"));
 
     for (const kind of LOCATION_KINDS) {
       expect(constraint).toContain(`'${kind}'::text`);
@@ -61,10 +65,10 @@ describe("inventory module types", () => {
     expect(databaseTypes).toContain("inventory_enabled: boolean;");
   });
 
-  it("keeps the LocationKind union in step with the database constraint", () => {
+  it("keeps the InventoryLocationKind union in step with the database constraint", () => {
     const union = databaseTypes.slice(
-      databaseTypes.indexOf("export type LocationKind ="),
-      databaseTypes.indexOf('| "job";') + '| "job";'.length,
+      databaseTypes.indexOf("export type InventoryLocationKind ="),
+      databaseTypes.indexOf('| "loss";') + '| "loss";'.length,
     );
 
     for (const kind of LOCATION_KINDS) {

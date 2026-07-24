@@ -1,6 +1,6 @@
 # Inventory module: build plan
 
-Status: PLANNED, ready to build. Written 2026-07-23.
+Status: slices 1 to 3 built. Written 2026-07-23, kept current as it is built.
 
 Inventory ships as a toggleable module, off by default, so a fresh install and every
 fork already carry it and turning it on is a switch rather than a build.
@@ -26,8 +26,8 @@ Three independent flags describe any trackable thing, instead of a type hierarch
 - Hand tool: bulk or serial, returnable, not billable
 - PPE, filters, oil: bulk, not returnable, not billable
 
-**Locations are polymorphic**, and that is what keeps the module small. Extend locations
-with a kind, and every workflow becomes the same movement:
+**Stocking places are polymorphic**, and that is what keeps the module small. Give a
+place a kind, and every workflow becomes the same movement:
 
 - yard to yard: a stock transfer
 - yard to customer site: a rental out
@@ -66,8 +66,9 @@ Nothing more. Do not reintroduce plan gating.
 Also reused, not rebuilt:
 
 - **Locations** (`public.locations`) already exist and already carry `tenant_id`,
-  `visibility_rule`, and per-worker assignment through `user_locations`. Inventory adds a
-  `location_kind` column rather than a second locations concept.
+  `visibility_rule`, and per-worker assignment through `user_locations`. Inventory points
+  at them from `inventory_location` rather than copying them, and adds nothing to the
+  table itself. See the data model note below for why they stay separate.
 - **Offline capture** (`src/lib/offline/`): `db.ts`, `sync-queue.ts`, `background-sync.ts`
   already queue mutations and replay them. A pickup or drop recorded in a dead zone rides
   the existing queue. `src/lib/offline/equipment.ts` is the closest working model to copy.
@@ -106,15 +107,28 @@ New tables, all `tenant_id` scoped, all RLS on:
 2. **`inventory_category`**: grouping and filtering (Mats, Tools, PPE, Parts,
    Consumables). Flat, not a tree. A tree is a later problem if it is ever a problem.
 
-3. **`locations.location_kind`**: new column, check constrained to `yard`,
-   `customer_site`, `transit`, `loss`, `vendor`, `worker`, `vehicle`, `job`. Defaults to
-   `yard` so every existing row stays valid. `transit` and `loss` are virtual: they hold
-   quantity but are not real places, and a negative balance is allowed there.
+3. **`inventory_location`** (stocking places): `id, tenant_id, kind, location_id,
+   equipment_id, user_id, name, active`. Kinds are `yard`, `customer_site`, `vendor`,
+   `job` (each backed by a `locations` row), `vehicle` (backed by equipment), `worker`
+   (backed by a user), plus the virtual `transit` and `loss`, which are backed by nothing.
+   A check constraint allows exactly one backing reference per kind, and none for the
+   virtual pair.
 
-   This is a deliberate departure from how Point of Rental models it (branches only, with
-   customer held units tracked against a contract). Making customer sites real locations
-   answers "how many are at each site" directly, which is the question a rental operator
-   actually asks.
+   **Corrected during slice 3.** The original plan put a `location_kind` column on the
+   existing `locations` table. Building it showed why that is wrong: `locations` is the
+   human-facing list of places people go, feeding worker assignment, visitors, equipment,
+   incidents, workflows and the worker app across roughly thirty queries, of which only
+   six filter anything at all. There is no chokepoint, so "In transit" and "Loss" would
+   have appeared in every one of those pickers as though a worker could be assigned to
+   them, and preventing that would mean remembering an exclusion in every present and
+   future query. This codebase has already been bitten twice by rules that must be
+   remembered everywhere. A separate table costs one join and removes the whole class of
+   mistake. `locations` is left exactly as it was.
+
+   Making customer sites first-class stocking places is still a deliberate departure from
+   how Point of Rental models it (branches only, with customer-held units tracked against
+   a contract). It answers "how many are at each site" directly, which is the question a
+   rental operator actually asks.
 
 4. **`inventory_movement`** (the ledger): `id, tenant_id, item_id, qty` (always positive),
    `from_location_id, to_location_id, movement_type, occurred_at, transfer_id, ticket_id,
@@ -152,21 +166,23 @@ New tables, all `tenant_id` scoped, all RLS on:
 Each slice ends with the app working, the build green, and a commit. No slice leaves a
 half-wired module behind.
 
-**Slice 1: the toggle and the empty module.**
-Migration adding `tenants.inventory_enabled` (default false) and `locations.location_kind`
-(default `yard`). Nav entry, page guard, Setup toggle, server action with audit event, and
+**Slice 1: the toggle and the empty module.** DONE.
+Migration adding `tenants.inventory_enabled` (default false). Nav entry, page guard, Setup toggle, server action with audit event, and
 an `/admin/inventory` landing page describing what is coming, exactly as
 `src/app/admin/trades/page.tsx` does today. Nothing tracks anything yet. This proves the
 wiring and gives every fork the switch.
 
-**Slice 2: items and categories.**
+**Slice 2: items and categories.** DONE.
 Migration for `inventory_item` and `inventory_category` with RLS. Admin list, create, and
 edit. The three flags are set here. This is a plain CRUD slice and should be quick.
 
-**Slice 3: locations become stocking places.**
-Extend the Locations admin to set `location_kind`. Seed the two virtual locations
-(`transit`, `loss`) per tenant on module enable, not at signup, so tenants with the module
-off carry no clutter. Add customer sites as locations.
+**Slice 3: stocking places.** DONE.
+`inventory_location`, with an admin screen that promotes an existing location, vehicle, or
+worker into a place stock can sit. The two virtual places are seeded per tenant when the
+module is switched on, not at signup, so a tenant with it off carries none of the
+furniture. Seeding inserts only what is missing rather than upserting, because the
+uniqueness of the virtual pair is a partial index and Postgres cannot match ON CONFLICT
+against one.
 
 **Slice 4: the ledger and balances.**
 Migration for `inventory_movement` and `inventory_balance`, the trigger, the insert only

@@ -89,6 +89,7 @@ import {
   type FormFieldType,
 } from "@/lib/form-templates";
 import { coerceFollowUpStatus, isClosedFollowUpStatus } from "@/lib/follow-ups";
+import { virtualInventoryLocations } from "@/lib/inventory-locations";
 import {
   coerceLocationStatus,
   coerceLocationVisibilityRule,
@@ -2589,6 +2590,51 @@ export async function updateInventorySetting(formData: FormData) {
   const supabase = await createSupabaseServerClient();
 
   await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { inventory_enabled: enabled });
+
+  // The ledger cannot be honest without somewhere to put stock in flight and stock that
+  // was lost, so both are created the moment the module is switched on rather than at
+  // signup: a tenant with inventory off should carry none of its furniture. Seeding is
+  // idempotent through a unique index on (tenant_id, kind), so re-enabling later adds
+  // nothing and, importantly, does not orphan the balances already hanging off them.
+  if (enabled) {
+    // Insert only what is missing, rather than upserting. The uniqueness of the virtual
+    // pair is enforced by a PARTIAL index (where kind in ('transit','loss')), and Postgres
+    // cannot match ON CONFLICT against a partial index without repeating its predicate,
+    // which PostgREST has no way to express. An upsert here fails outright.
+    const { data: existing, error: readError } = await supabase
+      .from("inventory_location")
+      .select("kind")
+      .eq("tenant_id", context.appUser.tenant_id)
+      .in(
+        "kind",
+        virtualInventoryLocations.map((place) => place.kind),
+      );
+
+    if (readError) {
+      redirect(`/admin/setup?error=${encodeURIComponent(readError.message)}`);
+    }
+
+    const present = new Set((existing ?? []).map((row) => row.kind));
+    const missing = virtualInventoryLocations.filter((place) => !present.has(place.kind));
+
+    if (missing.length > 0) {
+      const { error: seedError } = await supabase.from("inventory_location").insert(
+        missing.map((place) => ({
+          kind: place.kind,
+          name: place.name,
+          tenant_id: context.appUser.tenant_id,
+        })),
+      );
+
+      // A duplicate here means something else seeded them between the read and the write,
+      // which is the end state we wanted anyway. Anything else must be surfaced: a module
+      // switched on without somewhere to put stock in flight is not usable, and failing
+      // quietly would leave that impossible to diagnose.
+      if (seedError && seedError.code !== "23505") {
+        redirect(`/admin/setup?error=${encodeURIComponent(seedError.message)}`);
+      }
+    }
+  }
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "inventory.setting.update",
