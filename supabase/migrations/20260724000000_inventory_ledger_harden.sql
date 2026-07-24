@@ -1,0 +1,13 @@
+-- Inventory ledger, hardening: take the trigger function off the public API.
+--
+-- apply_inventory_movement is SECURITY DEFINER because it must run as the table owner to
+-- write inventory_balance, which no end user may write directly. Because it lives in the
+-- public schema, PostgREST exposes it at /rest/v1/rpc/apply_inventory_movement, where anon
+-- and authenticated could call it. It is a trigger function: called outside a trigger it
+-- has no NEW row and simply raises, so nothing can be corrupted through it, but a definer
+-- trigger function has no business being reachable over the API at all.
+--
+-- Revoking EXECUTE does not stop the trigger. A trigger runs its function as the table
+-- owner regardless of who holds EXECUTE, so inserts into inventory_movement still post
+-- their balances exactly as before. This only closes the RPC door.
+revoke execute on function "public"."apply_inventory_movement"() from "public", "anon", "authenticated";

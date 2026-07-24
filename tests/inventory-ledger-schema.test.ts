@@ -52,6 +52,21 @@ describe("balances cannot be written by hand", () => {
     expect(migration).toContain("security definer");
     expect(migration).toContain("set search_path to 'public', 'pg_temp'");
   });
+
+  // The definer trigger function must not be reachable as an RPC. Revoking EXECUTE closes
+  // the /rest/v1/rpc door without stopping the trigger, which fires as the table owner.
+  it("takes the trigger function off the public API", () => {
+    const harden = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260724000000_inventory_ledger_harden.sql"),
+      "utf8",
+    )
+      .toLowerCase()
+      .replace(/"/g, "");
+
+    expect(harden).toContain("revoke execute on function public.apply_inventory_movement()");
+    expect(harden).toContain("anon");
+    expect(harden).toContain("authenticated");
+  });
 });
 
 describe("movement constraints", () => {
