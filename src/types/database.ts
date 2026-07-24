@@ -440,6 +440,7 @@ export type Database = {
           trades_enabled: boolean;
           gc_enabled: boolean;
           inventory_enabled: boolean;
+          demo_mode: boolean;
           default_labor_rate: number;
           country: "CA" | "US";
           emr_rate: number | null;
