@@ -45,8 +45,16 @@ supabase/.temp
 /*.jpg
 /*.jpeg
 
-# Business strategy and product roadmap. Working notes, not part of the product.
+# Business strategy and commercial roadmap. These are working notes, not part of the
+# product, and they carry pricing rationale and unreleased plans. They stay on disk in
+# docs/ where they are convenient to work on, but git does not carry them. Technical docs
+# that explain how the app works (the ELD map, the module specs) stay tracked on purpose:
+# they help anyone self-hosting.
 /docs/open-source-pivot-plan.md
 /docs/ai-assistant-plan.md
 /docs/inventory-tracking-plan.md
 /docs/sales-deck/
+
+# Internal working notes kept outside the repo. Not product documentation.
+/SCREENSHOTS-INDEX.md
+/agent.md.txt

@@ -47,7 +47,7 @@ const PHONE_DISPLAY = "780-832-5158";
 const PHONE_HREF = "tel:+17808325158";
 const ADVISOR = {
   name: "Ken Rentergem",
-  title: "Senior Safety Advisor",
+  title: "Senior Safety Consultant",
   credential: "Certified AMTA COR Auditor",
   phoneDisplay: "403-866-9517",
   phoneHref: "tel:+14038669517",
@@ -412,7 +412,9 @@ export default function LandingPage() {
             </h2>
             <p className="mt-4 text-base text-[var(--ink-muted)]">
               The software is free. What you are paying for is the program built inside it and the person who keeps it
-              current. No per-user fees, no seat counts, no tier that hides the module you need.
+              current. No per-user fees, no seat counts. Every company starts from a different place, some with a full
+              program, some with a binder, some with nothing, so we review where you are and give you a firm price
+              before any work begins.
             </p>
           </div>
 
@@ -446,11 +448,9 @@ export default function LandingPage() {
                 </div>
                 <div className="flex flex-col justify-center gap-3 border-t border-[var(--border)] pt-6 lg:border-l lg:border-t-0 lg:pl-12 lg:pt-0">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">From</p>
-                    <p className="mt-1 text-5xl font-bold tracking-tight tabular-nums text-[var(--ink)]">$3,000</p>
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                      One time
-                    </p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">One time build</p>
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-[var(--ink)]">Priced to your setup</p>
+                    <p className="mt-2 text-sm text-[var(--ink-muted)]">A firm number after a short call, before any work starts.</p>
                   </div>
                   <a
                     className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-5 text-sm font-semibold text-white transition hover:bg-[var(--primary-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"
@@ -461,8 +461,9 @@ export default function LandingPage() {
                 </div>
               </div>
               <p className="border-t border-[var(--border)] bg-[var(--surface-muted)] px-6 py-4 text-sm text-[var(--ink-muted)] sm:px-8">
-                Price scales with crew size and how much program you already have in place. You get a firm number after
-                a short call, before any work starts.
+                Every company starts from a different place. We look at your crew size and how much program you already
+                have, then give you a solid, firm price before any work starts. You approve the number before we
+                continue.
               </p>
             </article>
           </div>
@@ -481,10 +482,7 @@ export default function LandingPage() {
                   Where most start
                 </span>
                 <h4 className="text-xl font-bold text-[var(--ink)]">Managed</h4>
-                <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-4xl font-bold tracking-tight tabular-nums text-[var(--ink)]">$300</span>
-                  <span className="text-sm text-[var(--ink-muted)]">/ month</span>
-                </div>
+                <p className="mt-3 text-sm font-semibold text-[var(--ink)]">Flat monthly, set to your size</p>
                 <p className="mt-2 text-sm text-[var(--ink-muted)]">
                   For a single company that wants to stay current without thinking about it.
                 </p>
@@ -509,10 +507,7 @@ export default function LandingPage() {
                   Multi location
                 </span>
                 <h4 className="text-xl font-bold text-[var(--ink)]">Managed Plus</h4>
-                <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-4xl font-bold tracking-tight tabular-nums text-[var(--ink)]">$600</span>
-                  <span className="text-sm text-[var(--ink-muted)]">/ month</span>
-                </div>
+                <p className="mt-3 text-sm font-semibold text-[var(--ink)]">Flat monthly, set to your size</p>
                 <p className="mt-2 text-sm text-[var(--ink-muted)]">
                   For larger crews, multiple locations, or heavier month to month change.
                 </p>
@@ -537,8 +532,9 @@ export default function LandingPage() {
               <h4 className="text-sm font-semibold text-[var(--ink)]">What the monthly does not cover</h4>
               <p className="mt-2 max-w-4xl text-sm leading-relaxed text-[var(--ink-muted)]">
                 The monthly keeps you current and running. It does not include custom builds. A new module, a custom
-                feature, an outside integration, or building a second company&apos;s program is quoted separately at
-                $150 / hour or a flat project price. You always see the number before I start. No surprise invoices.
+                feature, an outside integration, or building a second company&apos;s program is quoted separately,
+                either hourly or as a flat project price. You always see the number before I start. No surprise
+                invoices.
               </p>
             </div>
           </div>
