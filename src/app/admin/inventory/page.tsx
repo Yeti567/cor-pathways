@@ -78,8 +78,9 @@ const upcomingAreas = [
   {
     description:
       "Count what is actually there and enter the real number. The system works out the difference and records it, so nobody edits a balance by hand.",
+    href: "/admin/inventory/counts",
     icon: ClipboardCheck,
-    stage: "Planned",
+    stage: "Ready",
     title: "Counts & Reconciliation",
   },
   {

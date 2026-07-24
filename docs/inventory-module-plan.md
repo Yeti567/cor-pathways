@@ -218,9 +218,25 @@ makes the module usable in the field. The natural shape later: a field move opti
 opens a proof-of-delivery form submission carrying the photos and signature, linked to the
 movement. Not built yet.
 
-**Slice 8: counts and reconciliation.**
-`inventory_count`, the absolute quantity entry, and the computed adjustment to `loss`. Add
-a variance report so the loss location is reviewable rather than a black hole.
+**Slice 8: counts and reconciliation.** DONE.
+`inventory_count` is the one place a person states an absolute quantity; everywhere else a
+quantity is only moved. It keeps that promise by not writing the balance either: it reads
+what the books say, takes the counted number, and posts the difference as an ordinary
+`adjustment` movement (a shortage out to the virtual loss place, a windfall pulled back
+from it). The balance then falls out of the ledger as always, and the loss place becomes
+the running record of shrinkage. Two rows land, the adjustment movement and the count
+record, so they are written together inside `record_inventory_count`, a SECURITY INVOKER
+function that runs as the caller (every write checked by the caller's own row security)
+and in one transaction, so neither an unexplained adjustment nor a dangling count can be
+left behind. The count row keeps the absolute counted and expected figures the delta alone
+throws away, pinned by a check (`delta = counted_qty - expected_qty`) and by
+`(delta = 0) = (movement_id is null)`. The pure `buildInventoryCountPlan` in
+`src/lib/inventory-count.ts` mirrors the same arithmetic for the form's live preview and
+the unit tests. `/admin/inventory/counts` carries the entry form (with a live "the books
+say" and delta preview), a recent-counts table, and the variance report: what has
+accumulated in the loss place, per item, so it is reviewable rather than a black hole.
+On hand gained a "Count this" link from each real-place drill-down. No new balance write
+path: the movement moves the balance, exactly as slice 4 guaranteed.
 
 **Slice 9: reorder points and low stock alerts.**
 Through the existing notification and reminder machinery. Small slice, high perceived

@@ -165,6 +165,10 @@ export default async function InventoryOnHandPage({ searchParams }: OnHandPagePr
               <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/inventory/stock">
                 Stock
               </Link>
+              ; to reconcile a figure against a physical count, use{" "}
+              <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/inventory/counts">
+                Counts
+              </Link>
               .
             </p>
           </div>
@@ -304,13 +308,23 @@ export default async function InventoryOnHandPage({ searchParams }: OnHandPagePr
                 Every movement that touched this item at this place, newest first.
               </p>
             </div>
-            <Link
-              aria-label="Close history"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-white text-[var(--ink-muted)] transition hover:bg-[var(--surface-muted)]"
-              href={filterSuffix ? `/admin/inventory/on-hand?${filterSuffix}` : "/admin/inventory/on-hand"}
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </Link>
+            <div className="flex items-center gap-2">
+              {inventoryLocationKinds[drillPlace.kind as InventoryLocationKind].virtual ? null : (
+                <Link
+                  className="inline-flex h-8 items-center rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--surface-muted)]"
+                  href={`/admin/inventory/counts?item=${drillItem.id}&place=${drillPlace.id}`}
+                >
+                  Count this
+                </Link>
+              )}
+              <Link
+                aria-label="Close history"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-white text-[var(--ink-muted)] transition hover:bg-[var(--surface-muted)]"
+                href={filterSuffix ? `/admin/inventory/on-hand?${filterSuffix}` : "/admin/inventory/on-hand"}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </div>
           </div>
 
           {drillMovements.length > 0 ? (

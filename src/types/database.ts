@@ -47,7 +47,8 @@ export type TenantScopedTable =
   | "inventory_item"
   | "inventory_location"
   | "inventory_movement"
-  | "inventory_transfer";
+  | "inventory_transfer"
+  | "inventory_count";
 
 type TenantScopedRow = {
   id: string;
@@ -364,6 +365,18 @@ type InventoryTransferRow = TenantScopedRow & {
   arrived_at: string | null;
   note: string | null;
   created_by: string | null;
+};
+
+type InventoryCountRow = TenantScopedRow & {
+  item_id: string;
+  location_id: string;
+  counted_qty: number;
+  expected_qty: number;
+  delta: number;
+  movement_id: string | null;
+  note: string | null;
+  counted_at: string;
+  counted_by: string | null;
 };
 
 /** No id and no tenant-scoped row shape: the key is (tenant, item, place). */
@@ -893,6 +906,16 @@ export type Database = {
         Insert: Partial<InventoryTransferRow> &
           Pick<InventoryTransferRow, "tenant_id" | "from_location_id" | "to_location_id">;
         Update: Partial<InventoryTransferRow>;
+        Relationships: [];
+      };
+      inventory_count: {
+        Row: InventoryCountRow;
+        // Written through record_inventory_count so the count row and its adjustment
+        // movement share a transaction; a direct insert exists to satisfy the client's
+        // generic signature but is not the supported path.
+        Insert: Partial<InventoryCountRow> &
+          Pick<InventoryCountRow, "tenant_id" | "item_id" | "location_id" | "counted_qty" | "expected_qty" | "delta">;
+        Update: never;
         Relationships: [];
       };
       inventory_location: {

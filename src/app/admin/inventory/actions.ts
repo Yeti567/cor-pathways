@@ -10,6 +10,7 @@ import {
   coerceInventoryTrackingMode,
 } from "@/lib/inventory";
 import { buildInventoryLocationWrite, coerceInventoryLocationKind } from "@/lib/inventory-locations";
+import { describeCountDelta } from "@/lib/inventory-count";
 import {
   buildTransferArrivalWrite,
   buildTransferDepartureWrite,
@@ -18,11 +19,13 @@ import {
 import {
   buildInventoryMovementWrite,
   coerceInventoryMovementType,
+  formatInventoryQty,
   inventoryMovementTypes,
   parseInventoryQty,
 } from "@/lib/inventory-ledger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
+import type { Database } from "@/types/database";
 
 // --- Local form helpers (mirrors the admin/actions.ts conventions) ---------
 
@@ -817,5 +820,96 @@ export async function cancelTransfer(formData: FormData) {
   revalidatePath("/admin/inventory/on-hand");
   redirect(
     `${transferDetailPath(transferId)}?notice=${encodeURIComponent("Load cancelled. The stock is back at its origin.")}`,
+  );
+}
+
+// --- Counts and reconciliation ----------------------------------------------
+
+const COUNTS_PATH = "/admin/inventory/counts";
+
+function backToCounts(message: string, kind: "error" | "notice" = "error"): never {
+  redirect(`${COUNTS_PATH}?${kind}=${encodeURIComponent(message)}`);
+}
+
+/**
+ * Reconcile a physical count.
+ *
+ * The real work is done in one transaction by record_inventory_count, so the adjustment
+ * movement and the count record land together or not at all. This action only reads the
+ * form, checks the two things the database function cannot phrase kindly (a missing item
+ * or place), and reports the outcome. The negative-count and missing-loss messages come
+ * back from the function already readable.
+ */
+export async function recordInventoryCount(formData: FormData) {
+  const context = await requireInventoryManager();
+  const itemId = stringValue(formData, "itemId");
+  const locationId = stringValue(formData, "locationId");
+  const countedQty = parseInventoryQty(stringValue(formData, "countedQty"));
+  const note = optionalString(formData, "note");
+
+  if (!itemId) {
+    backToCounts("Choose an item.");
+  }
+
+  if (!locationId) {
+    backToCounts("Choose the place you counted.");
+  }
+
+  if (countedQty === null) {
+    backToCounts("Enter the number you counted.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // The generated Database type carries no Functions, so the client's rpc signature is
+  // untyped here. Narrow it to the row this function returns rather than leaving it any.
+  const rpcClient = supabase as unknown as {
+    rpc: (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ data: Database["public"]["Tables"]["inventory_count"]["Row"] | null; error: { message: string } | null }>;
+  };
+
+  const { data, error } = await rpcClient.rpc("record_inventory_count", {
+    p_actor: context.appUser.id,
+    p_counted_qty: countedQty,
+    p_item_id: itemId,
+    p_location_id: locationId,
+    p_note: note,
+    p_tenant_id: context.appUser.tenant_id,
+  });
+
+  if (error) {
+    // record_inventory_count raises readable sentences for a negative count and a missing
+    // loss place; pass them through rather than replacing them.
+    backToCounts(error.message);
+  }
+
+  if (data) {
+    await audit(context, {
+      action: "inventory.count.record",
+      entityId: data.id,
+      entityTable: "inventory_count",
+      metadata: {
+        counted_qty: data.counted_qty,
+        delta: data.delta,
+        expected_qty: data.expected_qty,
+        item_id: data.item_id,
+      },
+    });
+  }
+
+  revalidatePath(COUNTS_PATH);
+  revalidatePath("/admin/inventory/stock");
+  revalidatePath("/admin/inventory/on-hand");
+
+  const delta = Number(data?.delta ?? 0);
+  const counted = formatInventoryQty(Number(data?.counted_qty ?? 0));
+  const expected = formatInventoryQty(Number(data?.expected_qty ?? 0));
+  backToCounts(
+    delta === 0
+      ? `Counted ${counted}. It matched the books, so nothing was posted.`
+      : `Counted ${counted}. The books said ${expected}, so ${describeCountDelta(delta)} was recorded to Loss.`,
+    "notice",
   );
 }
