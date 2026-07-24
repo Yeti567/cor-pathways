@@ -9,6 +9,7 @@ import {
   resolveNextWorkflowStepIds,
 } from "@/lib/workflow-station";
 import { getOfflineDatabase, type OfflineSubmissionSourceAssignment, type QueuedMutation } from "./db";
+import { normalizeFieldMovementPayload } from "./inventory";
 import { getSyncSummary, markOfflineSyncComplete } from "./sync-queue";
 
 type BrowserSupabaseClient = ReturnType<typeof createSupabaseBrowserClient>;
@@ -2151,6 +2152,36 @@ async function flushEquipmentDocumentMutation(mutation: QueuedMutation) {
   await db.queuedMutations.delete(mutation.id);
 }
 
+async function flushInventoryMovementMutation(mutation: QueuedMutation) {
+  const payload = normalizeFieldMovementPayload(mutation.payload);
+
+  if (!payload) {
+    await markMutationFailed(mutation, "Queued stock move is invalid.");
+    return;
+  }
+
+  const db = getOfflineDatabase();
+  const supabase = createSupabaseBrowserClient();
+
+  await db.queuedMutations.update(mutation.id, {
+    status: "syncing",
+    updatedAt: new Date().toISOString(),
+  });
+
+  const { error } = await supabase.from("inventory_movement").insert(payload);
+
+  // Idempotency. The ledger has a unique index on (tenant_id, client_uuid), so if this
+  // move already posted on an earlier sync, the insert comes back as a duplicate key.
+  // That is success, not failure: the move is on the books exactly once. Treat it as done
+  // and drop the queue entry, so a flaky connection cannot post the same pickup twice.
+  if (error && error.code !== "23505") {
+    await markMutationFailed(mutation, error.message);
+    return;
+  }
+
+  await db.queuedMutations.delete(mutation.id);
+}
+
 export async function flushQueuedMutations() {
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return getSyncSummary();
@@ -2177,6 +2208,8 @@ export async function flushQueuedMutations() {
       await flushEquipmentScheduledServiceMutation(mutation);
     } else if (mutation.table === "equipment_document" && mutation.operation === "upsert") {
       await flushEquipmentDocumentMutation(mutation);
+    } else if (mutation.table === "inventory_movement" && mutation.operation === "insert") {
+      await flushInventoryMovementMutation(mutation);
     } else {
       await markMutationFailed(mutation, `Unsupported offline mutation: ${mutation.table} ${mutation.operation}.`);
     }

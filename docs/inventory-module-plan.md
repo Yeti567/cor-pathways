@@ -201,11 +201,22 @@ origin, a destination, and the lines. Depart posts to transit. Arrive posts out 
 transit ageing view lists loads that departed and never arrived, and any residual from a
 leg mismatch.
 
-**Slice 7: field capture.**
-The driver's phone. A pickup or drop from the worker app, offline queued through
-`src/lib/offline/sync-queue.ts`, with photos and a signature attached as a form
-submission. `client_uuid` keeps a replayed sync idempotent. Model it on
-`src/lib/offline/equipment.ts`.
+**Slice 7: field capture.** DONE (core), photos/signature deferred.
+The driver's phone. A worker on `/web` records stock moving from one place to another,
+which queues offline through the existing `queueOfflineMutation` pipeline and syncs when
+signal returns. `client_uuid` on the queued move plus the unique index on
+`(tenant_id, client_uuid)` make a replayed sync idempotent: a move posts exactly once
+however many times the queue flushes. A new `flushInventoryMovementMutation` handler in
+`src/lib/offline/sync.ts` treats the duplicate-key error as success. Pure builders in
+`src/lib/offline/inventory.ts` are shared by the panel (to queue) and the sync engine (to
+validate), so what the panel accepts is what the ledger accepts.
+
+Deliberately DEFERRED to a follow-on (call it 7b): **photos and a signature as
+proof-of-delivery.** Those attach through the `submission_photos` / `signatures` machinery,
+which is a separate substantial layer, and the movement capture is the valuable core that
+makes the module usable in the field. The natural shape later: a field move optionally
+opens a proof-of-delivery form submission carrying the photos and signature, linked to the
+movement. Not built yet.
 
 **Slice 8: counts and reconciliation.**
 `inventory_count`, the absolute quantity entry, and the computed adjustment to `loss`. Add

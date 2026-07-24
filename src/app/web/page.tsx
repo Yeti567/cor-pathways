@@ -32,6 +32,7 @@ import { AssignedFormsPanel } from "@/app/web/_components/AssignedFormsPanel";
 import { EquipmentPanel } from "@/app/web/_components/EquipmentPanel";
 import { DailyInspectionPanel } from "@/app/web/_components/DailyInspectionPanel";
 import { FieldTicketsPanel } from "@/app/web/_components/FieldTicketsPanel";
+import { InventoryFieldPanel } from "@/app/web/_components/InventoryFieldPanel";
 import { MyWorkOrdersPanel } from "@/app/web/_components/MyWorkOrdersPanel";
 import { OfflineStatus } from "@/app/web/_components/OfflineStatus";
 import { ResourceLibraryPanel } from "@/app/web/_components/ResourceLibraryPanel";
@@ -1538,6 +1539,75 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
     }));
   }
 
+  // Inventory field capture: the worker records stock moving between real places, offline.
+  const inventoryOn = Boolean(context.tenant?.inventory_enabled);
+  let inventoryPlaces: { id: string; label: string }[] = [];
+  let inventoryItems: { id: string; name: string; unit: string }[] = [];
+
+  if (inventoryOn) {
+    const [{ data: placeRows }, { data: itemRows }, { data: invLocations }, { data: invUsers }] = await Promise.all([
+      supabase
+        .from("inventory_location")
+        .select("id, kind, name, location_id, equipment_id, user_id, active")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .eq("active", true)
+        .not("kind", "in", "(transit,loss)")
+        .returns<
+          {
+            id: string;
+            kind: string;
+            name: string | null;
+            location_id: string | null;
+            equipment_id: string | null;
+            user_id: string | null;
+            active: boolean;
+          }[]
+        >(),
+      supabase
+        .from("inventory_item")
+        .select("id, name, unit_of_measure")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .is("deleted_at", null)
+        .eq("active", true)
+        .order("name", { ascending: true })
+        .returns<{ id: string; name: string; unit_of_measure: string }[]>(),
+      supabase
+        .from("locations")
+        .select("id, name")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .returns<{ id: string; name: string }[]>(),
+      supabase
+        .from("users")
+        .select("id, full_name, email")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .returns<{ id: string; full_name: string | null; email: string }[]>(),
+    ]);
+
+    const invLocationName = new Map((invLocations ?? []).map((row) => [row.id, row.name]));
+    const invEquipmentName = equipmentLabelById;
+    const invUserName = new Map((invUsers ?? []).map((row) => [row.id, row.full_name || row.email]));
+
+    inventoryPlaces = (placeRows ?? [])
+      .map((place) => {
+        const backing =
+          (place.location_id ? invLocationName.get(place.location_id) : null) ??
+          (place.equipment_id ? invEquipmentName.get(place.equipment_id) : null) ??
+          (place.user_id ? invUserName.get(place.user_id) : null) ??
+          place.name ??
+          "Place";
+        return { id: place.id, label: backing };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    inventoryItems = (itemRows ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      unit: item.unit_of_measure,
+    }));
+  }
+
+  const showInventoryPanel = inventoryOn && inventoryPlaces.length >= 2 && inventoryItems.length >= 1;
+
   return (
     <main className="min-h-screen scroll-smooth bg-[var(--background)] pb-24 md:pb-0" id="home">
       <header className="border-b border-[var(--border)] bg-[var(--surface)]">
@@ -1981,6 +2051,15 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
 
           {dailyInspectionOn ? (
             <DailyInspectionPanel recent={inspectionRecent} vehicles={inspectionVehicles} />
+          ) : null}
+
+          {showInventoryPanel ? (
+            <InventoryFieldPanel
+              items={inventoryItems}
+              places={inventoryPlaces}
+              tenantId={context.appUser.tenant_id}
+              userId={context.appUser.id}
+            />
           ) : null}
 
           {hasEquipmentSurface ? (
