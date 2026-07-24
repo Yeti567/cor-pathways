@@ -9,6 +9,7 @@ import {
   MapPin,
   Package,
   Smartphone,
+  Truck,
 } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
@@ -45,15 +46,23 @@ const upcomingAreas = [
   },
   {
     description:
-      "A grid of what you have and where it is, with the full movement history behind every number. The screen that answers how many are at each site.",
-    icon: Package,
-    stage: "Next",
-    title: "On Hand",
+      "Bring stock in, move it between places, and write it off. Every change is a movement between two places, so a quantity is never simply edited.",
+    href: "/admin/inventory/stock",
+    icon: ArrowLeftRight,
+    stage: "Ready",
+    title: "Stock & Movements",
   },
   {
     description:
-      "Move a load between locations in two legs: it leaves, it sits in transit, it arrives. A load that never arrives stays visible instead of quietly vanishing.",
-    icon: ArrowLeftRight,
+      "A grid of what you have and where it is, filtered by category and place, with the full movement history behind every number.",
+    icon: Package,
+    stage: "Next",
+    title: "On Hand grid",
+  },
+  {
+    description:
+      "Move a load between places in two legs: it leaves, it sits in transit, it arrives. A load that never arrives stays visible instead of quietly vanishing.",
+    icon: Truck,
     stage: "Planned",
     title: "Transfers",
   },
@@ -117,12 +126,11 @@ export default async function InventoryPage() {
       <section className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
         <h3 className="text-base font-semibold text-[var(--ink)]">Start by listing what you stock</h3>
         <p className="mt-1 max-w-2xl text-sm text-[var(--ink-muted)]">
-          Quantities are not tracked yet. Set up your{" "}
+          Set up your{" "}
           <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/inventory/items">
             items
           </Link>{" "}
-          now and the counting arrives on top of them, so nothing you enter has to be entered twice. Start with the
-          handful you move most.
+          and your stocking places, then record what you have under Stock. Start with the handful you move most.
         </p>
       </section>
 

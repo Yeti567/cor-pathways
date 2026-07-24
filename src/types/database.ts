@@ -45,7 +45,8 @@ export type TenantScopedTable =
   | "print_settings"
   | "inventory_category"
   | "inventory_item"
-  | "inventory_location";
+  | "inventory_location"
+  | "inventory_movement";
 
 type TenantScopedRow = {
   id: string;
@@ -311,6 +312,18 @@ export type InventoryRateBasis = "day" | "week" | "month" | "each";
  * human-facing list of places people go, and rows nobody can visit must never reach its
  * pickers.
  */
+/**
+ * Why a movement happened. The endpoints say where stock went; this says why, which is
+ * what makes a ledger readable a year later.
+ */
+export type InventoryMovementType =
+  | "receive"
+  | "transfer"
+  | "consume"
+  | "write_off"
+  | "adjustment"
+  | "reversal";
+
 export type InventoryLocationKind =
   | "yard"
   | "customer_site"
@@ -324,6 +337,28 @@ export type InventoryLocationKind =
 // Declared as standalone aliases rather than inline, so Insert and Update can be derived
 // from Row without indexing back into Database from inside its own definition, which TS
 // reads as a circular annotation.
+type InventoryMovementRow = TenantScopedRow & {
+  item_id: string;
+  qty: number;
+  from_location_id: string | null;
+  to_location_id: string | null;
+  movement_type: InventoryMovementType;
+  occurred_at: string;
+  note: string | null;
+  client_uuid: string | null;
+  created_by: string | null;
+};
+
+/** No id and no tenant-scoped row shape: the key is (tenant, item, place). */
+type InventoryBalanceRow = {
+  tenant_id: string;
+  item_id: string;
+  location_id: string;
+  qty: number;
+  allows_negative: boolean;
+  updated_at: string;
+};
+
 type InventoryLocationRow = TenantScopedRow & {
   kind: InventoryLocationKind;
   location_id: string | null;
@@ -818,6 +853,22 @@ export type Database = {
         };
         Insert: Partial<Database["public"]["Tables"]["locations"]["Row"]> & Pick<Database["public"]["Tables"]["locations"]["Row"], "tenant_id" | "name">;
         Update: Partial<Database["public"]["Tables"]["locations"]["Row"]>;
+        Relationships: [];
+      };
+      inventory_movement: {
+        Row: InventoryMovementRow;
+        Insert: Partial<InventoryMovementRow> &
+          Pick<InventoryMovementRow, "tenant_id" | "item_id" | "qty" | "movement_type">;
+        // The ledger is append-only. Update exists to satisfy the client's generic
+        // signature; there is no grant behind it.
+        Update: never;
+        Relationships: [];
+      };
+      inventory_balance: {
+        Row: InventoryBalanceRow;
+        // Written only by the trigger on inventory_movement, never by a client.
+        Insert: never;
+        Update: never;
         Relationships: [];
       };
       inventory_location: {

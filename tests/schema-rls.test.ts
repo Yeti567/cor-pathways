@@ -85,6 +85,7 @@ const tenantScopedTables: TenantScopedTable[] = [
   "inventory_category",
   "inventory_item",
   "inventory_location",
+  "inventory_movement",
 ];
 
 describe("tenant-scoped schema", () => {

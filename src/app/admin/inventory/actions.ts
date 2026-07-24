@@ -10,6 +10,12 @@ import {
   coerceInventoryTrackingMode,
 } from "@/lib/inventory";
 import { buildInventoryLocationWrite, coerceInventoryLocationKind } from "@/lib/inventory-locations";
+import {
+  buildInventoryMovementWrite,
+  coerceInventoryMovementType,
+  inventoryMovementTypes,
+  parseInventoryQty,
+} from "@/lib/inventory-ledger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 
@@ -442,4 +448,77 @@ export async function setInventoryLocationActive(formData: FormData) {
 
   revalidatePath(LOCATIONS_PATH);
   backToLocations(active ? "Stocking place turned back on." : "Stocking place turned off.", "notice");
+}
+
+// --- Movements --------------------------------------------------------------
+
+const STOCK_PATH = "/admin/inventory/stock";
+
+function backToStock(message: string, kind: "error" | "notice" = "error"): never {
+  redirect(`${STOCK_PATH}?${kind}=${encodeURIComponent(message)}`);
+}
+
+export async function recordInventoryMovement(formData: FormData) {
+  const context = await requireInventoryManager();
+  const movementType = coerceInventoryMovementType(stringValue(formData, "movementType"));
+
+  if (!movementType) {
+    backToStock("Choose what sort of movement this is.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // A write-off always lands in the tenant's virtual loss place, so a balance is reduced
+  // by recording where the stock went rather than by editing a number. Look it up rather
+  // than trusting the form to name it.
+  const { data: lossPlace } = await supabase
+    .from("inventory_location")
+    .select("id")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("kind", "loss")
+    .maybeSingle();
+
+  const result = buildInventoryMovementWrite({
+    fromLocationId: optionalString(formData, "fromLocationId"),
+    itemId: stringValue(formData, "itemId"),
+    lossLocationId: lossPlace?.id ?? null,
+    movementType,
+    note: optionalString(formData, "note"),
+    qty: parseInventoryQty(stringValue(formData, "qty")),
+    toLocationId: optionalString(formData, "toLocationId"),
+  });
+
+  if (!result.ok) {
+    backToStock(result.error);
+  }
+
+  const { data, error } = await supabase
+    .from("inventory_movement")
+    .insert({
+      ...result.write,
+      created_by: context.appUser.id,
+      tenant_id: context.appUser.tenant_id,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    // The trigger raises a readable sentence for an overdraw ("Not enough stock at
+    // Queen Street Yard..."), so pass its message through rather than replacing it.
+    backToStock(error.message);
+  }
+
+  await audit(context, {
+    action: "inventory.movement.record",
+    entityId: data.id,
+    entityTable: "inventory_movement",
+    metadata: {
+      item_id: result.write.item_id,
+      movement_type: result.write.movement_type,
+      qty: result.write.qty,
+    },
+  });
+
+  revalidatePath(STOCK_PATH);
+  backToStock(`Recorded: ${inventoryMovementTypes[movementType].label.toLowerCase()} ${result.write.qty}.`, "notice");
 }
