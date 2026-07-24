@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowDownLeft, ArrowUpRight, Package, X } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, BellRing, Package, X } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { buildInventoryGrid, gridCellQty } from "@/lib/inventory-grid";
 import { formatInventoryQty, inventoryMovementTypes } from "@/lib/inventory-ledger";
+import { lowStockLevels, summariseInventoryStockLevels } from "@/lib/inventory-stock-levels";
 import { coerceInventoryLocationKind, inventoryLocationKinds, inventoryLocationLabel } from "@/lib/inventory-locations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, InventoryLocationKind } from "@/types/database";
@@ -16,7 +17,7 @@ type BalanceRow = Database["public"]["Tables"]["inventory_balance"]["Row"];
 type MovementRow = Database["public"]["Tables"]["inventory_movement"]["Row"];
 type ItemRow = Pick<
   Database["public"]["Tables"]["inventory_item"]["Row"],
-  "id" | "name" | "category_id" | "unit_of_measure"
+  "id" | "name" | "category_id" | "unit_of_measure" | "reorder_point" | "active"
 >;
 type CategoryRow = Pick<Database["public"]["Tables"]["inventory_category"]["Row"], "id" | "name">;
 type PlaceRow = Database["public"]["Tables"]["inventory_location"]["Row"];
@@ -55,7 +56,7 @@ export default async function InventoryOnHandPage({ searchParams }: OnHandPagePr
       supabase.from("inventory_balance").select("*").eq("tenant_id", tenantId).returns<BalanceRow[]>(),
       supabase
         .from("inventory_item")
-        .select("id, name, category_id, unit_of_measure")
+        .select("id, name, category_id, unit_of_measure, reorder_point, active")
         .eq("tenant_id", tenantId)
         .is("deleted_at", null)
         .returns<ItemRow[]>(),
@@ -94,6 +95,25 @@ export default async function InventoryOnHandPage({ searchParams }: OnHandPagePr
 
   const itemById = new Map((items ?? []).map((item) => [item.id, item]));
   const placeById = new Map((places ?? []).map((place) => [place.id, place]));
+
+  // Watched items at or below their reorder point. Derived from the same balances the grid
+  // shows, so the badge and the grid can never disagree.
+  const lowStock = lowStockLevels(
+    summariseInventoryStockLevels(
+      (items ?? []).map((item) => ({
+        active: item.active,
+        id: item.id,
+        name: item.name,
+        reorder_point: item.reorder_point,
+        unit_of_measure: item.unit_of_measure,
+      })),
+      (balances ?? []).map((balance) => ({
+        allows_negative: balance.allows_negative,
+        item_id: balance.item_id,
+        qty: Number(balance.qty),
+      })),
+    ),
+  );
 
   const categoryFilter = firstParam(params.category) ?? "";
   const kindFilter = coerceInventoryLocationKind(firstParam(params.kind)) ?? "";
@@ -215,6 +235,34 @@ export default async function InventoryOnHandPage({ searchParams }: OnHandPagePr
           ) : null}
         </form>
       </section>
+
+      {lowStock.length > 0 ? (
+        <section className="mt-4 rounded-lg border border-[var(--warning)] bg-amber-50 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-[var(--warning)]">
+                {lowStock.length} item{lowStock.length === 1 ? "" : "s"} at or below the reorder point
+              </h2>
+              <ul className="mt-2 space-y-1 text-sm text-[var(--ink)]">
+                {lowStock.map((level) => (
+                  <li key={level.itemId}>
+                    <span className="font-semibold">{level.name}</span>:{" "}
+                    {level.state === "out" ? (
+                      <span className="font-semibold text-[var(--danger)]">out of stock</span>
+                    ) : (
+                      <>
+                        {formatInventoryQty(level.onHand)} {level.unit} on hand
+                      </>
+                    )}
+                    <span className="text-[var(--ink-muted)]"> (reorder at {formatInventoryQty(level.reorderPoint)})</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {grid.rows.length > 0 ? (
         <section className="mt-5 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">

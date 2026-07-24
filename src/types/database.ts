@@ -414,6 +414,7 @@ type InventoryItemRow = TenantScopedRow & {
   billable: boolean;
   default_rate: number | null;
   rate_basis: InventoryRateBasis | null;
+  reorder_point: number | null;
   equipment_id: string | null;
   notes: string | null;
   active: boolean;

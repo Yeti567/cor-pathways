@@ -16,6 +16,7 @@ const baseInput: InventoryItemInput = {
   name: "Rig Mat",
   notes: null,
   rateBasis: null,
+  reorderPoint: null,
   returnable: true,
   sku: null,
   trackingMode: "bulk",
@@ -111,6 +112,19 @@ describe("buildInventoryItemWrite", () => {
     const result = build({ equipmentId: "40000000-0000-0000-0000-000000000001", trackingMode: "serial" });
 
     expect(writeOf(result).equipment_id).toBe("40000000-0000-0000-0000-000000000001");
+  });
+
+  // The reorder point is watched independently of billing: a non-billable consumable is
+  // exactly the kind of thing you set one on.
+  it("keeps a reorder point regardless of billing, and defaults it to null", () => {
+    expect(writeOf(build()).reorder_point).toBeNull();
+    expect(writeOf(build({ reorderPoint: 20 })).reorder_point).toBe(20);
+    expect(writeOf(build({ billable: false, reorderPoint: 15 })).reorder_point).toBe(15);
+  });
+
+  it("allows a reorder point of zero, but refuses a negative one", () => {
+    expect(writeOf(build({ reorderPoint: 0 })).reorder_point).toBe(0);
+    expect(expectError(build({ reorderPoint: -1 }))).toContain("reorder point cannot be negative");
   });
 
   it("produces a write that satisfies every database check constraint", () => {

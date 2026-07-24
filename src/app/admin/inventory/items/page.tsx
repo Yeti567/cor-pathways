@@ -6,6 +6,7 @@ import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { describeInventoryItem, inventoryRateBases, inventoryTrackingModes, inventoryUnits } from "@/lib/inventory";
+import { formatInventoryQty } from "@/lib/inventory-ledger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -143,6 +144,24 @@ function ItemFields({
           </select>
         </label>
       </div>
+
+      <label className={labelClass}>
+        <span className={labelTextClass}>Reorder point (optional)</span>
+        <input
+          className={inputClass}
+          defaultValue={item?.reorder_point ?? ""}
+          inputMode="decimal"
+          min="0"
+          name="reorderPoint"
+          placeholder="e.g. 20"
+          step="0.001"
+          type="number"
+        />
+        <span className="block text-xs text-[var(--ink-muted)]">
+          Get told when the total on hand across your real places drops to this or below. Leave blank for things you
+          do not need to watch, like rental units. Best for PPE, filters, and consumables.
+        </span>
+      </label>
 
       {equipment.length > 0 ? (
         <label className={labelClass}>
@@ -288,6 +307,7 @@ export default async function InventoryItemsPage({ searchParams }: ItemsPageProp
                         {describeInventoryItem(item)}
                         {item.sku ? ` · ${item.sku}` : ""}
                         {item.category_id ? ` · ${categoryNameById.get(item.category_id) ?? "Uncategorised"}` : ""}
+                        {item.reorder_point !== null ? ` · Reorder at ${formatInventoryQty(Number(item.reorder_point))}` : ""}
                       </p>
                     </div>
                     <form action={deleteInventoryItem}>

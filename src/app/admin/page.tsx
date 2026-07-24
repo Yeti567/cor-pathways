@@ -13,6 +13,7 @@ import {
   formatEquipmentStatus,
 } from "@/lib/equipment";
 import { sendEquipmentAttentionNotifications } from "@/lib/equipment-reminders";
+import { sendInventoryLowStockNotifications } from "@/lib/inventory-reminders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -215,6 +216,10 @@ export default async function AdminPage() {
   const { data: isPlatformOwner } = await ownerClient.rpc("is_platform_owner");
 
   await sendEquipmentAttentionNotifications(context.appUser.tenant_id);
+
+  if (context.tenant?.inventory_enabled) {
+    await sendInventoryLowStockNotifications(context.appUser.tenant_id);
+  }
 
   const [
     { count: userCount },

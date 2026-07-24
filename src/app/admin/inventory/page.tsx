@@ -14,6 +14,15 @@ import {
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
+import { formatInventoryQty } from "@/lib/inventory-ledger";
+import { sendInventoryLowStockNotifications } from "@/lib/inventory-reminders";
+import {
+  lowStockLevels,
+  summariseInventoryStockLevels,
+  type StockLevelBalance,
+  type StockLevelItem,
+} from "@/lib/inventory-stock-levels";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -85,9 +94,10 @@ const upcomingAreas = [
   },
   {
     description:
-      "Set a minimum for the things you must not run out of, and get told before you do. Mostly for PPE and consumables.",
+      "Set a reorder point on the things you must not run out of, and get told before you do. Shows here and notifies your managers. Mostly for PPE and consumables.",
+    href: "/admin/inventory/items",
     icon: BellRing,
-    stage: "Planned",
+    stage: "Ready",
     title: "Low Stock Alerts",
   },
 ] as const;
@@ -105,8 +115,67 @@ export default async function InventoryPage() {
     redirect("/admin/setup");
   }
 
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+
+  // Raise low-stock notifications on the way in, deduped, the same way the equipment
+  // dashboard raises service reminders. Landing here is the natural moment to check.
+  await sendInventoryLowStockNotifications(tenantId);
+
+  const [{ data: watchedItems }, { data: balances }] = await Promise.all([
+    supabase
+      .from("inventory_item")
+      .select("id, name, unit_of_measure, reorder_point, active")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .eq("active", true)
+      .not("reorder_point", "is", null)
+      .returns<StockLevelItem[]>(),
+    supabase
+      .from("inventory_balance")
+      .select("item_id, qty, allows_negative")
+      .eq("tenant_id", tenantId)
+      .returns<StockLevelBalance[]>(),
+  ]);
+
+  const lowStock = lowStockLevels(summariseInventoryStockLevels(watchedItems ?? [], balances ?? []));
+
   return (
     <AdminShell eyebrow="Operations" tenantName={context.tenant?.name ?? "Company profile"} title="Inventory">
+      {lowStock.length > 0 ? (
+        <section className="mb-4 rounded-lg border border-[var(--warning)] bg-amber-50 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-[var(--warning)]">
+                {lowStock.length} item{lowStock.length === 1 ? "" : "s"} to reorder
+              </h2>
+              <ul className="mt-2 space-y-1 text-sm text-[var(--ink)]">
+                {lowStock.map((level) => (
+                  <li key={level.itemId}>
+                    <Link className="font-semibold hover:underline" href="/admin/inventory/items">
+                      {level.name}
+                    </Link>
+                    :{" "}
+                    {level.state === "out" ? (
+                      <span className="font-semibold text-[var(--danger)]">out of stock</span>
+                    ) : (
+                      <>
+                        {formatInventoryQty(level.onHand)} {level.unit} on hand
+                      </>
+                    )}
+                    <span className="text-[var(--ink-muted)]">
+                      {" "}
+                      (reorder at {formatInventoryQty(level.reorderPoint)})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">

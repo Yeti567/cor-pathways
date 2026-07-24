@@ -238,9 +238,20 @@ accumulated in the loss place, per item, so it is reviewable rather than a black
 On hand gained a "Count this" link from each real-place drill-down. No new balance write
 path: the movement moves the balance, exactly as slice 4 guaranteed.
 
-**Slice 9: reorder points and low stock alerts.**
-Through the existing notification and reminder machinery. Small slice, high perceived
-value for the PPE and consumables use.
+**Slice 9: reorder points and low stock alerts.** DONE.
+One nullable `reorder_point` on an item: the level at or below which someone should
+reorder before running out. Null means the item is not watched, the sensible default for
+rental units. The alert needs no schema of its own, it is derived: on-hand across the real
+places (transit and loss excluded, told apart by `allows_negative`) is summed from
+`inventory_balance` and compared to the reorder point, so it is always current and never a
+stored flag that drifts. The pure `summariseInventoryStockLevels` in
+`src/lib/inventory-stock-levels.ts` is shared by the screens and the notifier, so the badge
+and the alert can never disagree. `src/lib/inventory-reminders.ts` builds low-stock
+notifications through the very same machinery equipment service reminders use (manager and
+admin recipients, deduped by recipient+title+body so a steady shortage does not nag, and a
+worsening one is announced again), raised on the inventory landing and the admin dashboard.
+The reorder point is set on the items form; low stock is shown as a banner on the inventory
+landing and on On hand. The `Low Stock Alerts` module card is now Ready.
 
 **Slice 10 (deferred until asked): billing from the ledger.**
 An interval series per (customer, site, item): quantity, start, end. Charge is the sum of

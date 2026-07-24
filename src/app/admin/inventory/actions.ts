@@ -241,6 +241,7 @@ function readItemForm(formData: FormData) {
     name: stringValue(formData, "name"),
     notes: optionalString(formData, "notes"),
     rateBasis: coerceInventoryRateBasis(stringValue(formData, "rateBasis")),
+    reorderPoint: parseInventoryQty(stringValue(formData, "reorderPoint")),
     returnable: checkboxValue(formData, "returnable"),
     sku: optionalString(formData, "sku"),
     trackingMode: coerceInventoryTrackingMode(stringValue(formData, "trackingMode")),
