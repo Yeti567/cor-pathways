@@ -11,6 +11,11 @@ import {
 } from "@/lib/inventory";
 import { buildInventoryLocationWrite, coerceInventoryLocationKind } from "@/lib/inventory-locations";
 import {
+  buildTransferArrivalWrite,
+  buildTransferDepartureWrite,
+  transferLineRowCount,
+} from "@/lib/inventory-transfers";
+import {
   buildInventoryMovementWrite,
   coerceInventoryMovementType,
   inventoryMovementTypes,
@@ -521,4 +526,296 @@ export async function recordInventoryMovement(formData: FormData) {
 
   revalidatePath(STOCK_PATH);
   backToStock(`Recorded: ${inventoryMovementTypes[movementType].label.toLowerCase()} ${result.write.qty}.`, "notice");
+}
+
+// --- Transfers --------------------------------------------------------------
+
+const TRANSFERS_PATH = "/admin/inventory/transfers";
+
+function backToTransfers(message: string, kind: "error" | "notice" = "error"): never {
+  redirect(`${TRANSFERS_PATH}?${kind}=${encodeURIComponent(message)}`);
+}
+
+function transferDetailPath(id: string) {
+  return `${TRANSFERS_PATH}/${id}`;
+}
+
+/**
+ * The tenant's virtual transit place, which every transfer moves stock through. Seeded
+ * when the module is switched on, so its absence means the module was tampered with; say
+ * so rather than posting a half-move.
+ */
+async function requireTransitLocationId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  tenantId: string,
+): Promise<string> {
+  const { data } = await supabase
+    .from("inventory_location")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("kind", "transit")
+    .maybeSingle();
+
+  if (!data) {
+    backToTransfers(
+      "The transit place is missing. Switch the Inventory module off and on again under Setup to restore it.",
+    );
+  }
+
+  return data.id;
+}
+
+function readTransferLines(formData: FormData) {
+  const lines: { itemId: string; qty: number | null }[] = [];
+  for (let index = 0; index < transferLineRowCount; index++) {
+    const itemId = stringValue(formData, `lineItem${index}`);
+    if (!itemId) {
+      continue;
+    }
+    lines.push({ itemId, qty: parseInventoryQty(stringValue(formData, `lineQty${index}`)) });
+  }
+  return lines;
+}
+
+export async function recordTransferDeparture(formData: FormData) {
+  const context = await requireInventoryManager();
+  const result = buildTransferDepartureWrite({
+    driverId: optionalString(formData, "driverId"),
+    fromLocationId: optionalString(formData, "fromLocationId"),
+    lines: readTransferLines(formData),
+    note: optionalString(formData, "note"),
+    toLocationId: optionalString(formData, "toLocationId"),
+    vehicleId: optionalString(formData, "vehicleId"),
+  });
+
+  if (!result.ok) {
+    backToTransfers(result.error);
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const transitId = await requireTransitLocationId(supabase, tenantId);
+
+  // The header first, so the movements can reference it. If the load then overdraws the
+  // origin, the movement insert fails and this header is removed, so no orphan is left.
+  const { data: header, error: headerError } = await supabase
+    .from("inventory_transfer")
+    .insert({ ...result.write.header, created_by: context.appUser.id, tenant_id: tenantId })
+    .select("id")
+    .single();
+
+  if (headerError) {
+    backToTransfers(headerError.message);
+  }
+
+  // Every departure leg in one insert, so the whole load posts or none of it does: if any
+  // line overdraws the origin, the trigger raises and the statement rolls back as a unit.
+  const { error: legError } = await supabase.from("inventory_movement").insert(
+    result.write.lines.map((line) => ({
+      from_location_id: result.write.header.from_location_id,
+      item_id: line.item_id,
+      movement_type: "transfer" as const,
+      qty: line.qty,
+      tenant_id: tenantId,
+      to_location_id: transitId,
+      transfer_id: header.id,
+    })),
+  );
+
+  if (legError) {
+    // Undo the header, so a failed load leaves nothing behind. The trigger's message
+    // ("Not enough stock at Queen Street Yard...") is the useful one; pass it through.
+    await supabase.from("inventory_transfer").delete().eq("id", header.id).eq("tenant_id", tenantId);
+    backToTransfers(legError.message);
+  }
+
+  await audit(context, {
+    action: "inventory.transfer.depart",
+    entityId: header.id,
+    entityTable: "inventory_transfer",
+    metadata: { lines: result.write.lines.length },
+  });
+
+  revalidatePath(TRANSFERS_PATH);
+  revalidatePath("/admin/inventory/stock");
+  revalidatePath("/admin/inventory/on-hand");
+  redirect(`${transferDetailPath(header.id)}?notice=${encodeURIComponent("Load recorded as departed.")}`);
+}
+
+export async function recordTransferArrival(formData: FormData) {
+  const context = await requireInventoryManager();
+  const transferId = stringValue(formData, "transferId");
+
+  if (!transferId) {
+    backToTransfers("Choose a load.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const transitId = await requireTransitLocationId(supabase, tenantId);
+
+  const { data: transfer } = await supabase
+    .from("inventory_transfer")
+    .select("id, status, to_location_id")
+    .eq("id", transferId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (!transfer) {
+    backToTransfers("That load no longer exists.");
+  }
+
+  if (transfer.status !== "in_transit") {
+    backToTransfers("That load is not in transit, so it cannot be arrived.");
+  }
+
+  // Loaded quantities come from the departure legs, not the form, so the arrival is
+  // measured against what actually went out.
+  const { data: legs } = await supabase
+    .from("inventory_movement")
+    .select("item_id, qty")
+    .eq("tenant_id", tenantId)
+    .eq("transfer_id", transferId)
+    .eq("to_location_id", transitId)
+    .returns<{ item_id: string; qty: number }[]>();
+
+  const loadedByItem = new Map<string, number>();
+  for (const leg of legs ?? []) {
+    loadedByItem.set(leg.item_id, (loadedByItem.get(leg.item_id) ?? 0) + Number(leg.qty));
+  }
+
+  const arrival = buildTransferArrivalWrite(
+    [...loadedByItem.entries()].map(([itemId, qtyLoaded]) => ({
+      itemId,
+      qtyDelivered: parseInventoryQty(stringValue(formData, `delivered_${itemId}`)),
+      qtyLoaded,
+    })),
+  );
+
+  if (!arrival.ok) {
+    redirect(`${transferDetailPath(transferId)}?error=${encodeURIComponent(arrival.error)}`);
+  }
+
+  const { error: legError } = await supabase.from("inventory_movement").insert(
+    arrival.deliver.map((line) => ({
+      from_location_id: transitId,
+      item_id: line.item_id,
+      movement_type: "transfer" as const,
+      qty: line.qty,
+      tenant_id: tenantId,
+      to_location_id: transfer.to_location_id,
+      transfer_id: transferId,
+    })),
+  );
+
+  if (legError) {
+    redirect(`${transferDetailPath(transferId)}?error=${encodeURIComponent(legError.message)}`);
+  }
+
+  const { data: updated } = await supabase
+    .from("inventory_transfer")
+    .update({ arrived_at: new Date().toISOString(), status: "arrived" })
+    .eq("id", transferId)
+    .eq("tenant_id", tenantId)
+    .eq("status", "in_transit")
+    .select("id");
+
+  if (!updated || updated.length === 0) {
+    // The legs posted but the status did not flip: someone else arrived it in between.
+    // The stock is correct either way; report success rather than alarm.
+    redirect(`${transferDetailPath(transferId)}?notice=${encodeURIComponent("Arrival recorded.")}`);
+  }
+
+  await audit(context, {
+    action: "inventory.transfer.arrive",
+    entityId: transferId,
+    entityTable: "inventory_transfer",
+    metadata: { delivered_items: arrival.deliver.length },
+  });
+
+  revalidatePath(TRANSFERS_PATH);
+  revalidatePath("/admin/inventory/stock");
+  revalidatePath("/admin/inventory/on-hand");
+  redirect(`${transferDetailPath(transferId)}?notice=${encodeURIComponent("Arrival recorded.")}`);
+}
+
+export async function cancelTransfer(formData: FormData) {
+  const context = await requireInventoryManager();
+  const transferId = stringValue(formData, "transferId");
+
+  if (!transferId) {
+    backToTransfers("Choose a load.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const transitId = await requireTransitLocationId(supabase, tenantId);
+
+  const { data: transfer } = await supabase
+    .from("inventory_transfer")
+    .select("id, status, from_location_id")
+    .eq("id", transferId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (!transfer) {
+    backToTransfers("That load no longer exists.");
+  }
+
+  if (transfer.status !== "in_transit") {
+    backToTransfers("Only a load that is still in transit can be cancelled.");
+  }
+
+  // Send everything still in transit back to where it started, so cancelling a load that
+  // never really left restores the origin rather than losing the stock.
+  const { data: legs } = await supabase
+    .from("inventory_movement")
+    .select("item_id, qty")
+    .eq("tenant_id", tenantId)
+    .eq("transfer_id", transferId)
+    .eq("to_location_id", transitId)
+    .returns<{ item_id: string; qty: number }[]>();
+
+  const backByItem = new Map<string, number>();
+  for (const leg of legs ?? []) {
+    backByItem.set(leg.item_id, (backByItem.get(leg.item_id) ?? 0) + Number(leg.qty));
+  }
+
+  if (backByItem.size > 0) {
+    const { error: legError } = await supabase.from("inventory_movement").insert(
+      [...backByItem.entries()].map(([itemId, qty]) => ({
+        from_location_id: transitId,
+        item_id: itemId,
+        movement_type: "transfer" as const,
+        qty,
+        tenant_id: tenantId,
+        to_location_id: transfer.from_location_id,
+        transfer_id: transferId,
+      })),
+    );
+
+    if (legError) {
+      redirect(`${transferDetailPath(transferId)}?error=${encodeURIComponent(legError.message)}`);
+    }
+  }
+
+  await supabase
+    .from("inventory_transfer")
+    .update({ arrived_at: new Date().toISOString(), status: "cancelled" })
+    .eq("id", transferId)
+    .eq("tenant_id", tenantId)
+    .eq("status", "in_transit");
+
+  await audit(context, {
+    action: "inventory.transfer.cancel",
+    entityId: transferId,
+    entityTable: "inventory_transfer",
+  });
+
+  revalidatePath(TRANSFERS_PATH);
+  revalidatePath("/admin/inventory/stock");
+  revalidatePath("/admin/inventory/on-hand");
+  redirect(
+    `${transferDetailPath(transferId)}?notice=${encodeURIComponent("Load cancelled. The stock is back at its origin.")}`,
+  );
 }

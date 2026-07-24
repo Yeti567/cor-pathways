@@ -195,7 +195,7 @@ The screen that pays for the module: a grid of item by location with quantities,
 by category and location kind, and a drill down into the movement history for any cell.
 Read only, and it is the first slice with obvious daily value.
 
-**Slice 6: transfers, the two leg move.**
+**Slice 6: transfers, the two leg move.** DONE.
 `inventory_transfer` plus the depart and arrive actions. Pick a truck, a driver, an
 origin, a destination, and the lines. Depart posts to transit. Arrive posts out of it. A
 transit ageing view lists loads that departed and never arrived, and any residual from a

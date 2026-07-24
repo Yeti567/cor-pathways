@@ -27,6 +27,11 @@ async function goto(page: Page, path: string) {
 // surfaced "In transit" as somewhere a person could be assigned. This test is what keeps
 // that decision honest if anyone is ever tempted to merge the two.
 test("inventory module: toggle seeds the virtual places and the screens work", async ({ page }) => {
+  // One spec walks all six slices end to end: the toggle, places, items, the ledger, the
+  // on-hand grid, and transfers. On a cold dev server each route compiles on first hit, so
+  // it needs more than the default per-test budget.
+  test.setTimeout(120_000);
+
   await goto(page, "/login");
   await page.locator("#login-email").fill("superadmin@northwind.test");
   await page.locator("#login-password").fill("Password123!");
@@ -182,9 +187,51 @@ test("inventory module: toggle seeds the virtual places and the screens work", a
   await expect(page.getByText("+100 each received")).toBeVisible();
   await expect(page.getByText("−4 each written off")).toBeVisible();
 
+  // --- Transfers: the two-leg move --------------------------------------------
+  // The yard holds 96 of this run's item. Add a second stocking place to move some to,
+  // then depart 30 and arrive 28, leaving 2 in transit.
+  await goto(page, "/admin/inventory/locations");
+  const secondPlace = page.getByRole("paragraph").filter({ hasText: /^Riverside Project$/ });
+  if ((await secondPlace.count()) === 0) {
+    await page.selectOption('select[name="kind"]', "customer_site");
+    await page.selectOption('select[name="backingId"]', { label: "Riverside Project" });
+    await page.getByRole("button", { name: "Add stocking place" }).click();
+    await expect(page.getByText("Stocking place added.")).toBeVisible();
+  }
+
+  await goto(page, "/admin/inventory/transfers");
+  const departure = page.locator("form").filter({ has: page.locator('select[name="fromLocationId"]') });
+  await departure.locator('select[name="fromLocationId"]').selectOption({ label: "Queen Street Yard" });
+  await departure.locator('select[name="toLocationId"]').selectOption({ label: "Riverside Project" });
+  await departure.locator('select[name="lineItem0"]').selectOption({ label: itemName });
+  await departure.locator('input[name="lineQty0"]').fill("30");
+  await departure.getByRole("button", { name: "Record departure" }).click();
+
+  // Lands on the load's detail page, in transit, with 30 loaded and 30 still in transit.
+  await expect(page.getByText("Load recorded as departed.")).toBeVisible();
+  await expect(page.getByText("In transit", { exact: true }).first()).toBeVisible();
+  const manifestRow = page.getByRole("row").filter({ hasText: itemName });
+  await expect(manifestRow.getByRole("cell", { name: "30", exact: true })).toHaveCount(2); // loaded + still in transit
+
+  // Arrive 28: two short, so the residual is 2.
+  const arrivalForm = page.locator("form").filter({ has: page.getByRole("button", { name: "Record arrival" }) });
+  await arrivalForm.locator('input[inputmode="decimal"]').first().fill("28");
+  await arrivalForm.getByRole("button", { name: "Record arrival" }).click();
+  await expect(page.getByText("Arrival recorded.")).toBeVisible();
+
+  // Manifest now reads loaded 30, delivered 28, still in transit 2.
+  const arrivedRow = page.getByRole("row").filter({ hasText: itemName });
+  await expect(arrivedRow.getByRole("cell", { name: "28", exact: true })).toBeVisible();
+  await expect(arrivedRow.getByRole("cell", { name: "2", exact: true })).toBeVisible();
+  await expect(page.getByText(/left in transit/)).toBeVisible();
+
+  // The residual is real stock, so the On Hand grid shows it in the transit column.
+  await goto(page, "/admin/inventory/on-hand");
+  await expect(page.getByRole("columnheader", { name: "In transit" })).toBeVisible();
+
   // The critical regression check: no virtual place may leak into a human location list.
   for (const route of ["/admin/locations", "/admin/equipment", "/admin/incidents", "/admin/visitors"]) {
-    await page.goto(route);
+    await goto(page, route);
     await expect(page.getByText("In transit")).toHaveCount(0);
     await expect(page.getByText("Loss and write-off")).toHaveCount(0);
   }

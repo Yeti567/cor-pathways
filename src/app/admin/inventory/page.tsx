@@ -63,8 +63,9 @@ const upcomingAreas = [
   {
     description:
       "Move a load between places in two legs: it leaves, it sits in transit, it arrives. A load that never arrives stays visible instead of quietly vanishing.",
+    href: "/admin/inventory/transfers",
     icon: Truck,
-    stage: "Planned",
+    stage: "Ready",
     title: "Transfers",
   },
   {

@@ -46,7 +46,8 @@ export type TenantScopedTable =
   | "inventory_category"
   | "inventory_item"
   | "inventory_location"
-  | "inventory_movement";
+  | "inventory_movement"
+  | "inventory_transfer";
 
 type TenantScopedRow = {
   id: string;
@@ -324,6 +325,9 @@ export type InventoryMovementType =
   | "adjustment"
   | "reversal";
 
+/** A load's lifecycle: in transit, arrived, or stood down. */
+export type InventoryTransferStatus = "in_transit" | "arrived" | "cancelled";
+
 export type InventoryLocationKind =
   | "yard"
   | "customer_site"
@@ -346,6 +350,19 @@ type InventoryMovementRow = TenantScopedRow & {
   occurred_at: string;
   note: string | null;
   client_uuid: string | null;
+  transfer_id: string | null;
+  created_by: string | null;
+};
+
+type InventoryTransferRow = TenantScopedRow & {
+  vehicle_id: string | null;
+  driver_id: string | null;
+  from_location_id: string;
+  to_location_id: string;
+  status: InventoryTransferStatus;
+  departed_at: string;
+  arrived_at: string | null;
+  note: string | null;
   created_by: string | null;
 };
 
@@ -869,6 +886,13 @@ export type Database = {
         // Written only by the trigger on inventory_movement, never by a client.
         Insert: never;
         Update: never;
+        Relationships: [];
+      };
+      inventory_transfer: {
+        Row: InventoryTransferRow;
+        Insert: Partial<InventoryTransferRow> &
+          Pick<InventoryTransferRow, "tenant_id" | "from_location_id" | "to_location_id">;
+        Update: Partial<InventoryTransferRow>;
         Relationships: [];
       };
       inventory_location: {
