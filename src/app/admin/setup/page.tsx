@@ -13,6 +13,7 @@ import {
   Globe,
   ListChecks,
   MapPin,
+  Package,
   Share2,
   ShieldCheck,
   ToggleLeft,
@@ -28,6 +29,7 @@ import {
   updateCountrySetting,
   updateDailyInspectionSetting,
   updateGcSetting,
+  updateInventorySetting,
   updateMaintenanceContact,
   updateTradesSetting,
   updateTransportSetting,
@@ -262,6 +264,7 @@ export default async function SetupPage() {
   const changeOrdersEnabled = Boolean(context.tenant?.change_orders_enabled);
   const dailyInspectionEnabled = Boolean(context.tenant?.daily_inspection_enabled);
   const tradesEnabled = Boolean(context.tenant?.trades_enabled);
+  const inventoryEnabled = Boolean(context.tenant?.inventory_enabled);
   const gcEnabled = Boolean(context.tenant?.gc_enabled);
   // Region (country) decides which safety framework a tenant sees. COR is a
   // Canadian concept; US tenants get the OSHA surface instead and never see COR.
@@ -857,6 +860,74 @@ export default async function SetupPage() {
                           : "bg-[var(--surface-muted)] text-[var(--ink)]"
                       }`}
                       disabled={!gcEnabled}
+                      type="submit"
+                    >
+                      <ToggleLeft className="h-4 w-4" aria-hidden="true" />
+                      Off
+                    </button>
+                  </form>
+                </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 rounded-md border border-[var(--border)] bg-white p-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
+                  <Package className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--ink)]">
+                    Inventory
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--ink-muted)]">
+                      {inventoryEnabled ? (
+                        <ToggleRight className="h-4 w-4 text-[var(--success)]" aria-hidden="true" />
+                      ) : (
+                        <ToggleLeft className="h-4 w-4 text-[var(--ink-muted)]" aria-hidden="true" />
+                      )}
+                      {inventoryEnabled ? "On" : "Off"}
+                    </span>
+                  </h3>
+                  <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                    Track how many of a thing you have and where it is sitting: rental units, tools, PPE, consumables,
+                    and parts, across your yards, customer sites, trucks, and crews. Turn off if you do not need to
+                    count stock.
+                  </p>
+                  {inventoryEnabled ? (
+                    <Link
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+                      href="/admin/inventory"
+                    >
+                      Open Inventory
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+              <div className="inline-grid w-full grid-cols-2 overflow-hidden rounded-md border border-[var(--border)] sm:w-auto">
+                  <form action={updateInventorySetting}>
+                    <input name="enabled" type="hidden" value="true" />
+                    <button
+                      aria-pressed={inventoryEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none ${
+                        inventoryEnabled
+                          ? "bg-[var(--primary)] text-white"
+                          : "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                      }`}
+                      disabled={inventoryEnabled}
+                      type="submit"
+                    >
+                      <ToggleRight className="h-4 w-4" aria-hidden="true" />
+                      On
+                    </button>
+                  </form>
+                  <form action={updateInventorySetting}>
+                    <input name="enabled" type="hidden" value="false" />
+                    <button
+                      aria-pressed={!inventoryEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none border-l border-[var(--border)] ${
+                        inventoryEnabled
+                          ? "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                          : "bg-[var(--surface-muted)] text-[var(--ink)]"
+                      }`}
+                      disabled={!inventoryEnabled}
                       type="submit"
                     >
                       <ToggleLeft className="h-4 w-4" aria-hidden="true" />

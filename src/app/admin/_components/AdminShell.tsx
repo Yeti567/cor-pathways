@@ -24,6 +24,7 @@ import {
   UsersRound,
   GitBranch,
   IdCard,
+  Package,
   Truck,
   Wrench,
 } from "lucide-react";
@@ -38,6 +39,7 @@ const CHANGE_ORDERS_NAV_HREF = "/admin/change-orders";
 const DAILY_INSPECTION_NAV_HREF = "/admin/daily-inspection";
 const TRADES_NAV_HREF = "/admin/trades";
 const GC_NAV_HREF = "/admin/projects";
+const INVENTORY_NAV_HREF = "/admin/inventory";
 const EQUIPMENT_NAV_HREF = "/admin/equipment";
 
 const navItems = [
@@ -55,6 +57,7 @@ const navItems = [
   { href: DAILY_INSPECTION_NAV_HREF, label: "Trip Inspections", icon: ClipboardCheck },
   { href: TRADES_NAV_HREF, label: "Trades", icon: Wrench },
   { href: GC_NAV_HREF, label: "Projects", icon: Building2 },
+  { href: INVENTORY_NAV_HREF, label: "Inventory", icon: Package },
   { href: "/admin/workflows", label: "Workflow Station", icon: GitBranch },
   { href: "/admin/forms", label: "Forms", icon: ClipboardList },
   { href: "/admin/lists", label: "Managed Lists", icon: ListChecks },
@@ -92,6 +95,7 @@ export async function AdminShell({
   const dailyInspectionEnabled = Boolean(context.tenant?.daily_inspection_enabled);
   const tradesEnabled = Boolean(context.tenant?.trades_enabled);
   const gcEnabled = Boolean(context.tenant?.gc_enabled);
+  const inventoryEnabled = Boolean(context.tenant?.inventory_enabled);
   // OSHA is the US equivalent of COR; it shows only for United States workspaces.
   const country = coerceCountry(context.tenant?.country);
 
@@ -111,6 +115,7 @@ export async function AdminShell({
     .filter((item) => item.href !== DAILY_INSPECTION_NAV_HREF || dailyInspectionEnabled)
     .filter((item) => item.href !== TRADES_NAV_HREF || tradesEnabled)
     .filter((item) => item.href !== GC_NAV_HREF || gcEnabled)
+    .filter((item) => item.href !== INVENTORY_NAV_HREF || inventoryEnabled)
     // When transport is on, the Vehicle Master inside Transport replaces the
     // general Equipment module, so hide the standalone Equipment nav entry to
     // avoid a confusing duplicate. The route still works for any deep links.

@@ -370,6 +370,38 @@ async function recordAdminTenantAuditEvent(input: TenantAuditEventInput) {
   }
 }
 
+/**
+ * Applies a patch to the caller's own tenant row, and fails loudly when it does not land.
+ *
+ * Row-level security allows only a super admin to update a tenant row, while the settings
+ * actions below admit any form manager. A lesser role therefore matches no row: PostgREST
+ * reports no error and changes nothing, so a caller told "module enabled" would be
+ * reading a lie and would go looking for the bug somewhere else entirely. Asking for the
+ * affected rows back turns that silence into an honest message.
+ *
+ * Redirects on failure, so it either returns having written or does not return at all.
+ */
+async function applyTenantSettingsPatch(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  tenantId: string,
+  patch: Database["public"]["Tables"]["tenants"]["Update"],
+  errorRedirectPath = "/admin/setup",
+) {
+  const { data, error } = await supabase.from("tenants").update(patch).eq("id", tenantId).select("id");
+
+  if (error) {
+    redirect(`${errorRedirectPath}?error=${encodeURIComponent(error.message)}`);
+  }
+
+  if (!data || data.length === 0) {
+    redirect(
+      `${errorRedirectPath}?error=${encodeURIComponent(
+        "Only a Super Admin can change company settings. Ask yours to make this change.",
+      )}`,
+    );
+  }
+}
+
 async function recordEquipmentAuditEvent(input: {
   action: string;
   actor: AuditActorRow;
@@ -2221,18 +2253,9 @@ export async function deleteFormItem(formData: FormData) {
 export async function updateDocumentControlSetting(formData: FormData) {
   const context = await requireDocumentManager();
   const enabled = stringValue(formData, "enabled") === "true";
-  if (enabled) {
-  }
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ document_control_enabled: enabled })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/documents?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { document_control_enabled: enabled }, "/admin/documents");
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "document_control.setting.update",
@@ -2250,18 +2273,9 @@ export async function updateDocumentControlSetting(formData: FormData) {
 export async function updateTransportSetting(formData: FormData) {
   const context = await requireTransportManager();
   const enabled = stringValue(formData, "enabled") === "true";
-  if (enabled) {
-  }
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ transport_enabled: enabled })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/transport?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { transport_enabled: enabled }, "/admin/transport");
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "transport.setting.update",
@@ -2322,18 +2336,9 @@ export async function updateMaintenanceContact(formData: FormData) {
 export async function updateCorSetting(formData: FormData) {
   const context = await requireFormManager();
   const enabled = stringValue(formData, "enabled") === "true";
-  if (enabled) {
-  }
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ cor_enabled: enabled })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/setup?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { cor_enabled: enabled });
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "cor.setting.update",
@@ -2360,14 +2365,7 @@ export async function updateCorCertifyingPartner(formData: FormData) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
-    .from("tenants")
-    .update({ cor_certifying_partner: partner })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/cor?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { cor_certifying_partner: partner }, "/admin/cor");
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "cor.certifying_partner.update",
@@ -2383,18 +2381,9 @@ export async function updateCorCertifyingPartner(formData: FormData) {
 export async function updateChangeOrdersSetting(formData: FormData) {
   const context = await requireFormManager();
   const enabled = stringValue(formData, "enabled") === "true";
-  if (enabled) {
-  }
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ change_orders_enabled: enabled })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/setup?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { change_orders_enabled: enabled });
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "change_orders.setting.update",
@@ -2413,18 +2402,9 @@ export async function updateChangeOrdersSetting(formData: FormData) {
 export async function updateDailyInspectionSetting(formData: FormData) {
   const context = await requireFormManager();
   const enabled = stringValue(formData, "enabled") === "true";
-  if (enabled) {
-  }
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ daily_inspection_enabled: enabled })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/setup?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { daily_inspection_enabled: enabled });
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "daily_inspection.setting.update",
@@ -2443,18 +2423,9 @@ export async function updateDailyInspectionSetting(formData: FormData) {
 export async function updateTradesSetting(formData: FormData) {
   const context = await requireFormManager();
   const enabled = stringValue(formData, "enabled") === "true";
-  if (enabled) {
-  }
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ trades_enabled: enabled })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/setup?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { trades_enabled: enabled });
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "trades.setting.update",
@@ -2475,14 +2446,7 @@ export async function updateTradesLaborRate(formData: FormData) {
   const rate = numberValue(formData, "laborRate", 0);
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ default_labor_rate: rate < 0 ? 0 : rate })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/trades?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { default_labor_rate: rate < 0 ? 0 : rate }, "/admin/trades");
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "trades.labor_rate.update",
@@ -2601,18 +2565,9 @@ export async function updateServiceAgreement(formData: FormData) {
 export async function updateGcSetting(formData: FormData) {
   const context = await requireFormManager();
   const enabled = stringValue(formData, "enabled") === "true";
-  if (enabled) {
-  }
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ gc_enabled: enabled })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/setup?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { gc_enabled: enabled });
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "gc.setting.update",
@@ -2626,6 +2581,27 @@ export async function updateGcSetting(formData: FormData) {
   revalidatePath("/admin/projects");
   revalidatePath("/admin", "layout");
   redirect(`/admin/setup?notice=Construction%20Projects%20module%20${enabled ? "enabled" : "disabled"}.`);
+}
+
+export async function updateInventorySetting(formData: FormData) {
+  const context = await requireFormManager();
+  const enabled = stringValue(formData, "enabled") === "true";
+  const supabase = await createSupabaseServerClient();
+
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { inventory_enabled: enabled });
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "inventory.setting.update",
+    entityId: context.appUser.tenant_id,
+    entityTable: "tenants",
+    metadata: {
+      inventory_enabled: enabled,
+    },
+  });
+
+  revalidatePath("/admin/inventory");
+  revalidatePath("/admin", "layout");
+  redirect(`/admin/setup?notice=Inventory%20module%20${enabled ? "enabled" : "disabled"}.`);
 }
 
 export async function createGcProject(formData: FormData) {
@@ -2786,14 +2762,7 @@ export async function updateCountrySetting(formData: FormData) {
   // module card is hidden for US tenants, so they could not turn it off otherwise.
   const updatePayload = country === "US" ? { country, cor_enabled: false } : { country };
 
-  const { error } = await supabase
-    .from("tenants")
-    .update(updatePayload)
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/setup?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, updatePayload);
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "tenant.country.update",
@@ -2812,14 +2781,7 @@ export async function updateEmrSetting(formData: FormData) {
   const emrYear = optionalIntegerValue(formData, "emrYear");
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({ emr_rate: emrRate, emr_year: emrYear })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/osha?error=${encodeURIComponent(error.message)}`);
-  }
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { emr_rate: emrRate, emr_year: emrYear }, "/admin/osha");
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "tenant.emr.update",
@@ -3587,17 +3549,15 @@ export async function updateTransportSafetyFitness(formData: FormData) {
   const certNumber = stringValue(formData, "certNumber") || null;
   const expiresOn = dateOnlyValue(formData, "expiresOn");
 
-  const { error } = await supabase
-    .from("tenants")
-    .update({
+  await applyTenantSettingsPatch(
+    supabase,
+    context.appUser.tenant_id,
+    {
       safety_fitness_cert_number: certNumber,
       safety_fitness_expires_on: expiresOn,
-    })
-    .eq("id", context.appUser.tenant_id);
-
-  if (error) {
-    redirect(`/admin/transport?error=${encodeURIComponent(error.message)}`);
-  }
+    },
+    "/admin/transport",
+  );
 
   await recordAppUserAuditEvent(context.appUser, {
     action: "transport.safety_fitness.update",

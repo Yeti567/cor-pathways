@@ -39,6 +39,33 @@ values
   ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'worker@blueridge.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Blake Worker"}', now(), now())
 on conflict (id) do nothing;
 
+-- GoTrue reads these token columns into plain Go strings, so a NULL is not "no token",
+-- it is a scan failure. Leaving them NULL makes every login return
+-- "Database error querying schema" (a 500 that the app surfaces as "Invalid email or
+-- password", which sends you hunting for the wrong bug entirely). The columns are
+-- nullable in the table and the insert above does not name them, so set them to the
+-- empty string that GoTrue expects. Without this, no seeded account can log in to a
+-- freshly reset database.
+update auth.users
+set
+  confirmation_token = coalesce(confirmation_token, ''),
+  recovery_token = coalesce(recovery_token, ''),
+  email_change = coalesce(email_change, ''),
+  email_change_token_new = coalesce(email_change_token_new, ''),
+  email_change_token_current = coalesce(email_change_token_current, ''),
+  phone_change = coalesce(phone_change, ''),
+  phone_change_token = coalesce(phone_change_token, ''),
+  reauthentication_token = coalesce(reauthentication_token, '')
+where
+  confirmation_token is null
+  or recovery_token is null
+  or email_change is null
+  or email_change_token_new is null
+  or email_change_token_current is null
+  or phone_change is null
+  or phone_change_token is null
+  or reauthentication_token is null;
+
 insert into public.tenants (id, name, slug, document_control_enabled)
 values
   ('10000000-0000-0000-0000-000000000001', 'Northwind Civil', 'northwind-civil', true),

@@ -1,0 +1,141 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import {
+  ArrowLeftRight,
+  BellRing,
+  Boxes,
+  ClipboardCheck,
+  MapPin,
+  Package,
+  Smartphone,
+} from "lucide-react";
+import { AdminShell } from "@/app/admin/_components/AdminShell";
+import { canUseAdminPanel } from "@/lib/access-control";
+import { requireAppUser } from "@/lib/current-user";
+
+export const dynamic = "force-dynamic";
+
+// What the inventory module will hold, built out over the next slices. Nothing here is
+// live yet, so each area carries the stage it is at rather than a link that would lead
+// to a dead route. Areas gain an href as their slice lands.
+const upcomingAreas = [
+  {
+    description:
+      "What you stock, and how each thing behaves: counted in bulk or tracked one by one, whether it comes back, and whether time on site is billable.",
+    icon: Boxes,
+    stage: "Next",
+    title: "Items & Categories",
+  },
+  {
+    description:
+      "Your yards, customer sites, trucks, and crews all become places stock can sit, so the same movement covers a delivery, a tool check-out, and truck stock.",
+    icon: MapPin,
+    stage: "Next",
+    title: "Stocking Locations",
+  },
+  {
+    description:
+      "A grid of what you have and where it is, with the full movement history behind every number. The screen that answers how many are at each site.",
+    icon: Package,
+    stage: "Planned",
+    title: "On Hand",
+  },
+  {
+    description:
+      "Move a load between locations in two legs: it leaves, it sits in transit, it arrives. A load that never arrives stays visible instead of quietly vanishing.",
+    icon: ArrowLeftRight,
+    stage: "Planned",
+    title: "Transfers",
+  },
+  {
+    description:
+      "The driver records a pickup or a drop from their phone, with photos and a signature. Works with no signal and syncs when it comes back.",
+    icon: Smartphone,
+    stage: "Planned",
+    title: "Field Capture",
+  },
+  {
+    description:
+      "Count what is actually there and enter the real number. The system works out the difference and records it, so nobody edits a balance by hand.",
+    icon: ClipboardCheck,
+    stage: "Planned",
+    title: "Counts & Reconciliation",
+  },
+  {
+    description:
+      "Set a minimum for the things you must not run out of, and get told before you do. Mostly for PPE and consumables.",
+    icon: BellRing,
+    stage: "Planned",
+    title: "Low Stock Alerts",
+  },
+] as const;
+
+export default async function InventoryPage() {
+  const context = await requireAppUser();
+
+  if (!canUseAdminPanel(context.appUser)) {
+    redirect("/choose");
+  }
+
+  // The Inventory module is gated by a tenant toggle. When off, the nav entry is
+  // hidden, so send any direct hits to Setup where the toggle lives.
+  if (!context.tenant?.inventory_enabled) {
+    redirect("/admin/setup");
+  }
+
+  return (
+    <AdminShell eyebrow="Operations" tenantName={context.tenant?.name ?? "Company profile"} title="Inventory">
+      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
+            <Package className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--ink)]">Inventory</h2>
+            <p className="mt-1 max-w-2xl text-sm text-[var(--ink-muted)]">
+              Two questions about anything you count: how many, and where. Rental units on customer sites, tools out
+              with a crew, parts on a truck, PPE and consumables in the yard. Turn this module off under{" "}
+              <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/setup">
+                Setup
+              </Link>{" "}
+              if you do not need to count stock.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
+        <h3 className="text-base font-semibold text-[var(--ink)]">Nothing is being tracked yet</h3>
+        <p className="mt-1 max-w-2xl text-sm text-[var(--ink-muted)]">
+          You have turned the module on, which is all it does today. The pieces below arrive one at a time, each one
+          usable on its own. Nothing you enter later will need re-entering.
+        </p>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
+        <h3 className="text-base font-semibold text-[var(--ink)]">Module areas</h3>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">Where this is going, in the order it is being built.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {upcomingAreas.map((area) => {
+            const Icon = area.icon;
+
+            return (
+              <div className="rounded-lg border border-[var(--border)] bg-white p-4" key={area.title}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
+                    <Icon className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <span className="inline-flex items-center rounded-md bg-[var(--surface-muted)] px-2 py-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                    {area.stage}
+                  </span>
+                </div>
+                <h4 className="mt-3 text-base font-semibold text-[var(--ink)]">{area.title}</h4>
+                <p className="mt-1 text-sm text-[var(--ink-muted)]">{area.description}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </AdminShell>
+  );
+}

@@ -284,6 +284,26 @@ type TransportMedicalRecordRow = TenantScopedRow & {
   deleted_at: string | null;
 };
 
+/**
+ * What sort of place a location is, for inventory purposes.
+ *
+ * The physical kinds are real places stock can sit. The two virtual kinds are what keep
+ * the ledger honest: `transit` holds a load that has left but not arrived, and `loss`
+ * absorbs damage, shrinkage, and count corrections. Virtual locations are the only ones
+ * allowed to carry a negative balance.
+ *
+ * Not to be confused with `equipment.tracking_mode`, which is a different axis entirely.
+ */
+export type LocationKind =
+  | "yard"
+  | "customer_site"
+  | "transit"
+  | "loss"
+  | "vendor"
+  | "worker"
+  | "vehicle"
+  | "job";
+
 export type Database = {
   public: {
     Tables: {
@@ -301,6 +321,7 @@ export type Database = {
           daily_inspection_enabled: boolean;
           trades_enabled: boolean;
           gc_enabled: boolean;
+          inventory_enabled: boolean;
           default_labor_rate: number;
           country: "CA" | "US";
           emr_rate: number | null;
@@ -742,6 +763,7 @@ export type Database = {
           visibility_rule: string;
           start_date: string | null;
           default_for_new_workers: boolean;
+          location_kind: LocationKind;
         };
         Insert: Partial<Database["public"]["Tables"]["locations"]["Row"]> & Pick<Database["public"]["Tables"]["locations"]["Row"], "tenant_id" | "name">;
         Update: Partial<Database["public"]["Tables"]["locations"]["Row"]>;
