@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TenantScopedTable } from "@/types/database";
@@ -12,14 +12,35 @@ import type { TenantScopedTable } from "@/types/database";
 // Live proof of tenant isolation is supabase/tests/tenant-isolation.sql, which
 // exercises the policies against a real database. This file is the fast
 // no-database guard that every tenant-scoped table is actually covered.
-const rawSchema = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260716000000_initial_schema.sql"),
-  "utf8",
-);
+//
+// Reads EVERY migration, not just the baseline. Reading only the baseline would mean any
+// table added afterwards silently escaped these invariants, which is precisely how the
+// missing-grants bug survived: the check looked at the file where the rule was written
+// rather than at the schema the rule is supposed to govern.
+const migrationsDir = join(process.cwd(), "supabase/migrations");
+const rawSchema = readdirSync(migrationsDir)
+  .filter((file) => file.endsWith(".sql"))
+  .sort()
+  .map((file) => readFileSync(join(migrationsDir, file), "utf8"))
+  .join("\n");
 
 // pg_dump writes UPPERCASE keywords and "quoted"."identifiers".
 const schema = rawSchema.toLowerCase().replace(/"/g, "");
-const schemaLines = schema.split("\n");
+
+// Statements, not lines. pg_dump emits each policy on a single line, but a hand-written
+// migration wraps them across several, and an invariant that only holds for one of those
+// formattings is not an invariant. Splitting on the statement terminator and flattening
+// whitespace lets both shapes be read the same way.
+const schemaStatements = schema
+  .split(";")
+  .map((statement) => statement.replace(/\s+/g, " ").trim())
+  .filter(Boolean);
+
+function policiesFor(table: string) {
+  return schemaStatements.filter(
+    (statement) => statement.startsWith("create policy") && statement.includes(` on public.${table} `),
+  );
+}
 
 const tenantScopedTables: TenantScopedTable[] = [
   "users",
@@ -61,6 +82,8 @@ const tenantScopedTables: TenantScopedTable[] = [
   "equipment_scheduled_service",
   "equipment_submission_link",
   "equipment_document",
+  "inventory_category",
+  "inventory_item",
 ];
 
 describe("tenant-scoped schema", () => {
@@ -69,9 +92,7 @@ describe("tenant-scoped schema", () => {
   });
 
   it.each(tenantScopedTables)("guards %s with a tenant-membership policy", (table) => {
-    const policies = schemaLines.filter(
-      (line) => line.startsWith("create policy") && line.includes(` on public.${table} `),
-    );
+    const policies = policiesFor(table);
 
     expect(policies.length).toBeGreaterThan(0);
     expect(policies.some((policy) => policy.includes("is_tenant_member"))).toBe(true);

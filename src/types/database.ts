@@ -42,7 +42,9 @@ export type TenantScopedTable =
   | "auto_share_recipients"
   | "notifications"
   | "company_settings"
-  | "print_settings";
+  | "print_settings"
+  | "inventory_category"
+  | "inventory_item";
 
 type TenantScopedRow = {
   id: string;
@@ -294,6 +296,17 @@ type TransportMedicalRecordRow = TenantScopedRow & {
  *
  * Not to be confused with `equipment.tracking_mode`, which is a different axis entirely.
  */
+/**
+ * How an inventory item is counted. Fixed per item, and mutually exclusive.
+ *
+ * Deliberately NOT the same axis as `equipment.tracking_mode`, which is mileage or
+ * hours. The names collide; the meanings do not.
+ */
+export type InventoryTrackingMode = "bulk" | "serial";
+
+/** The period a billable item's rate is charged against. Null unless the item bills. */
+export type InventoryRateBasis = "day" | "week" | "month" | "each";
+
 export type LocationKind =
   | "yard"
   | "customer_site"
@@ -303,6 +316,31 @@ export type LocationKind =
   | "worker"
   | "vehicle"
   | "job";
+
+// Declared as standalone aliases rather than inline, so Insert and Update can be derived
+// from Row without indexing back into Database from inside its own definition, which TS
+// reads as a circular annotation.
+type InventoryCategoryRow = TenantScopedRow & {
+  name: string;
+  sort_order: number;
+};
+
+type InventoryItemRow = TenantScopedRow & {
+  category_id: string | null;
+  name: string;
+  sku: string | null;
+  tracking_mode: InventoryTrackingMode;
+  unit_of_measure: string;
+  returnable: boolean;
+  billable: boolean;
+  default_rate: number | null;
+  rate_basis: InventoryRateBasis | null;
+  equipment_id: string | null;
+  notes: string | null;
+  active: boolean;
+  created_by: string | null;
+  deleted_at: string | null;
+};
 
 export type Database = {
   public: {
@@ -767,6 +805,18 @@ export type Database = {
         };
         Insert: Partial<Database["public"]["Tables"]["locations"]["Row"]> & Pick<Database["public"]["Tables"]["locations"]["Row"], "tenant_id" | "name">;
         Update: Partial<Database["public"]["Tables"]["locations"]["Row"]>;
+        Relationships: [];
+      };
+      inventory_category: {
+        Row: InventoryCategoryRow;
+        Insert: Partial<InventoryCategoryRow> & Pick<InventoryCategoryRow, "tenant_id" | "name">;
+        Update: Partial<InventoryCategoryRow>;
+        Relationships: [];
+      };
+      inventory_item: {
+        Row: InventoryItemRow;
+        Insert: Partial<InventoryItemRow> & Pick<InventoryItemRow, "tenant_id" | "name">;
+        Update: Partial<InventoryItemRow>;
         Relationships: [];
       };
       equipment: {

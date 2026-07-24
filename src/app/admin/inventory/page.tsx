@@ -5,6 +5,7 @@ import {
   BellRing,
   Boxes,
   ClipboardCheck,
+  Layers,
   MapPin,
   Package,
   Smartphone,
@@ -15,16 +16,24 @@ import { requireAppUser } from "@/lib/current-user";
 
 export const dynamic = "force-dynamic";
 
-// What the inventory module will hold, built out over the next slices. Nothing here is
-// live yet, so each area carries the stage it is at rather than a link that would lead
+// What the inventory module holds, built out over successive slices. An area with an
+// href is live; the rest carry the stage they are at rather than a link that would lead
 // to a dead route. Areas gain an href as their slice lands.
 const upcomingAreas = [
   {
     description:
       "What you stock, and how each thing behaves: counted in bulk or tracked one by one, whether it comes back, and whether time on site is billable.",
+    href: "/admin/inventory/items",
     icon: Boxes,
-    stage: "Next",
-    title: "Items & Categories",
+    stage: "Ready",
+    title: "Items",
+  },
+  {
+    description: "Groups for filtering your items: Mats, Tools, PPE, Parts, Consumables. Optional, and easy to change.",
+    href: "/admin/inventory/categories",
+    icon: Layers,
+    stage: "Ready",
+    title: "Categories",
   },
   {
     description:
@@ -105,10 +114,14 @@ export default async function InventoryPage() {
       </section>
 
       <section className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
-        <h3 className="text-base font-semibold text-[var(--ink)]">Nothing is being tracked yet</h3>
+        <h3 className="text-base font-semibold text-[var(--ink)]">Start by listing what you stock</h3>
         <p className="mt-1 max-w-2xl text-sm text-[var(--ink-muted)]">
-          You have turned the module on, which is all it does today. The pieces below arrive one at a time, each one
-          usable on its own. Nothing you enter later will need re-entering.
+          Quantities are not tracked yet. Set up your{" "}
+          <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/inventory/items">
+            items
+          </Link>{" "}
+          now and the counting arrives on top of them, so nothing you enter has to be entered twice. Start with the
+          handful you move most.
         </p>
       </section>
 
@@ -118,9 +131,10 @@ export default async function InventoryPage() {
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {upcomingAreas.map((area) => {
             const Icon = area.icon;
+            const href = "href" in area ? area.href : undefined;
 
-            return (
-              <div className="rounded-lg border border-[var(--border)] bg-white p-4" key={area.title}>
+            const body = (
+              <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
                     <Icon className="h-5 w-5" aria-hidden="true" />
@@ -131,6 +145,20 @@ export default async function InventoryPage() {
                 </div>
                 <h4 className="mt-3 text-base font-semibold text-[var(--ink)]">{area.title}</h4>
                 <p className="mt-1 text-sm text-[var(--ink-muted)]">{area.description}</p>
+              </>
+            );
+
+            return href ? (
+              <Link
+                className="rounded-lg border border-[var(--border)] bg-white p-4 transition hover:border-[var(--primary)] hover:bg-[var(--surface-muted)]"
+                href={href}
+                key={area.title}
+              >
+                {body}
+              </Link>
+            ) : (
+              <div className="rounded-lg border border-[var(--border)] bg-white p-4" key={area.title}>
+                {body}
               </div>
             );
           })}
