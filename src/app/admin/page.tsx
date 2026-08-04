@@ -147,7 +147,7 @@ const cards = [
   },
   {
     title: "Consultant Access",
-    detail: "Control Cor Pathways consultant access and review override audit records.",
+    detail: "Control Cor Pathway 360 consultant access and review override audit records.",
     href: "/admin/consultant-access",
     icon: ShieldCheck,
   },
@@ -174,7 +174,7 @@ export default async function AdminPage() {
       .order("name");
 
     return (
-      <AdminShell eyebrow="Consultant console" tenantName="Cor Pathways" title="Tenant Access">
+      <AdminShell eyebrow="Consultant console" tenantName="Cor Pathway 360" title="Tenant Access">
         <div className="mb-4">
           <Link
             className="inline-flex h-10 items-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"

@@ -10,7 +10,7 @@ export function HelpShell({ children }: { children: ReactNode }) {
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <Link className="flex items-center gap-3 text-sm font-bold text-[var(--ink)]" href="/">
             <Image
-              alt="Cor Pathways"
+              alt="Cor Pathway 360"
               className="h-9 w-auto"
               height={41}
               priority
@@ -49,9 +49,9 @@ export function HelpShell({ children }: { children: ReactNode }) {
       {children}
       <footer className="mt-12 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-sm text-[var(--ink-muted)] sm:px-6">
         <div className="mx-auto max-w-6xl">
-          <p>© Cor Pathways Operations.</p>
+          <p>© Cor Pathway 360.</p>
           <p className="mt-1 text-xs">
-            Cor Pathways is owned and operated by <span className="font-semibold text-[var(--ink)]">Yeti Digital Services Ltd.</span>
+            Cor Pathway 360 is owned and operated by <span className="font-semibold text-[var(--ink)]">Yeti Digital Services Ltd.</span>
           </p>
         </div>
       </footer>

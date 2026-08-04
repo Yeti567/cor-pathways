@@ -24,7 +24,7 @@ function env(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
 describe("buildWorkerInviteEmail", () => {
   it("puts the company in the subject and the link in both text and html", () => {
     const email = buildWorkerInviteEmail({ fullName: "Dana Jones", companyName: "Acme Freight", actionLink: ACTION_LINK });
-    expect(email.subject).toBe("You are invited to Acme Freight on Cor Pathways");
+    expect(email.subject).toBe("You are invited to Acme Freight on Cor Pathway 360");
     expect(email.text).toContain("Hi Dana,");
     expect(email.text).toContain(ACTION_LINK);
     // The plain link has `&` escaped to `&amp;` inside the html href.

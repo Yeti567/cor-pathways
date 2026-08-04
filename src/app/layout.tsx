@@ -4,7 +4,7 @@ import { OfflineRuntime } from "@/app/_components/OfflineRuntime";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Cor Pathways Operations",
+  title: "Cor Pathway 360",
   description: "A multi-tenant offline-first operations platform.",
   manifest: "/manifest.webmanifest",
 };

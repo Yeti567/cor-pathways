@@ -1,7 +1,7 @@
--- Cor Pathways: complete database schema.
+-- Cor Pathway 360: complete database schema.
 --
 -- This is the whole database in one file. Run it against a brand new Supabase
--- project and you get a working, empty Cor Pathways instance: every table, every
+-- project and you get a working, empty Cor Pathway 360 instance: every table, every
 -- row level security policy, the storage buckets, and the signup trigger that
 -- builds a company's first tenant, admin user, and starter forms.
 --

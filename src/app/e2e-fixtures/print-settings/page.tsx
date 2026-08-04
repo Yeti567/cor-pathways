@@ -13,7 +13,7 @@ const companySettings = {
 } as CompanySettingsRow;
 
 const basePrintSettings = {
-  footer_note: "Controlled copy when printed from Cor Pathways.",
+  footer_note: "Controlled copy when printed from Cor Pathway 360.",
   header_option: "company_info_and_logo",
   logo_placement: "right",
   prepared_by_label: "Prepared for audit by",

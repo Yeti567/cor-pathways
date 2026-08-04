@@ -50,7 +50,7 @@ export default async function ChoosePage() {
   const isConsultant = context.status === "consultant";
   const displayEmail = context.authUser.email ?? "Signed-in user";
   const displayName = isAppUser ? context.appUser.full_name : isConsultant ? context.consultant.full_name : displayEmail;
-  const tenantName = isAppUser ? context.tenant?.name ?? "Company profile" : "Cor Pathways";
+  const tenantName = isAppUser ? context.tenant?.name ?? "Company profile" : "Cor Pathway 360";
   const canOpenAdmin = isConsultant || (isAppUser && canUseAdminPanel(context.appUser));
   const canOpenDesktop = canOpenAdmin || (isAppUser && canUseDesktopMonitor(context.appUser));
   const desktopHref = isAppUser && !canOpenAdmin && canUseDesktopMonitor(context.appUser) ? "/admin/monitor" : "/admin";

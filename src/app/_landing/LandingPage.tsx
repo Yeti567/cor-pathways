@@ -235,7 +235,7 @@ const differentiators = [
   {
     icon: CloudOff,
     title: "Built offline-first, not bolted on later",
-    body: "Most field-ops apps need a connection to load the form. Cor Pathways stores everything in IndexedDB, signs and submits offline, and quietly catches up when the truck rolls back into town. Workers stop saying 'I'll do it when I get back to the office.'",
+    body: "Most field-ops apps need a connection to load the form. Cor Pathway 360 stores everything in IndexedDB, signs and submits offline, and quietly catches up when the truck rolls back into town. Workers stop saying 'I'll do it when I get back to the office.'",
   },
   {
     icon: HardHat,
@@ -245,7 +245,7 @@ const differentiators = [
   {
     icon: Smartphone,
     title: "An app you install, not just a website",
-    body: "Add Cor Pathways to a phone's home screen and it runs in standalone mode like a native app. Updates reach every device within 30 minutes, no App Store review cycle, no waiting for IT to push anything.",
+    body: "Add Cor Pathway 360 to a phone's home screen and it runs in standalone mode like a native app. Updates reach every device within 30 minutes, no App Store review cycle, no waiting for IT to push anything.",
   },
   {
     icon: Code2,
@@ -303,7 +303,7 @@ export default function LandingPage() {
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <Link className="flex items-center gap-3 text-sm font-bold tracking-tight text-[var(--ink)]" href="/">
             <Image
-              alt="Cor Pathways"
+              alt="Cor Pathway 360"
               className="h-9 w-auto"
               height={41}
               priority
@@ -671,7 +671,7 @@ export default function LandingPage() {
             </h2>
             <p className="mt-4 text-base text-[var(--ink-muted)]">
               Trades, contractors, and carriers run different work, but they all answer to a safety program and, more
-              and more, a COR audit. Cor Pathways fits each one, and the COR module adapts to the certifying partner you
+              and more, a COR audit. Cor Pathway 360 fits each one, and the COR module adapts to the certifying partner you
               actually use.
             </p>
           </div>
@@ -832,7 +832,7 @@ export default function LandingPage() {
           <div>
             <p>© Cor Pathway 360. You own your code, your data, and your accounts. No lock in.</p>
             <p className="mt-1 text-xs">
-              Cor Pathways is owned and operated by <span className="font-semibold text-[var(--ink)]">Yeti Digital Services Ltd.</span>
+              Cor Pathway 360 is owned and operated by <span className="font-semibold text-[var(--ink)]">Yeti Digital Services Ltd.</span>
             </p>
           </div>
           <div className="flex flex-wrap gap-4">

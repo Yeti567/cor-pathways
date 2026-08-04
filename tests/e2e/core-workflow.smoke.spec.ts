@@ -20,7 +20,7 @@ test.describe("core workflow smoke", () => {
     await expect(page.locator("#login-email")).toBeVisible();
     await expect(page.locator("#login-password")).toBeVisible();
     await expect(page.getByRole("button", { exact: true, name: "Next" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Login with Cor Pathways SSO" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Login with Cor Pathway 360 SSO" })).toBeVisible();
 
     for (const route of ["/admin/forms", "/web", "/admin/monitor/e2e-submission/print"]) {
       await expectProtectedRouteRedirect(page, route);

@@ -1,4 +1,4 @@
-# Cor Pathways Operations Platform
+# Cor Pathway 360
 ## Product Description and Source of Truth
 
 This document is the single source of truth for what the product is, who it serves, and what it must do.
@@ -7,7 +7,7 @@ This document is the single source of truth for what the product is, who it serv
 
 ## 1. What This Product Is
 
-Cor Pathways Operations is a multi-tenant, offline-first, mobile-first electronic forms and operations platform for industrial and trades companies. It digitizes the paper and clipboard processes that run a job site: site inspections, equipment inspections, time cards, mileage logs, material ordering, training records, hazard assessments, incident reports, and any other form a company runs on.
+Cor Pathway 360 is a multi-tenant, offline-first, mobile-first electronic forms and operations platform for industrial and trades companies. It digitizes the paper and clipboard processes that run a job site: site inspections, equipment inspections, time cards, mileage logs, material ordering, training records, hazard assessments, incident reports, and any other form a company runs on.
 
 It is sold as a SaaS product. Each client company gets its own isolated tenant.
 
@@ -17,7 +17,7 @@ It is sold as a SaaS product. Each client company gets its own isolated tenant.
 
 This product is intentionally NOT branded or sold as a safety app or a COR certification app.
 
-The reason is commercial. Companies that do not want COR certification dismiss anything labelled a "safety app" as not for them. Real prospects have said this directly about the existing Cor Pathways safety product. Cor Pathways Operations is for any company that wants to replace paper forms, regardless of whether safety is the reason.
+The reason is commercial. Companies that do not want COR certification dismiss anything labelled a "safety app" as not for them. Real prospects have said this directly about the existing Cor Pathways safety product. Cor Pathway 360 is for any company that wants to replace paper forms, regardless of whether safety is the reason.
 
 The platform handles safety forms well (hazard assessments, inspections, incident reports), but safety is one capability among many, not the headline. A company can use it purely to track vehicle mileage, run time cards, or manage material ordering for projects and never touch a safety form. The product must read as an operations tool first.
 
@@ -31,7 +31,7 @@ Access is built on two independent dimensions: power level (what you can do) and
 
 ### Power levels (top to bottom)
 
-1. **Consultant.** Cor Pathways staff, above all tenants. See Section 4.
+1. **Consultant.** Cor Pathway staff, above all tenants. See Section 4.
 2. **Super Admin.** Top of a single tenant. The only role that can remove Admins. Role and permission management plus full admin and app access.
 3. **Admin.** Admin panel plus app access. Manages forms, workers, locations, resources, and configuration.
 4. **Manager.** Admin-level capability scoped by reach. A manager assigned to one project is a project manager; the same role assigned to all projects is a general manager.
@@ -54,7 +54,7 @@ A visitor is not a user account and has no form permissions. A visitor is a pres
 
 ## 4. Consultant Access and the Override (Governance-Critical)
 
-The Consultant is Cor Pathways (the operator of the platform). The Consultant has access to every tenant by default, in order to update portals, repair broken configuration or code, and clean up a portal for a new user after a client leaves.
+The Consultant is Cor Pathway (the operator of the platform). The Consultant has access to every tenant by default, in order to update portals, repair broken configuration or code, and clean up a portal for a new user after a client leaves.
 
 Every consultant login and every consultant action is logged and visible to the tenant's Super Admin. Consultant access is never silent.
 

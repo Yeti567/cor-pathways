@@ -1,4 +1,4 @@
-# Cor Pathways
+# Cor Pathway 360
 
 Field safety and compliance software for trades, contractors, and carriers. Forms
 that work offline in the dirt, COR audit readiness mapped to your certifying
