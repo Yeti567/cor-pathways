@@ -15,13 +15,17 @@ It is sold as a SaaS product. Each client company gets its own isolated tenant.
 
 ## 2. Positioning (Deliberate and Important)
 
-This product is intentionally NOT branded or sold as a safety app or a COR certification app.
+**This section was written for an earlier strategy and no longer describes how the product is sold. Corrected August 2026.**
 
-The reason is commercial. Companies that do not want COR certification dismiss anything labelled a "safety app" as not for them. Real prospects have said this directly about the existing Cor Pathways safety product. Cor Pathway 360 is for any company that wants to replace paper forms, regardless of whether safety is the reason.
+It used to say the product was intentionally NOT branded as a safety app or a COR certification app. That is no longer true, and had not been true for some time. The product is now sold as **Cor Pathway 360, safety and field operations software**, led by COR certification:
 
-The platform handles safety forms well (hazard assessments, inspections, incident reports), but safety is one capability among many, not the headline. A company can use it purely to track vehicle mileage, run time cards, or manage material ordering for projects and never touch a safety form. The product must read as an operations tool first.
+- corpathway.com is a COR-first marketing site, and its structured data categorises the product as EHS management software.
+- The public repository describes it as field safety and compliance software with COR audit readiness.
+- The application's own landing page refers to COR, safety or certification around thirty times.
 
-This is a standalone product. It has its own repository and its own Supabase project. It is walled off from the existing Cor Pathways safety platform. There is no shared codebase, no shared database, and no data flow between the two products in v1.
+**The commercial insight underneath the old positioning still holds, and is the reason the product is broader than its marketing.** Companies that do not want COR certification dismiss anything labelled a "safety app" as not for them, and real prospects have said so directly. So while COR is the way in, a company can use this purely to track vehicle mileage, run time cards or manage material ordering and never touch a safety form. That breadth is a deliberate feature, not an accident, and it is worth protecting even though safety is now the headline.
+
+This is still a standalone product with its own repository and its own Supabase project, separate from the earlier Cor Pathways safety platform: no shared codebase, no shared database, no data flow.
 
 ---
 
