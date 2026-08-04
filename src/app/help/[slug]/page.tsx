@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: HelpTopicPageProps) {
   const topic = getHelpTopic(slug);
 
   if (!topic) {
-    return { title: "Help, Core Pathways Operations" };
+    return { title: "Help, Cor Pathways Operations" };
   }
 
   return {

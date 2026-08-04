@@ -1,5 +1,5 @@
 ---
-name: Core Pathways Operations
+name: Cor Pathways Operations
 colors:
   background: "#F7F9FB"
   surface: "#FFFFFF"
@@ -33,7 +33,7 @@ elevation:
 ---
 
 ## Overview
-Core Pathways Operations should feel like a practical field operations console. The product is not a marketing site and it is not branded as a safety-only tool. The interface should make forms, locations, workers, resources, and sync state easy to scan under pressure.
+Cor Pathways Operations should feel like a practical field operations console. The product is not a marketing site and it is not branded as a safety-only tool. The interface should make forms, locations, workers, resources, and sync state easy to scan under pressure.
 
 ## Colors
 Use teal as the product anchor, with warm rust only for focused calls to action or warnings. Keep large surfaces neutral and readable. Avoid one-color screens and avoid decorative gradients.

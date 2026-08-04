@@ -555,7 +555,7 @@ The PWA polls for sync every 30 minutes when online. To force one immediately, t
   },
   {
     slug: "install-on-phone",
-    title: "Install Core Pathways as an app on your phone",
+    title: "Install Cor Pathways as an app on your phone",
     category: "Offline & Sync",
     summary: "Add to home screen turns the web app into a real installed app on iPhone, Android, and desktop.",
     tags: ["install", "pwa", "phone", "home screen", "iphone", "android"],
@@ -569,7 +569,7 @@ In Chrome, Edge, or any Chromium browser, an **Install** banner appears at the b
 
 ## iPhone and iPad
 
-iOS Safari does not offer a one-tap install. Tap the **Share** button in Safari, then choose **Add to Home Screen**. Confirm. The Core Pathways icon now lives on the home screen and opens in standalone mode.
+iOS Safari does not offer a one-tap install. Tap the **Share** button in Safari, then choose **Add to Home Screen**. Confirm. The Cor Pathways icon now lives on the home screen and opens in standalone mode.
 
 ## Confirming the install
 

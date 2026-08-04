@@ -51,7 +51,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
             <div>
               <h1 className="text-xl font-semibold text-[var(--ink)]">Login to your account</h1>
-              <p className="text-sm text-[var(--ink-muted)]">Core Pathways Operations</p>
+              <p className="text-sm text-[var(--ink-muted)]">Cor Pathways Operations</p>
             </div>
           </div>
 
@@ -129,7 +129,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               disabled={!ssoLogin.enabled}
             >
               <Globe2 className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
-              Login with Core Pathways SSO
+              Login with Cor Pathways SSO
             </button>
           </form>
         </div>

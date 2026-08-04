@@ -108,7 +108,7 @@ export default async function ConsultantAccessPage({ searchParams }: ConsultantA
       .returns<TenantOption[]>();
 
     return (
-      <AdminShell eyebrow="Consultant console" tenantName="Core Pathways" title="Consultant Override">
+      <AdminShell eyebrow="Consultant console" tenantName="Cor Pathways" title="Consultant Override">
         {notice ? (
           <p className="mb-4 rounded-md border border-[var(--success)] bg-emerald-50 p-3 text-sm text-[var(--success)]">
             {notice}

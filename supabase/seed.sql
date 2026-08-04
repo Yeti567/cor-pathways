@@ -29,7 +29,7 @@ insert into auth.users (
   updated_at
 )
 values
-  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'consultant@corepathways.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Core Pathways Consultant"}', now(), now()),
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'consultant@corpathways.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Cor Pathways Consultant"}', now(), now()),
   ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'superadmin@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Nora Super"}', now(), now()),
   ('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Alex Admin"}', now(), now()),
   ('00000000-0000-0000-0000-000000000103', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'manager@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Maya Manager"}', now(), now()),
@@ -73,7 +73,7 @@ values
 on conflict (id) do nothing;
 
 insert into public.consultants (id, email, full_name)
-values ('00000000-0000-0000-0000-000000000001', 'consultant@corepathways.test', 'Core Pathways Consultant')
+values ('00000000-0000-0000-0000-000000000001', 'consultant@corpathways.test', 'Cor Pathways Consultant')
 on conflict (id) do nothing;
 
 insert into public.permission_profiles (id, tenant_id, name, power_ceiling, capabilities, is_default)

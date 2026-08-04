@@ -141,7 +141,7 @@ export function InstallBanner() {
           📲
         </div>
         <div className="min-w-0 flex-1 text-sm">
-          <p className="font-semibold text-[var(--ink)]">Install Core Pathways</p>
+          <p className="font-semibold text-[var(--ink)]">Install Cor Pathways</p>
           <p className="mt-0.5 text-[var(--ink-muted)]">
             {installPrompt
               ? "Add it to your home screen for one-tap access and offline support."

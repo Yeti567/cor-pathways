@@ -2,7 +2,7 @@ import { HelpBrowser } from "./HelpBrowser";
 import { HelpShell } from "./HelpShell";
 
 export const metadata = {
-  title: "Help Center, Core Pathways Operations",
+  title: "Help Center, Cor Pathways Operations",
   description: "Search articles, troubleshoot offline sync, learn the form builder, and more.",
 };
 
