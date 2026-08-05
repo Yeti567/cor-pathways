@@ -58,6 +58,16 @@ const ADVISOR = {
   phoneDisplay: "403-866-9517",
   phoneHref: "tel:+14038669517",
 };
+/**
+ * Marketing and content live on their own site, in a separate repository, so the
+ * outbound links here point there rather than at pages inside the application.
+ *
+ * Safe to deploy before the domain move: today this resolves to the apex, which is
+ * still this landing page, so nothing changes for a visitor. After the apex moves
+ * to the marketing site, these links become correct without another deploy.
+ */
+const MARKETING_URL = process.env.NEXT_PUBLIC_MARKETING_URL ?? "https://corpathway360.com";
+
 const REPO_URL = "https://github.com/Yeti567/cor-pathways";
 const REPO_ZIP_URL = "https://github.com/Yeti567/cor-pathways/archive/refs/heads/main.zip";
 const REPO_CLONE = "git clone https://github.com/Yeti567/cor-pathways.git";
@@ -218,6 +228,19 @@ const groups: FeatureGroup[] = [
     ],
   },
   {
+    eyebrow: "Subcontractors",
+    title: "The carriers you hire, on file and in date",
+    tagline: "Alberta does not require you to hold paperwork on a carrier you hire; your insurer, your customers, and your lawyer do. This is that file, kept current by the carriers themselves.",
+    features: [
+      { title: "A portal that costs them nothing", body: "The big prequalification networks charge a subcontractor 800 to 1,500 a year just to hand you a certificate, which is why small carriers refuse to sign up. Yours pay nothing, ever.", icon: Handshake },
+      { title: "A link, not a password", body: "You send a sign-in link and they are in. Nothing to create, nothing to forget, nothing to reset six months later when their office manager leaves.", icon: KeyRound },
+      { title: "Your limits, actually enforced", body: "Set the coverage you require once. A certificate that arrives underneath it is flagged the moment it is filed, instead of during a claim. A blank limit fails too, because it cannot be shown to meet the bar.", icon: ShieldCheck },
+      { title: "Expiry dates that chase themselves", body: "Insurance by the date printed on it, carrier profiles and WCB rate statements on an interval, because those carry no expiry. One warning as it enters your window, a sharper one in the last week, and a notice when it lapses.", icon: BellRing },
+      { title: "Nothing counts until you say so", body: "A carrier can send, and only you can accept. Everything arrives for review, and what you send back carries your reason so they know what to fix.", icon: ClipboardCheck },
+      { title: "The file that answers afterwards", body: "One page with every document, every limit, and the history of what you held and when you checked it. Print it for an insurer or an auditor. Holding the current certificate is easy; proving what you held two years ago is the part that counts.", icon: FileText },
+    ],
+  },
+  {
     eyebrow: "People + Permissions",
     title: "Built for industrial orgs, not five-person startups",
     tagline: "Workers, supervisors, managers, admins, super admins, and visitors, each scoped to the projects they should see.",
@@ -235,7 +258,7 @@ const differentiators = [
   {
     icon: CloudOff,
     title: "Built offline-first, not bolted on later",
-    body: "Most field-ops apps need a connection to load the form. Cor Pathway 360 stores everything in IndexedDB, signs and submits offline, and quietly catches up when the truck rolls back into town. Workers stop saying 'I'll do it when I get back to the office.'",
+    body: "Most field-ops apps need a connection to load the form. Cor Pathways stores everything in IndexedDB, signs and submits offline, and quietly catches up when the truck rolls back into town. Workers stop saying 'I'll do it when I get back to the office.'",
   },
   {
     icon: HardHat,
@@ -245,7 +268,7 @@ const differentiators = [
   {
     icon: Smartphone,
     title: "An app you install, not just a website",
-    body: "Add Cor Pathway 360 to a phone's home screen and it runs in standalone mode like a native app. Updates reach every device within 30 minutes, no App Store review cycle, no waiting for IT to push anything.",
+    body: "Add Cor Pathways to a phone's home screen and it runs in standalone mode like a native app. Updates reach every device within 30 minutes, no App Store review cycle, no waiting for IT to push anything.",
   },
   {
     icon: Code2,
@@ -301,9 +324,9 @@ export default function LandingPage() {
     <main className="min-h-screen bg-[var(--background)] text-[var(--ink)]">
       <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <Link className="flex items-center gap-3 text-sm font-bold tracking-tight text-[var(--ink)]" href="/">
+          <a className="flex items-center gap-3 text-sm font-bold tracking-tight text-[var(--ink)]" href={MARKETING_URL}>
             <Image
-              alt="Cor Pathway 360"
+              alt="Cor Pathways"
               className="h-9 w-auto"
               height={41}
               priority
@@ -313,7 +336,7 @@ export default function LandingPage() {
             <span className="hidden text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ink-muted)] sm:inline">
               360
             </span>
-          </Link>
+          </a>
           <nav className="flex items-center gap-2 text-sm">
             <Link
               className="hidden h-9 items-center rounded-md px-3 font-semibold text-[var(--ink-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--ink)] sm:inline-flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"
@@ -671,7 +694,7 @@ export default function LandingPage() {
             </h2>
             <p className="mt-4 text-base text-[var(--ink-muted)]">
               Trades, contractors, and carriers run different work, but they all answer to a safety program and, more
-              and more, a COR audit. Cor Pathway 360 fits each one, and the COR module adapts to the certifying partner you
+              and more, a COR audit. Cor Pathways fits each one, and the COR module adapts to the certifying partner you
               actually use.
             </p>
           </div>
@@ -832,10 +855,14 @@ export default function LandingPage() {
           <div>
             <p>© Cor Pathway 360. You own your code, your data, and your accounts. No lock in.</p>
             <p className="mt-1 text-xs">
-              Cor Pathway 360 is owned and operated by <span className="font-semibold text-[var(--ink)]">Yeti Digital Services Ltd.</span>
+              Cor Pathways is owned and operated by <span className="font-semibold text-[var(--ink)]">Yeti Digital Services Ltd.</span>
             </p>
           </div>
           <div className="flex flex-wrap gap-4">
+            {/* Marketing and content live on the separate marketing site. */}
+            <a className="hover:text-[var(--ink)]" href={MARKETING_URL}>Site</a>
+            <a className="hover:text-[var(--ink)]" href={`${MARKETING_URL}/pricing`}>What it costs</a>
+            <a className="hover:text-[var(--ink)]" href={`${MARKETING_URL}/cor`}>COR guides</a>
             <a className="hover:text-[var(--ink)]" href={REPO_URL} rel="noreferrer noopener" target="_blank">GitHub</a>
             <Link className="hover:text-[var(--ink)]" href="/help">Help</Link>
             <Link className="hover:text-[var(--ink)]" href="/login">Log in</Link>

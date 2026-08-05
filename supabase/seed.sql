@@ -29,14 +29,18 @@ insert into auth.users (
   updated_at
 )
 values
-  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'consultant@corpathways.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Cor Pathway 360 Consultant"}', now(), now()),
+  ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'consultant@corepathways.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Core Pathways Consultant"}', now(), now()),
   ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'superadmin@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Nora Super"}', now(), now()),
   ('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Alex Admin"}', now(), now()),
   ('00000000-0000-0000-0000-000000000103', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'manager@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Maya Manager"}', now(), now()),
   ('00000000-0000-0000-0000-000000000104', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'supervisor@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Sam Supervisor"}', now(), now()),
   ('00000000-0000-0000-0000-000000000105', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'worker@northwind.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Will Worker"}', now(), now()),
   ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'superadmin@blueridge.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Bri Super"}', now(), now()),
-  ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'worker@blueridge.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Blake Worker"}', now(), now())
+  ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'worker@blueridge.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Blake Worker"}', now(), now()),
+  -- A carrier portal contact, not staff anywhere. Gets no public.users row, which is
+  -- exactly the state a real invited carrier is in, and is what makes them resolve as a
+  -- subcontractor_user rather than a tenant member.
+  ('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'dana@redwater.test', crypt('Password123!', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Dana Whitfield"}', now(), now())
 on conflict (id) do nothing;
 
 -- GoTrue reads these token columns into plain Go strings, so a NULL is not "no token",
@@ -73,7 +77,7 @@ values
 on conflict (id) do nothing;
 
 insert into public.consultants (id, email, full_name)
-values ('00000000-0000-0000-0000-000000000001', 'consultant@corpathways.test', 'Cor Pathway 360 Consultant')
+values ('00000000-0000-0000-0000-000000000001', 'consultant@corepathways.test', 'Core Pathways Consultant')
 on conflict (id) do nothing;
 
 insert into public.permission_profiles (id, tenant_id, name, power_ceiling, capabilities, is_default)
@@ -131,5 +135,46 @@ values
   ('10000000-0000-0000-0000-000000000001', 'company_info_and_logo', 'left'),
   ('10000000-0000-0000-0000-000000000002', 'company_info_only', 'left')
 on conflict (tenant_id) do nothing;
+
+-- Subcontractor carrier module.
+--
+-- Off for Northwind so the toggle itself is testable from its default state, and two
+-- carriers seeded underneath it so the screens have something to show the moment it is
+-- switched on.
+--
+-- Redwater gets a portal contact with a password. In production a carrier signs in with
+-- a magic link and never has one, but the identity is an ordinary auth user either way,
+-- so giving this one a password lets an end-to-end test drive the portal through the
+-- real login page rather than through a test-only back door. Nothing about the portal is
+-- special-cased for it.
+insert into public.subcontractor (id, tenant_id, legal_name, operating_name, contact_name, contact_email, contact_phone, nsc_number)
+values
+  ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Redwater Hauling Ltd.', 'Redwater Trucking', 'Dana Whitfield', 'dana@redwater.test', '555-0301', 'AB1234567'),
+  ('40000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Two Hills Transport Inc.', null, 'Sam Okonkwo', 'sam@twohills.test', '555-0302', 'AB7654321')
+on conflict (id) do nothing;
+
+-- Northwind requires two million on auto and general liability, so an under-limit
+-- certificate is reachable in a test without configuring anything first.
+insert into public.subcontractor_requirement_setting (tenant_id, slot_key, minimum_coverage_amount)
+values
+  ('10000000-0000-0000-0000-000000000001', 'fleet_insurance', 2000000),
+  ('10000000-0000-0000-0000-000000000001', 'general_liability', 2000000)
+on conflict (tenant_id, slot_key) do nothing;
+
+-- One accepted certificate and one expiring one, so the dashboard, the Coming due panel,
+-- and the carrier page all have a non-empty state on a fresh database.
+insert into public.subcontractor_document (id, tenant_id, subcontractor_id, slot_key, title, issued_date, expiry_date, due_date, coverage_amount, insurer, review_status, reviewed_at)
+values
+  ('41000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'fleet_insurance', 'Fleet insurance', current_date - 300, current_date + 65, current_date + 65, 2000000, 'Prairie Mutual', 'approved', now()),
+  ('41000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'general_liability', 'General liability insurance', current_date - 340, current_date + 20, current_date + 20, 2000000, 'Prairie Mutual', 'approved', now())
+on conflict (id) do nothing;
+
+insert into public.subcontractor_user (id, email, full_name)
+values ('00000000-0000-0000-0000-000000000301', 'dana@redwater.test', 'Dana Whitfield')
+on conflict (id) do nothing;
+
+insert into public.subcontractor_user_access (subcontractor_user_id, subcontractor_id, tenant_id)
+values ('00000000-0000-0000-0000-000000000301', '40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001')
+on conflict (subcontractor_user_id, subcontractor_id) do nothing;
 
 set session_replication_role = origin;

@@ -5,7 +5,11 @@ const eslintConfig = [
   ...nextVitals,
   ...nextTypescript,
   {
-    ignores: [".next/**", "node_modules/**", "coverage/**"],
+    // supabase/.temp and output/playwright are scratch written by the Supabase CLI and
+    // by a Playwright run. Both are gitignored, but eslint walks the working tree rather
+    // than the index, so without this anyone who starts Supabase locally or runs the
+    // end-to-end suite gets a few hundred lint errors out of minified vendor files.
+    ignores: [".next/**", "node_modules/**", "coverage/**", "supabase/.temp/**", "output/**"],
   },
   {
     // Honor the underscore-prefix convention for deliberately-unused bindings

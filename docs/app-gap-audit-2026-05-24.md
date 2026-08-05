@@ -1,4 +1,4 @@
-# Cor Pathway 360 App Gap Audit And Restart Handoff
+# Core Pathways App Gap Audit And Restart Handoff
 
 Generated: 2026-05-24 02:52 America/Vancouver  
 Repo: `C:\Users\blake\OneDrive\Documents\cor pathway non safety app`  
@@ -57,7 +57,7 @@ Fix slice:
 ## Priority 2 - Real SSO Login
 
 Gap:
-- The login screen displays `Login with Cor Pathway 360 SSO`, but login actions only implement email/password sign-in and signup.
+- The login screen displays `Login with Core Pathways SSO`, but login actions only implement email/password sign-in and signup.
 - The spec requires email-first login plus an SSO option.
 
 Evidence:

@@ -1,7 +1,7 @@
 {
-  "name": "Cor Pathway 360",
-  "short_name": "Cor Pathway",
-  "description": "Cor Pathway 360 offline worker app.",
+  "name": "Core Pathways Operations",
+  "short_name": "Core Pathways",
+  "description": "Core Pathways Operations offline worker app.",
   "start_url": "/web",
   "scope": "/",
   "display": "standalone",

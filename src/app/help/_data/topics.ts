@@ -15,6 +15,7 @@ export type HelpCategory =
   | "Equipment"
   | "Inventory"
   | "Transport & ELD"
+  | "Subcontractors"
   | "Documents & Resources"
   | "Analytics & Reports"
   | "Offline & Sync"
@@ -28,6 +29,7 @@ export const helpCategories: HelpCategory[] = [
   "Equipment",
   "Inventory",
   "Transport & ELD",
+  "Subcontractors",
   "Documents & Resources",
   "Analytics & Reports",
   "Offline & Sync",
@@ -347,7 +349,7 @@ Go to **developer.gomotive.com** and sign in with your Motive account. Look for 
 
 ## Step 2: Create a new app
 
-Choose **Create App** (sometimes called "New Application" or "Register App"). Give it a name you'll recognise, such as **"Cor Pathway 360 HOS"**. A description like "Reads Hours of Service into our compliance app" is fine.
+Choose **Create App** (sometimes called "New Application" or "Register App"). Give it a name you'll recognise, such as **"Cor Pathways HOS"**. A description like "Reads Hours of Service into our compliance app" is fine.
 
 ## Step 3: Set the redirect URL
 
@@ -555,7 +557,7 @@ The PWA polls for sync every 30 minutes when online. To force one immediately, t
   },
   {
     slug: "install-on-phone",
-    title: "Install Cor Pathway 360 as an app on your phone",
+    title: "Install Core Pathways as an app on your phone",
     category: "Offline & Sync",
     summary: "Add to home screen turns the web app into a real installed app on iPhone, Android, and desktop.",
     tags: ["install", "pwa", "phone", "home screen", "iphone", "android"],
@@ -569,7 +571,7 @@ In Chrome, Edge, or any Chromium browser, an **Install** banner appears at the b
 
 ## iPhone and iPad
 
-iOS Safari does not offer a one-tap install. Tap the **Share** button in Safari, then choose **Add to Home Screen**. Confirm. The Cor Pathway 360 icon now lives on the home screen and opens in standalone mode.
+iOS Safari does not offer a one-tap install. Tap the **Share** button in Safari, then choose **Add to Home Screen**. Confirm. The Core Pathways icon now lives on the home screen and opens in standalone mode.
 
 ## Confirming the install
 
@@ -793,6 +795,157 @@ Because the charge is worked out from the moves, a partial pickup needs no speci
 ## Reading the report
 
 Pick a **From** and a **To** date and run it. Charges are grouped by customer site, with a line per item showing the rate and the amount, a subtotal per site, and a grand total for the period.`,
+  },
+  {
+    slug: "track-subcontractor-carriers",
+    title: "Track the carriers you hire",
+    category: "Subcontractors",
+    summary: "Collect a hired carrier's insurance, carrier profile, and WCB paperwork, with expiry warnings and a portal they fill in themselves.",
+    tags: ["subcontractor", "carrier", "insurance", "wcb", "carrier profile", "portal", "due diligence", "broker"],
+    body: `## What this is for
+
+You hire other carriers to cover work you cannot reach yourself. This keeps their insurance, carrier profile, and WCB paperwork on file, tells you before anything lapses, and gives each carrier a page where they can send you what is missing.
+
+**Be clear about what it is not.** Alberta Transportation does not require you to hold documents on a carrier you hire. Its requirements run to whoever holds the Safety Fitness Certificate, and an independent carrier holds their own. This is *your* due diligence file, and the reasons to keep it are your insurer, your customer contracts, WCB liability for an uncovered subcontractor, and your position if a hired carrier has a bad crash. Do not tell a carrier the government requires this, because it does not, and they may well know that.
+
+## Turn it on
+
+**Setup** in the admin panel, find **Subcontractors**, click **On**. A Subcontractors entry appears in the side navigation. Only a Super Admin can switch modules on and off; if nothing happens when you click, read the message at the top of the Setup page.
+
+## Set your bar first
+
+Click **Set your coverage limits and warning windows** from the Subcontractors page. The list of documents is fixed, but the bar is yours:
+
+- **Minimum limit** on fleet, general liability, and cargo insurance. Set these to whatever your contracts call for. A certificate that comes in underneath is flagged the moment it is filed instead of during a claim.
+- **Warn this many days ahead**, per document. Thirty is the default.
+- **Refresh every (months)** for the carrier profile and the WCB rate statement. Those two carry no expiry of their own, so they fall due on an interval instead. Six and twelve months are the defaults.
+- **Collect this** switches a document off entirely, for a carrier type that has no use for it. **Missing it makes the carrier non-compliant** keeps collecting a document without letting a gap fail them.
+
+Do this before you add carriers, so the first certificate you file is measured against the right bar.
+
+## Add a carrier and file what you already have
+
+Add the carrier with their legal name and a contact. Then file whatever is already sitting in your inbox: open a document, choose the file, and enter the dates and limits off the certificate. Anything you file yourself is accepted straight away, because you are the one accepting it.
+
+Fill in the **insurance broker** while you are there. Renewal certificates come from the broker, not the carrier, so when a renewal goes quiet that contact is the fastest way to the document.
+
+## Invite the carrier
+
+On the carrier's page, under **Portal access**, enter a name and email and click **Send sign-in link**. They get an email with a link and **no password to create**. Sending again to the same address just issues a fresh link, so that is also your resend button.
+
+They can only ever see their own company. They cannot see your other carriers, your workers, or anything else in your account.
+
+## What the carrier does
+
+They open the link and see a short checklist: what you need, what you already have, what is expiring, and the coverage limits you require. They upload each document with its dates and limits, and they can correct their own contact and broker details.
+
+What they **cannot** do is mark their own paperwork accepted. Everything they send arrives as **Awaiting review** and stays that way until you look at it.
+
+## Review what they send
+
+Anything waiting appears in a **Waiting on you** panel at the top of the carrier's page. Open the file, then either:
+
+- **Accept.** It becomes the document on file and replaces the one it supersedes. When you accept a carrier profile you also record the safety rating and monitoring status you read off it, because that is the part anyone actually makes a decision on.
+- **Send back**, with a reason. The reason is required, and it shows on the carrier's page so they know what to fix. Sending something back without saying why just means they send the same thing again.
+
+## Reading the statuses
+
+| What you see | What it means |
+| --- | --- |
+| On file | Accepted, in date, and meets your limit |
+| Due soon | Inside your warning window |
+| Overdue | Past its date. The carrier is non-compliant |
+| Under your limit | Accepted and in date, but the coverage is below your minimum |
+| Awaiting review | The carrier sent it and nobody has checked it yet |
+| Not on file | Never received |
+
+The carrier list is sorted worst first, because the point of the screen is what needs chasing. **Coming due** above it shows everything falling due across all your carriers, nearest first, which is the Monday morning list.
+
+## Warnings
+
+Once a due date enters your warning window, the admins on your account get a notice, a sharper one inside the last week, and a lapsed notice once it is past. You are told once per stage, not once per day. Widening a warning window applies to what you are already holding, not just to the next thing filed.
+
+## Export the file
+
+**Export their file** on a carrier's page prints their whole record: who they are, what is outstanding, every requirement with its dates and limits, and the history of what you held and when you checked it. Print it or save it as a PDF. The history is the part that matters after an incident, when the question is what you had on file on a given date.`,
+  },
+  {
+    slug: "subcontractor-troubleshooting",
+    title: "Subcontractors: checking your work and fixing problems",
+    category: "Subcontractors",
+    summary: "How to tell your carrier file is actually right, and what every error message means.",
+    tags: ["subcontractor", "carrier", "troubleshooting", "error", "check", "problem", "not working"],
+    body: `## A five minute check that your file is real
+
+Do this once a month. It takes longer to read than to do.
+
+1. Open **Subcontractors**. Every carrier at the top of the list should be one you expect to see there. The list is sorted worst first, so anything red at the top is either a real gap or a carrier you no longer hire and should archive.
+2. Look at **Coming due**. Everything there should have a name you recognise and a date that makes sense. An empty panel means nothing falls due inside your warning windows, which is good, not broken.
+3. Open one carrier you believe is fully covered and read the badges. Every required row should say **On file**.
+4. Click **Export their file** on that carrier and read the history at the bottom. If it shows accepted dates for the documents you expect, your record will stand up. If the history is thin, you are holding certificates without a record of when anybody checked them.
+5. Check one insurance row has a **coverage limit** recorded, not blank. See below for why blank is treated as a failure.
+
+## The status that confuses people most
+
+**Under your limit** means the certificate is accepted and in date, and the cover is still less than you require. It is not a mistake, it is the module doing its job.
+
+A **blank** coverage limit is also treated as under your limit. That is deliberate: a certificate that cannot be shown to meet your bar does not meet it, and reading a blank field as "fine" is exactly how a gap survives to the day of a claim. If the limit really is on the certificate, open the document, file it again, and type the limit in.
+
+## Error messages, and what to do
+
+**"Only a Super Admin can change company settings."**
+You are an Admin, not a Super Admin. Module toggles and company settings are Super Admin only. Ask yours to switch it on.
+
+**"A subcontractor with that legal name already exists."**
+You already have that carrier, possibly archived. Search the list before adding. Archived carriers are hidden from the main list but still hold the name.
+
+**"Fleet insurance needs an expiry date, or nothing can warn you before it lapses."**
+Insurance and clearance documents are tracked by the date printed on them, so the expiry is required. If the certificate genuinely has no expiry, it is the wrong document.
+
+**"Carrier profile needs the date it was issued."**
+The carrier profile and the WCB rate statement carry no expiry, so they fall due a set number of months after the date they were issued. Enter the issue date, not a guess at an expiry.
+
+**"Say why you are returning it."**
+A rejection needs a reason. The carrier sees it, and without one they will send you the same document again.
+
+**"That document is switched off for your company."**
+Somebody turned that requirement off under **Requirements**. Turn it back on if you want it collected.
+
+**"Portal invitations need a service role key, which is not configured."**
+A deployment setting is missing. This is not something you can fix from the app; tell whoever runs your installation.
+
+**"Login created, but the email was not sent."**
+The portal login exists and works, but outbound email is not configured, so nothing was delivered. Until that is fixed you can copy the carrier in another way, or have your installer set up email delivery.
+
+**"Inviting carriers is disabled in the demo."**
+You are in the shared demo account. Demo accounts never create logins or send email to outside addresses, on purpose.
+
+## The carrier says they sent it and you cannot see it
+
+Work down this list:
+
+1. Is it in **Waiting on you** at the top of their page? An upload arrives as awaiting review, not as on file. If it is there, it worked, and it is waiting on you.
+2. Did you already send it back? A returned document leaves the slot empty again and shows your reason on their page. They may be looking at the reason and assuming you have it.
+3. Are they signed in as the right company? A contact invited for two of your carriers sees both, and it is easy to upload against the wrong one.
+4. Has their access been revoked? Check **Portal access** on the carrier's page. A revoked contact can still sign in but sees nothing.
+
+## The carrier cannot get in
+
+Send the sign-in link again from **Portal access**. Links are single use and do expire. There is no password to reset, because there is no password.
+
+If they say the link takes them somewhere that looks like a marketing site rather than their checklist, they are signed in under a different account in that browser. Have them sign out and click the link again.
+
+## A warning did not arrive
+
+- Warnings go to Admins and Super Admins, not to every worker.
+- You are told once per stage, not once per day. If you already got the first warning for a document, you will not get another until it moves into its final week or lapses.
+- A document **awaiting review** is not cover and is not warned about. Only accepted documents are.
+- A document you already replaced is not warned about either.
+- Check the warning window under **Requirements**. If it is set to seven days you will not hear anything at thirty.
+
+## Something looks wrong that is not in this list
+
+Export the carrier's file and read the history. It records every accepted document, when it was accepted, and what replaced it. Most confusion about this module resolves the moment you can see the order things happened in.`,
   },
 ];
 

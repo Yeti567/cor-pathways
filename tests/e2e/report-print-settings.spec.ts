@@ -13,7 +13,7 @@ test.describe("report print settings", () => {
     await expect(page.getByText("123 Safety Way")).toBeVisible();
     await expect(page.getByText("Phone: 604-555-0199")).toBeVisible();
     await expect(page.getByAltText("Acme Safety Ltd. logo")).toBeVisible();
-    await expect(page.getByText("Controlled copy when printed from Cor Pathway 360.")).toBeVisible();
+    await expect(page.getByText("Controlled copy when printed from Core Pathways.")).toBeVisible();
     await expect(page.getByText("Prepared for audit by")).toBeVisible();
     await expect(page.getByText("Jordan Admin")).toBeVisible();
     await expect(page.getByText("Company ID", { exact: true })).toBeVisible();

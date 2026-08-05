@@ -11,6 +11,7 @@ import {
   FileSliders,
   FileText,
   Globe,
+  Handshake,
   ListChecks,
   MapPin,
   Package,
@@ -31,6 +32,7 @@ import {
   updateGcSetting,
   updateInventorySetting,
   updateMaintenanceContact,
+  updateSubcontractorsSetting,
   updateTradesSetting,
   updateTransportSetting,
 } from "@/app/admin/actions";
@@ -38,6 +40,7 @@ import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { regionConfig } from "@/lib/region";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   buildProductionReadinessChecklist,
   productionReadinessCounts,
@@ -89,10 +92,21 @@ function productionStatusClass(status: ProductionReadinessStatus) {
 // not exposed through PostgREST, so it is read via a security-definer RPC.
 // Returns null when the RPC is unavailable so the checklist falls back to a
 // manual "verify" prompt instead of a misleading status.
-async function fetchAppliedMigrationNames(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-): Promise<string[] | null> {
-  const rpcClient = supabase as unknown as {
+//
+// Read through the service role rather than the visitor's own session. The RPC used to
+// be granted to authenticated, which meant every worker in every tenant could ask the
+// database which migrations had run. Nobody needed that, and this is the only caller, so
+// the grant was revoked and the read moved to a client that legitimately holds it. When
+// there is no service role key the function returns null, which the checklist already
+// treats as "verify manually".
+async function fetchAppliedMigrationNames(): Promise<string[] | null> {
+  const adminClient = createSupabaseAdminClient();
+
+  if (!adminClient) {
+    return null;
+  }
+
+  const rpcClient = adminClient as unknown as {
     rpc: (fn: string) => Promise<{ data: string[] | null; error: unknown }>;
   };
 
@@ -109,7 +123,18 @@ async function fetchAppliedMigrationNames(
   }
 }
 
-export default async function SetupPage() {
+type SetupPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function SetupPage({ searchParams }: SetupPageProps) {
+  const params = await searchParams;
+  const notice = firstParam(params.notice);
+  const error = firstParam(params.error);
   const context = await requireAppUser();
 
   if (!canUseAdminPanel(context.appUser)) {
@@ -256,7 +281,7 @@ export default async function SetupPage() {
     },
   ];
   const readyCount = setupCards.filter((card) => card.ready).length;
-  const appliedMigrationNames = await fetchAppliedMigrationNames(supabase);
+  const appliedMigrationNames = await fetchAppliedMigrationNames();
   const productionChecklist = buildProductionReadinessChecklist({ appliedMigrationNames });
   const productionCounts = productionReadinessCounts(productionChecklist);
   const transportEnabled = Boolean(context.tenant?.transport_enabled);
@@ -265,6 +290,7 @@ export default async function SetupPage() {
   const dailyInspectionEnabled = Boolean(context.tenant?.daily_inspection_enabled);
   const tradesEnabled = Boolean(context.tenant?.trades_enabled);
   const inventoryEnabled = Boolean(context.tenant?.inventory_enabled);
+  const subcontractorsEnabled = Boolean(context.tenant?.subcontractors_enabled);
   const gcEnabled = Boolean(context.tenant?.gc_enabled);
   // Region (country) decides which safety framework a tenant sees. COR is a
   // Canadian concept; US tenants get the OSHA surface instead and never see COR.
@@ -292,6 +318,25 @@ export default async function SetupPage() {
       tenantName={context.tenant?.name ?? "Company profile"}
       title="Setup"
     >
+      {/*
+        Every module toggle and company setting on this page redirects back here with a
+        notice or an error, and until now none of them were rendered. The silent case
+        that mattered was applyTenantSettingsPatch refusing a write it could not make:
+        it goes to the trouble of telling a non-super-admin that only a Super Admin can
+        change company settings, and the message had nowhere to land, so the toggle just
+        appeared not to work.
+      */}
+      {notice ? (
+        <p className="mb-4 rounded-md border border-[var(--success)] bg-emerald-50 p-3 text-sm text-[var(--success)]">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mb-4 rounded-md border border-[var(--danger)] bg-red-50 p-3 text-sm text-[var(--danger)]">
+          {error}
+        </p>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
         <div className="space-y-4">
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
@@ -928,6 +973,74 @@ export default async function SetupPage() {
                           : "bg-[var(--surface-muted)] text-[var(--ink)]"
                       }`}
                       disabled={!inventoryEnabled}
+                      type="submit"
+                    >
+                      <ToggleLeft className="h-4 w-4" aria-hidden="true" />
+                      Off
+                    </button>
+                  </form>
+                </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 rounded-md border border-[var(--border)] bg-white p-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
+                  <Handshake className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--ink)]">
+                    Subcontractors
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--ink-muted)]">
+                      {subcontractorsEnabled ? (
+                        <ToggleRight className="h-4 w-4 text-[var(--success)]" aria-hidden="true" />
+                      ) : (
+                        <ToggleLeft className="h-4 w-4 text-[var(--ink-muted)]" aria-hidden="true" />
+                      )}
+                      {subcontractorsEnabled ? "On" : "Off"}
+                    </span>
+                  </h3>
+                  <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                    Keep the insurance, carrier profile, and WCB paperwork of the carriers you hire on file, with
+                    expiry dates and warnings before anything lapses. Your own due diligence record, not something
+                    Alberta Transportation requires of you. Turn off if you do not hire other carriers.
+                  </p>
+                  {subcontractorsEnabled ? (
+                    <Link
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+                      href="/admin/subcontractors"
+                    >
+                      Open Subcontractors
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+              <div className="inline-grid w-full grid-cols-2 overflow-hidden rounded-md border border-[var(--border)] sm:w-auto">
+                  <form action={updateSubcontractorsSetting}>
+                    <input name="enabled" type="hidden" value="true" />
+                    <button
+                      aria-pressed={subcontractorsEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none ${
+                        subcontractorsEnabled
+                          ? "bg-[var(--primary)] text-white"
+                          : "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                      }`}
+                      disabled={subcontractorsEnabled}
+                      type="submit"
+                    >
+                      <ToggleRight className="h-4 w-4" aria-hidden="true" />
+                      On
+                    </button>
+                  </form>
+                  <form action={updateSubcontractorsSetting}>
+                    <input name="enabled" type="hidden" value="false" />
+                    <button
+                      aria-pressed={!subcontractorsEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none border-l border-[var(--border)] ${
+                        subcontractorsEnabled
+                          ? "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                          : "bg-[var(--surface-muted)] text-[var(--ink)]"
+                      }`}
+                      disabled={!subcontractorsEnabled}
                       type="submit"
                     >
                       <ToggleLeft className="h-4 w-4" aria-hidden="true" />

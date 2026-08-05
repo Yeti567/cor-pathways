@@ -7,7 +7,6 @@ import {
   type BillingPlace,
 } from "@/lib/inventory-billing";
 
-const DAY = 86_400_000;
 const periodStartMs = Date.parse("2026-06-01T00:00:00Z");
 const periodEndMs = Date.parse("2026-06-11T00:00:00Z"); // a 10-day period
 

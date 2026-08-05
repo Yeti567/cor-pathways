@@ -8,6 +8,8 @@ export type TenantRow = Database["public"]["Tables"]["tenants"]["Row"];
 export type AppUserRow = Database["public"]["Tables"]["users"]["Row"];
 export type ConsultantRow = Database["public"]["Tables"]["consultants"]["Row"];
 export type PermissionProfileRow = Database["public"]["Tables"]["permission_profiles"]["Row"];
+export type SubcontractorUserRow = Database["public"]["Tables"]["subcontractor_user"]["Row"];
+export type SubcontractorUserAccessRow = Database["public"]["Tables"]["subcontractor_user_access"]["Row"];
 
 export type CurrentUserContext =
   | {
@@ -31,6 +33,19 @@ export type CurrentUserContext =
       authUser: User;
       appUser: null;
       consultant: ConsultantRow;
+      tenant: null;
+      permissionProfile: null;
+    }
+  // A person at a hired carrier. Deliberately carries no tenant and no permission
+  // profile: they are not staff anywhere, and anything that reads `tenant` to decide
+  // what a signed-in person may do must see nothing rather than something plausible.
+  | {
+      status: "subcontractor_user";
+      authUser: User;
+      appUser: null;
+      consultant: null;
+      subcontractorUser: SubcontractorUserRow;
+      access: SubcontractorUserAccessRow[];
       tenant: null;
       permissionProfile: null;
     }
@@ -117,6 +132,40 @@ export const getCurrentUserContext = cache(async function getCurrentUserContext(
     };
   }
 
+  // Checked last, and only once the caller has failed to be staff or a consultant. The
+  // order matters: a person must never be able to become a carrier login by also holding
+  // a row here, and reaching this branch at all means every other identity came back
+  // empty.
+  const { data: subcontractorUser, error: subcontractorUserError } = await supabase
+    .from("subcontractor_user")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle<SubcontractorUserRow>();
+
+  if (subcontractorUserError) {
+    throw subcontractorUserError;
+  }
+
+  if (subcontractorUser) {
+    const { data: access } = await supabase
+      .from("subcontractor_user_access")
+      .select("*")
+      .eq("subcontractor_user_id", user.id)
+      .eq("allowed", true)
+      .returns<SubcontractorUserAccessRow[]>();
+
+    return {
+      status: "subcontractor_user",
+      authUser: user,
+      appUser: null,
+      consultant: null,
+      subcontractorUser,
+      access: access ?? [],
+      tenant: null,
+      permissionProfile: null,
+    };
+  }
+
   return {
     status: "profile_pending",
     authUser: user,
@@ -147,6 +196,34 @@ export async function requireAppUser() {
   const context = await requireCurrentUser();
 
   if (context.status !== "app_user") {
+    // A carrier login has no business anywhere in the staff app, and bouncing them to
+    // /choose would just show them a menu of doors they cannot open. Send them home.
+    if (context.status === "subcontractor_user") {
+      redirect("/sub");
+    }
+
+    redirect("/choose");
+  }
+
+  return context;
+}
+
+/**
+ * Gate for the carrier portal.
+ *
+ * The mirror image of requireAppUser: staff and consultants are sent back to their own
+ * surface rather than being shown a carrier's checklist. A portal login with no live
+ * access rows has been revoked, so it is signed out to /choose rather than left looking
+ * at an empty page it cannot act on.
+ */
+export async function requireSubcontractorUser() {
+  const context = await requireCurrentUser();
+
+  if (context.status !== "subcontractor_user") {
+    redirect("/choose");
+  }
+
+  if (context.access.length === 0) {
     redirect("/choose");
   }
 

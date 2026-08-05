@@ -6,6 +6,9 @@ export type EmailRelayPayload = {
   // Optional HTML alternative. When omitted, Resend gets a text-only email
   // (unchanged behaviour for the notification relay).
   html?: string;
+  // Optional Reply-To. Lets mail be sent from a no-reply address while replies
+  // route to a monitored inbox. When omitted, Resend gets no reply_to (unchanged).
+  replyTo?: string;
 };
 
 export type RelayAuthResult = { ok: true } | { error: string; ok: false; status: number };
@@ -80,8 +83,10 @@ export function buildResendRequest(payload: EmailRelayPayload, apiKey: string) {
     init: {
       body: JSON.stringify({
         from: payload.from,
-        // JSON.stringify drops undefined keys, so a text-only payload is unchanged.
+        // JSON.stringify drops undefined keys, so a text-only, no-reply-to payload
+        // is unchanged.
         html: payload.html,
+        reply_to: payload.replyTo,
         subject: payload.subject,
         text: payload.body,
         to: [payload.to],

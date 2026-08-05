@@ -11,6 +11,7 @@
 
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { isDemoTenant } from "@/lib/demo";
 import { sendViaResend } from "@/lib/resend-relay";
 
 type AdminClient = SupabaseClient<Database>;
@@ -20,6 +21,10 @@ export type WorkerInviteParams = {
   fullName: string;
   companyName: string;
   redirectTo: string;
+  // The inviting admin's tenant. A demo tenant cannot invite: it would create an
+  // auth user for an arbitrary email and send it a Resend email on the
+  // deployment's account, which is exactly what the demo must not do.
+  tenantId: string;
 };
 
 export type WorkerInviteResult =
@@ -56,18 +61,18 @@ export function buildWorkerInviteEmail(params: {
 }): WorkerInviteEmail {
   const firstName = params.fullName.trim().split(/\s+/)[0] || "there";
   const company = params.companyName.trim() || "Your company";
-  const subject = `You are invited to ${company} on Cor Pathway 360`;
+  const subject = `You are invited to ${company} on Core Pathways`;
 
   const text = [
     `Hi ${firstName},`,
     "",
-    `${company} has invited you to Cor Pathway 360. Click the link below to accept your invitation and set up your account:`,
+    `${company} has invited you to Core Pathways. Click the link below to accept your invitation and set up your account:`,
     "",
     params.actionLink,
     "",
     "This link is single use. If you were not expecting this invitation, you can safely ignore this email.",
     "",
-    "Cor Pathway 360",
+    "Core Pathways",
   ].join("\n");
 
   const safeFirstName = escapeHtml(firstName);
@@ -77,11 +82,11 @@ export function buildWorkerInviteEmail(params: {
   const html = [
     '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;color:#0f172a;">',
     `<p style="font-size:16px;">Hi ${safeFirstName},</p>`,
-    `<p style="font-size:16px;line-height:1.5;"><strong>${safeCompany}</strong> has invited you to Cor Pathway 360. Accept your invitation and set up your account:</p>`,
+    `<p style="font-size:16px;line-height:1.5;"><strong>${safeCompany}</strong> has invited you to Core Pathways. Accept your invitation and set up your account:</p>`,
     `<p style="margin:28px 0;"><a href="${safeLink}" style="background:#0a6b54;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 20px;border-radius:8px;display:inline-block;">Accept invitation</a></p>`,
     `<p style="font-size:13px;color:#64748b;line-height:1.5;">If the button does not work, paste this link into your browser:<br><a href="${safeLink}" style="color:#0a6b54;word-break:break-all;">${safeLink}</a></p>`,
     '<p style="font-size:13px;color:#64748b;line-height:1.5;">This link is single use. If you were not expecting this invitation, you can safely ignore this email.</p>',
-    '<p style="font-size:13px;color:#64748b;">Cor Pathway 360</p>',
+    '<p style="font-size:13px;color:#64748b;">Core Pathways</p>',
     "</div>",
   ].join("");
 
@@ -91,6 +96,9 @@ export function buildWorkerInviteEmail(params: {
 type InviteDeps = {
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
+  // Injectable so the pure invite logic can be unit tested without a database.
+  // Defaults to the real tenants.demo_mode lookup.
+  isDemoTenant?: (client: AdminClient, tenantId: string) => Promise<boolean>;
 };
 
 /**
@@ -105,6 +113,13 @@ export async function inviteWorkerByEmail(
 ): Promise<WorkerInviteResult> {
   const env = deps.env ?? process.env;
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const checkDemoTenant = deps.isDemoTenant ?? isDemoTenant;
+
+  // A demo tenant must not create auth users or send email. Block before
+  // generateLink so no user is created and nothing is sent.
+  if (await checkDemoTenant(adminSupabase, params.tenantId)) {
+    return { ok: false, error: "Inviting workers is disabled in the demo." };
+  }
 
   const { data, error } = await adminSupabase.auth.admin.generateLink({
     type: "invite",
@@ -147,8 +162,9 @@ export async function inviteWorkerByEmail(
     fullName: params.fullName,
   });
 
+  const replyTo = env.EMAIL_DELIVERY_REPLY_TO?.trim() || undefined;
   const sendResult = await sendViaResend(
-    { body: email.text, from, html: email.html, subject: email.subject, to: params.email },
+    { body: email.text, from, html: email.html, replyTo, subject: email.subject, to: params.email },
     apiKey,
     fetchImpl,
   );

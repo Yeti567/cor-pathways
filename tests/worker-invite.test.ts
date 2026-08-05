@@ -24,7 +24,7 @@ function env(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
 describe("buildWorkerInviteEmail", () => {
   it("puts the company in the subject and the link in both text and html", () => {
     const email = buildWorkerInviteEmail({ fullName: "Dana Jones", companyName: "Acme Freight", actionLink: ACTION_LINK });
-    expect(email.subject).toBe("You are invited to Acme Freight on Cor Pathway 360");
+    expect(email.subject).toBe("You are invited to Acme Freight on Core Pathways");
     expect(email.text).toContain("Hi Dana,");
     expect(email.text).toContain(ACTION_LINK);
     // The plain link has `&` escaped to `&amp;` inside the html href.
@@ -56,13 +56,22 @@ describe("inviteWorkerByEmail", () => {
     fullName: "Dana Jones",
     companyName: "Acme Freight",
     redirectTo: "https://corpathway360.com/auth/confirm",
+    tenantId: "tenant-1",
   };
+
+  // Every real invite path runs after the demo check; default it to "not a demo"
+  // so these tests exercise the send behaviour. The demo case is tested on its own.
+  const notDemo = async () => false;
 
   it("generates a link and sends a branded email via Resend", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email_1" }), { status: 200 }));
     const client = adminClientWithGenerateLink(okGenerateLink);
 
-    const result = await inviteWorkerByEmail(client, params, { env: env(), fetchImpl: fetchMock as unknown as typeof fetch });
+    const result = await inviteWorkerByEmail(client, params, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
 
     expect(result).toEqual({ ok: true, user: { id: "user-1" }, emailWarning: null });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -79,7 +88,7 @@ describe("inviteWorkerByEmail", () => {
     const generateLink = vi.fn(okGenerateLink);
     const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
 
-    await inviteWorkerByEmail(client, params, { env: env(), fetchImpl: fetchMock as unknown as typeof fetch });
+    await inviteWorkerByEmail(client, params, { env: env(), fetchImpl: fetchMock as unknown as typeof fetch, isDemoTenant: notDemo });
 
     expect(generateLink).toHaveBeenCalledWith({
       type: "invite",
@@ -92,7 +101,11 @@ describe("inviteWorkerByEmail", () => {
     const client = adminClientWithGenerateLink(() =>
       Promise.resolve({ data: { user: null, properties: null }, error: { message: "already registered" } }),
     );
-    const result = await inviteWorkerByEmail(client, params, { env: env(), fetchImpl: vi.fn() as unknown as typeof fetch });
+    const result = await inviteWorkerByEmail(client, params, {
+      env: env(),
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
     expect(result).toEqual({ ok: false, error: "already registered" });
   });
 
@@ -100,7 +113,11 @@ describe("inviteWorkerByEmail", () => {
     const fetchMock = vi.fn(async () => new Response("domain not verified", { status: 403 }));
     const client = adminClientWithGenerateLink(okGenerateLink);
 
-    const result = await inviteWorkerByEmail(client, params, { env: env(), fetchImpl: fetchMock as unknown as typeof fetch });
+    const result = await inviteWorkerByEmail(client, params, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -116,12 +133,29 @@ describe("inviteWorkerByEmail", () => {
     const result = await inviteWorkerByEmail(client, params, {
       env: { NODE_ENV: "test" },
       fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.emailWarning).toContain("Email delivery is not configured");
     }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks the invite for a demo tenant without creating a user or sending", async () => {
+    const fetchMock = vi.fn();
+    const generateLink = vi.fn(okGenerateLink);
+    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+
+    const result = await inviteWorkerByEmail(client, params, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: async () => true,
+    });
+
+    expect(result).toEqual({ ok: false, error: "Inviting workers is disabled in the demo." });
+    expect(generateLink).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

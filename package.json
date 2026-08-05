@@ -1,7 +1,7 @@
 {
-  "name": "corpathway-360-safety-app",
+  "name": "cor-pathway-non-safety-app",
   "version": "1.0.0",
-  "description": "Cor Pathway 360 Safety App. Multi-tenant, offline-first safety and field operations software for trades, contractors and carriers.",
+  "description": "Core Pathways Operations, a multi-tenant offline-first operations platform.",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
@@ -20,7 +20,7 @@
     "supabase",
     "offline-first"
   ],
-  "author": "Yeti Digital Services Ltd.",
+  "author": "Core Pathways",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

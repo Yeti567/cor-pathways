@@ -38,7 +38,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
 
-  const result = await sendViaResend(parsed.payload, apiKey);
+  const replyTo = process.env.EMAIL_DELIVERY_REPLY_TO?.trim() || undefined;
+  const result = await sendViaResend({ ...parsed.payload, replyTo }, apiKey);
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

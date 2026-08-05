@@ -58,3 +58,8 @@ supabase/.temp
 # Internal working notes kept outside the repo. Not product documentation.
 /SCREENSHOTS-INDEX.md
 /agent.md.txt
+
+# Working screenshots of a live admin console. The rule above only catches PNGs at the
+# repo root, so these were one "git add ." away from publishing real worker names, job
+# titles, and mobile numbers belonging to people who never agreed to it.
+/screenshots/

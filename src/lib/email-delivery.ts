@@ -104,7 +104,7 @@ export async function deliverEmailNotification(
         recipientName: notification.recipient_name,
         recipientType: notification.recipient_type,
         submissionId: notification.submission_id,
-        subject: notification.title || "Cor Pathway 360 notification",
+        subject: notification.title || "Core Pathways notification",
         tenantId: notification.tenant_id,
         to,
       }),

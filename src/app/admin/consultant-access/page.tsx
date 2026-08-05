@@ -108,7 +108,7 @@ export default async function ConsultantAccessPage({ searchParams }: ConsultantA
       .returns<TenantOption[]>();
 
     return (
-      <AdminShell eyebrow="Consultant console" tenantName="Cor Pathway 360" title="Consultant Override">
+      <AdminShell eyebrow="Consultant console" tenantName="Core Pathways" title="Consultant Override">
         {notice ? (
           <p className="mb-4 rounded-md border border-[var(--success)] bg-emerald-50 p-3 text-sm text-[var(--success)]">
             {notice}
@@ -164,6 +164,12 @@ export default async function ConsultantAccessPage({ searchParams }: ConsultantA
         </form>
       </AdminShell>
     );
+  }
+
+  // Consultants are served above. Everyone left has to be staff of this tenant. Stating
+  // it explicitly keeps a carrier portal login out of code that assumes an app user.
+  if (context.status !== "app_user") {
+    redirect(context.status === "subcontractor_user" ? "/sub" : "/choose");
   }
 
   if (!canUseAdminPanel(context.appUser)) {

@@ -10,6 +10,7 @@ import {
   FileText,
   FileSignature,
   FileSliders,
+  Handshake,
   LayoutDashboard,
   LifeBuoy,
   ListChecks,
@@ -40,6 +41,7 @@ const DAILY_INSPECTION_NAV_HREF = "/admin/daily-inspection";
 const TRADES_NAV_HREF = "/admin/trades";
 const GC_NAV_HREF = "/admin/projects";
 const INVENTORY_NAV_HREF = "/admin/inventory";
+const SUBCONTRACTORS_NAV_HREF = "/admin/subcontractors";
 const EQUIPMENT_NAV_HREF = "/admin/equipment";
 
 const navItems = [
@@ -58,6 +60,7 @@ const navItems = [
   { href: TRADES_NAV_HREF, label: "Trades", icon: Wrench },
   { href: GC_NAV_HREF, label: "Projects", icon: Building2 },
   { href: INVENTORY_NAV_HREF, label: "Inventory", icon: Package },
+  { href: SUBCONTRACTORS_NAV_HREF, label: "Subcontractors", icon: Handshake },
   { href: "/admin/workflows", label: "Workflow Station", icon: GitBranch },
   { href: "/admin/forms", label: "Forms", icon: ClipboardList },
   { href: "/admin/lists", label: "Managed Lists", icon: ListChecks },
@@ -96,6 +99,7 @@ export async function AdminShell({
   const tradesEnabled = Boolean(context.tenant?.trades_enabled);
   const gcEnabled = Boolean(context.tenant?.gc_enabled);
   const inventoryEnabled = Boolean(context.tenant?.inventory_enabled);
+  const subcontractorsEnabled = Boolean(context.tenant?.subcontractors_enabled);
   // OSHA is the US equivalent of COR; it shows only for United States workspaces.
   const country = coerceCountry(context.tenant?.country);
 
@@ -116,6 +120,7 @@ export async function AdminShell({
     .filter((item) => item.href !== TRADES_NAV_HREF || tradesEnabled)
     .filter((item) => item.href !== GC_NAV_HREF || gcEnabled)
     .filter((item) => item.href !== INVENTORY_NAV_HREF || inventoryEnabled)
+    .filter((item) => item.href !== SUBCONTRACTORS_NAV_HREF || subcontractorsEnabled)
     // When transport is on, the Vehicle Master inside Transport replaces the
     // general Equipment module, so hide the standalone Equipment nav entry to
     // avoid a confusing duplicate. The route still works for any deep links.
@@ -193,7 +198,10 @@ export async function AdminShell({
           </nav>
         </div>
 
-        <section>{children}</section>
+        {/* min-w-0 lets this grid item shrink below its content on mobile, so a
+            wide table inside an overflow-x-auto wrapper scrolls within its own
+            box instead of pushing the whole page sideways. */}
+        <section className="min-w-0">{children}</section>
       </div>
     </main>
   );

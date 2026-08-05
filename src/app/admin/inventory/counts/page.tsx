@@ -173,7 +173,9 @@ export default async function InventoryCountsPage({ searchParams }: CountsPagePr
       </section>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_420px]">
-        <div className="space-y-5">
+        {/* min-w-0 so this grid column can shrink below the Recent-counts table's
+            min-width, letting the table scroll in its own box on mobile. */}
+        <div className="min-w-0 space-y-5">
           <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
             <h3 className="border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
               Loss and write-off, by item

@@ -61,24 +61,13 @@ export type SyncMeta = {
   updatedAt: string;
 };
 
-class CorPathwaysOfflineDatabase extends Dexie {
+class CorePathwaysOfflineDatabase extends Dexie {
   cachedRecords!: Table<CachedRecord, string>;
   queuedMutations!: Table<QueuedMutation, string>;
   draftSubmissions!: Table<OfflineDraftSubmission, string>;
   syncMeta!: Table<SyncMeta, string>;
 
   constructor() {
-    /*
-      DO NOT RENAME THIS STRING, despite the "core" spelling being wrong everywhere
-      else. It is the IndexedDB database name on every device that has ever run this
-      app. Changing it does not rename the existing database, it creates a new empty
-      one, orphaning every cached record and every queued mutation still waiting to
-      sync. On an offline first app used by crews with no signal, that is unsynced
-      field paperwork silently disappearing.
-
-      If it ever genuinely needs to change, it needs a migration that opens the old
-      database, copies the tables across and then deletes it, not an edit here.
-    */
     super("core-pathways-offline");
 
     this.version(1).stores({
@@ -96,14 +85,14 @@ class CorPathwaysOfflineDatabase extends Dexie {
   }
 }
 
-let offlineDatabase: CorPathwaysOfflineDatabase | null = null;
+let offlineDatabase: CorePathwaysOfflineDatabase | null = null;
 
 export function getOfflineDatabase() {
   if (typeof window === "undefined") {
     throw new Error("Offline database is only available in the browser.");
   }
 
-  offlineDatabase ??= new CorPathwaysOfflineDatabase();
+  offlineDatabase ??= new CorePathwaysOfflineDatabase();
   return offlineDatabase;
 }
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Building2, LogOut, MonitorCog, Smartphone, UserRound } from "lucide-react";
 import { signOut } from "@/app/actions";
 import {
@@ -46,11 +47,18 @@ function ChoiceLink({
 export default async function ChoosePage() {
   const context = await requireCurrentUser();
 
+  // A carrier login has exactly one destination and no choice to make, so it never
+  // sees this page. Sending them straight through also means the surface menu stays a
+  // staff concept and never has to grow a fourth door that only one kind of user sees.
+  if (context.status === "subcontractor_user") {
+    redirect("/sub");
+  }
+
   const isAppUser = context.status === "app_user";
   const isConsultant = context.status === "consultant";
   const displayEmail = context.authUser.email ?? "Signed-in user";
   const displayName = isAppUser ? context.appUser.full_name : isConsultant ? context.consultant.full_name : displayEmail;
-  const tenantName = isAppUser ? context.tenant?.name ?? "Company profile" : "Cor Pathway 360";
+  const tenantName = isAppUser ? context.tenant?.name ?? "Company profile" : "Core Pathways";
   const canOpenAdmin = isConsultant || (isAppUser && canUseAdminPanel(context.appUser));
   const canOpenDesktop = canOpenAdmin || (isAppUser && canUseDesktopMonitor(context.appUser));
   const desktopHref = isAppUser && !canOpenAdmin && canUseDesktopMonitor(context.appUser) ? "/admin/monitor" : "/admin";

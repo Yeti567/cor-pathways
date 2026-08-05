@@ -1,4 +1,4 @@
-# Cor Pathway 360
+# Core Pathways Operations Platform
 ## Product Description and Source of Truth
 
 This document is the single source of truth for what the product is, who it serves, and what it must do.
@@ -7,7 +7,7 @@ This document is the single source of truth for what the product is, who it serv
 
 ## 1. What This Product Is
 
-Cor Pathway 360 is a multi-tenant, offline-first, mobile-first electronic forms and operations platform for industrial and trades companies. It digitizes the paper and clipboard processes that run a job site: site inspections, equipment inspections, time cards, mileage logs, material ordering, training records, hazard assessments, incident reports, and any other form a company runs on.
+Core Pathways Operations is a multi-tenant, offline-first, mobile-first electronic forms and operations platform for industrial and trades companies. It digitizes the paper and clipboard processes that run a job site: site inspections, equipment inspections, time cards, mileage logs, material ordering, training records, hazard assessments, incident reports, and any other form a company runs on.
 
 It is sold as a SaaS product. Each client company gets its own isolated tenant.
 
@@ -15,17 +15,13 @@ It is sold as a SaaS product. Each client company gets its own isolated tenant.
 
 ## 2. Positioning (Deliberate and Important)
 
-**This section was written for an earlier strategy and no longer describes how the product is sold. Corrected August 2026.**
+This product is intentionally NOT branded or sold as a safety app or a COR certification app.
 
-It used to say the product was intentionally NOT branded as a safety app or a COR certification app. That is no longer true, and had not been true for some time. The product is now sold as **Cor Pathway 360, safety and field operations software**, led by COR certification:
+The reason is commercial. Companies that do not want COR certification dismiss anything labelled a "safety app" as not for them. Real prospects have said this directly about the existing Core Pathways safety product. Core Pathways Operations is for any company that wants to replace paper forms, regardless of whether safety is the reason.
 
-- corpathway.com is a COR-first marketing site, and its structured data categorises the product as EHS management software.
-- The public repository describes it as field safety and compliance software with COR audit readiness.
-- The application's own landing page refers to COR, safety or certification around thirty times.
+The platform handles safety forms well (hazard assessments, inspections, incident reports), but safety is one capability among many, not the headline. A company can use it purely to track vehicle mileage, run time cards, or manage material ordering for projects and never touch a safety form. The product must read as an operations tool first.
 
-**The commercial insight underneath the old positioning still holds, and is the reason the product is broader than its marketing.** Companies that do not want COR certification dismiss anything labelled a "safety app" as not for them, and real prospects have said so directly. So while COR is the way in, a company can use this purely to track vehicle mileage, run time cards or manage material ordering and never touch a safety form. That breadth is a deliberate feature, not an accident, and it is worth protecting even though safety is now the headline.
-
-This is still a standalone product with its own repository and its own Supabase project, separate from the earlier Cor Pathways safety platform: no shared codebase, no shared database, no data flow.
+This is a standalone product. It has its own repository and its own Supabase project. It is walled off from the existing Core Pathways safety platform. There is no shared codebase, no shared database, and no data flow between the two products in v1.
 
 ---
 
@@ -35,7 +31,7 @@ Access is built on two independent dimensions: power level (what you can do) and
 
 ### Power levels (top to bottom)
 
-1. **Consultant.** Cor Pathway staff, above all tenants. See Section 4.
+1. **Consultant.** Core Pathways staff, above all tenants. See Section 4.
 2. **Super Admin.** Top of a single tenant. The only role that can remove Admins. Role and permission management plus full admin and app access.
 3. **Admin.** Admin panel plus app access. Manages forms, workers, locations, resources, and configuration.
 4. **Manager.** Admin-level capability scoped by reach. A manager assigned to one project is a project manager; the same role assigned to all projects is a general manager.
@@ -58,7 +54,7 @@ A visitor is not a user account and has no form permissions. A visitor is a pres
 
 ## 4. Consultant Access and the Override (Governance-Critical)
 
-The Consultant is Cor Pathway (the operator of the platform). The Consultant has access to every tenant by default, in order to update portals, repair broken configuration or code, and clean up a portal for a new user after a client leaves.
+The Consultant is Core Pathways (the operator of the platform). The Consultant has access to every tenant by default, in order to update portals, repair broken configuration or code, and clean up a portal for a new user after a client leaves.
 
 Every consultant login and every consultant action is logged and visible to the tenant's Super Admin. Consultant access is never silent.
 
@@ -193,7 +189,7 @@ Email-first login, with an optional SSO provider of the operator's choosing. Acc
 
 - **Worker chat / in-app messaging.** Out of scope. No Chat Permission column, no per-location chat toggle, no Chat profiles, no messaging UI.
 - **Visual drag-the-nodes workflow canvas.** The Workflow Station ships with a form-based step builder in v1. The visual canvas is a later phase.
-- **Data flow between this product and the Cor Pathways safety platform.** Walled off in v1.
+- **Data flow between this product and the Core Pathways safety platform.** Walled off in v1.
 
 ---
 

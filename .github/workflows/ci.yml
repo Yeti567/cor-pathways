@@ -1,0 +1,48 @@
+name: CI
+
+# main auto-deploys to production, so nothing broken may land on it. This gate
+# runs the same checks locally proven green (lint, types, unit tests, build) on
+# every push and pull request, and blocks the merge/deploy when any of them fail.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same ref supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm run test
+
+      # Placeholders only. publicEnv treats these as optional and asserts them at
+      # runtime, not build time, so the build needs no real secret. Real values
+      # live on Vercel; these just satisfy any code that reads the shape.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_placeholder
+          NEXT_PUBLIC_APP_URL: https://example.com

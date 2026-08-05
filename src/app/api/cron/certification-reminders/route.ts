@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sendCertificationExpiryNotifications } from "@/lib/certification-reminders";
 import { sendDailyInspectionNotifications } from "@/lib/daily-inspection-reminders";
 import { sendDocumentReviewNotifications } from "@/lib/document-reminders";
+import { sendSubcontractorExpiryNotifications } from "@/lib/subcontractor-reminders";
 import { sendTransportExpiryNotifications } from "@/lib/transport-reminders";
 import { sendHosViolationNotifications } from "@/lib/hos-reminders";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 type TenantRow = Pick<
   Database["public"]["Tables"]["tenants"]["Row"],
-  "id" | "name" | "transport_enabled" | "daily_inspection_enabled"
+  "id" | "name" | "transport_enabled" | "daily_inspection_enabled" | "subcontractors_enabled"
 >;
 
 export async function GET(request: Request) {
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
 
   const { data: tenants, error: tenantError } = await supabase
     .from("tenants")
-    .select("id, name, transport_enabled, daily_inspection_enabled")
+    .select("id, name, transport_enabled, daily_inspection_enabled, subcontractors_enabled")
     .order("name", { ascending: true })
     .returns<TenantRow[]>();
 
@@ -152,6 +153,36 @@ export async function GET(request: Request) {
 
       results.push({
         ...hosResult,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+      });
+    }
+
+    if (tenant.subcontractors_enabled) {
+      const subcontractorResult = await sendSubcontractorExpiryNotifications(tenant.id, now, supabase, {
+        auditClient: supabase,
+        auditSource: "cron",
+      });
+
+      if (subcontractorResult.created > 0) {
+        await recordTenantAuditEvent(
+          {
+            action: "subcontractor_reminders.send",
+            actorRole: "system",
+            entityTable: "notifications",
+            metadata: {
+              notification_count: subcontractorResult.created,
+              skipped_count: subcontractorResult.skipped,
+              tenant_name: tenant.name,
+            },
+            tenantId: tenant.id,
+          },
+          supabase,
+        );
+      }
+
+      results.push({
+        ...subcontractorResult,
         tenantId: tenant.id,
         tenantName: tenant.name,
       });

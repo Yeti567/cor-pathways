@@ -422,9 +422,135 @@ type InventoryItemRow = TenantScopedRow & {
   deleted_at: string | null;
 };
 
+type SubcontractorRow = TenantScopedRow & {
+  legal_name: string;
+  operating_name: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  nsc_number: string | null;
+  wcb_account_number: string | null;
+  broker_name: string | null;
+  broker_email: string | null;
+  broker_phone: string | null;
+  safety_rating: string | null;
+  monitoring_status: string | null;
+  carrier_profile_interval_months: number | null;
+  rate_statement_interval_months: number | null;
+  notes: string | null;
+  active: boolean;
+  created_by: string | null;
+  deleted_at: string | null;
+};
+
+type SubcontractorUserRow = {
+  id: string;
+  email: string;
+  full_name: string;
+  active: boolean;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type SubcontractorUserAccessRow = {
+  id: string;
+  subcontractor_user_id: string;
+  subcontractor_id: string;
+  tenant_id: string;
+  allowed: boolean;
+  invited_by: string | null;
+  invited_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type SubcontractorAuditLogRow = {
+  id: string;
+  tenant_id: string | null;
+  subcontractor_id: string | null;
+  subcontractor_user_id: string | null;
+  action: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+type SubcontractorRequirementSettingRow = TenantScopedRow & {
+  slot_key: string;
+  enabled: boolean;
+  required: boolean;
+  minimum_coverage_amount: number | null;
+  reminder_lead_days: number | null;
+  interval_months: number | null;
+};
+
+type SubcontractorDocumentRow = TenantScopedRow & {
+  subcontractor_id: string;
+  slot_key: string;
+  title: string | null;
+  storage_path: string | null;
+  document_number: string | null;
+  insurer: string | null;
+  coverage_amount: number | null;
+  deductible_amount: number | null;
+  additional_insured: boolean | null;
+  issued_date: string | null;
+  expiry_date: string | null;
+  due_date: string | null;
+  reminder_lead_days: number;
+  fields: Record<string, string | null>;
+  review_status: "pending" | "approved" | "rejected";
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  superseded_by_id: string | null;
+  submitted_by_subcontractor_user: string | null;
+  created_by: string | null;
+  deleted_at: string | null;
+};
+
 export type Database = {
   public: {
     Tables: {
+      subcontractor: {
+        Row: SubcontractorRow;
+        Insert: Partial<SubcontractorRow> & Pick<SubcontractorRow, "tenant_id" | "legal_name">;
+        Update: Partial<SubcontractorRow>;
+        Relationships: [];
+      };
+      subcontractor_user: {
+        Row: SubcontractorUserRow;
+        Insert: Partial<SubcontractorUserRow> & Pick<SubcontractorUserRow, "id" | "email" | "full_name">;
+        Update: Partial<SubcontractorUserRow>;
+        Relationships: [];
+      };
+      subcontractor_user_access: {
+        Row: SubcontractorUserAccessRow;
+        Insert: Partial<SubcontractorUserAccessRow> &
+          Pick<SubcontractorUserAccessRow, "subcontractor_user_id" | "subcontractor_id" | "tenant_id">;
+        Update: Partial<SubcontractorUserAccessRow>;
+        Relationships: [];
+      };
+      subcontractor_audit_log: {
+        Row: SubcontractorAuditLogRow;
+        Insert: Partial<SubcontractorAuditLogRow> & Pick<SubcontractorAuditLogRow, "action">;
+        Update: Partial<SubcontractorAuditLogRow>;
+        Relationships: [];
+      };
+      subcontractor_requirement_setting: {
+        Row: SubcontractorRequirementSettingRow;
+        Insert: Partial<SubcontractorRequirementSettingRow> &
+          Pick<SubcontractorRequirementSettingRow, "tenant_id" | "slot_key">;
+        Update: Partial<SubcontractorRequirementSettingRow>;
+        Relationships: [];
+      };
+      subcontractor_document: {
+        Row: SubcontractorDocumentRow;
+        Insert: Partial<SubcontractorDocumentRow> &
+          Pick<SubcontractorDocumentRow, "tenant_id" | "subcontractor_id" | "slot_key">;
+        Update: Partial<SubcontractorDocumentRow>;
+        Relationships: [];
+      };
       tenants: {
         Row: {
           id: string;
@@ -440,6 +566,7 @@ export type Database = {
           trades_enabled: boolean;
           gc_enabled: boolean;
           inventory_enabled: boolean;
+          subcontractors_enabled: boolean;
           demo_mode: boolean;
           default_labor_rate: number;
           country: "CA" | "US";

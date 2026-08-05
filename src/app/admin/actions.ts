@@ -66,6 +66,7 @@ import { requireAppUser, requireCurrentUser } from "@/lib/current-user";
 import { type CorCanonicalElement, COR_FRAMEWORKS, elementNumberForCanonical, isCanonicalElement } from "@/lib/cor-frameworks";
 import { type Country, coerceCountry } from "@/lib/region";
 import type { WorkOrderStatus, WorkType } from "@/lib/trades";
+import { isDemoTenant } from "@/lib/demo";
 import { inviteWorkerByEmail } from "@/lib/worker-invite";
 import { TRANSPORT_REQUIREMENTS } from "@/lib/transport-registry";
 import { isEldProvider, isEldProviderConfigured } from "@/lib/eld/providers";
@@ -2582,6 +2583,27 @@ export async function updateGcSetting(formData: FormData) {
   revalidatePath("/admin/projects");
   revalidatePath("/admin", "layout");
   redirect(`/admin/setup?notice=Construction%20Projects%20module%20${enabled ? "enabled" : "disabled"}.`);
+}
+
+export async function updateSubcontractorsSetting(formData: FormData) {
+  const context = await requireFormManager();
+  const enabled = stringValue(formData, "enabled") === "true";
+  const supabase = await createSupabaseServerClient();
+
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { subcontractors_enabled: enabled });
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "subcontractors.setting.update",
+    entityId: context.appUser.tenant_id,
+    entityTable: "tenants",
+    metadata: {
+      subcontractors_enabled: enabled,
+    },
+  });
+
+  revalidatePath("/admin/subcontractors");
+  revalidatePath("/admin", "layout");
+  redirect(`/admin/setup?notice=Subcontractor%20module%20${enabled ? "enabled" : "disabled"}.`);
 }
 
 export async function updateInventorySetting(formData: FormData) {
@@ -6663,6 +6685,10 @@ export async function processQueuedAutoShareEmails() {
   const context = await requireAutoShareManager();
   const supabase = await createSupabaseServerClient();
 
+  if (await isDemoTenant(supabase, context.appUser.tenant_id)) {
+    redirect("/admin/auto-share?notice=Email%20delivery%20is%20disabled%20in%20the%20demo.");
+  }
+
   if (!emailDeliveryConfigured()) {
     redirect(`/admin/auto-share?error=${encodeURIComponent(emailDeliveryConfigurationError())}`);
   }
@@ -6785,6 +6811,10 @@ export async function retryAutoShareEmailNotification(formData: FormData) {
   const context = await requireAutoShareManager();
   const supabase = await createSupabaseServerClient();
   const notificationId = stringValue(formData, "notificationId");
+
+  if (await isDemoTenant(supabase, context.appUser.tenant_id)) {
+    redirect("/admin/auto-share?notice=Email%20delivery%20is%20disabled%20in%20the%20demo.");
+  }
 
   if (!notificationId) {
     redirect("/admin/auto-share?error=Choose%20a%20notification%20to%20retry.");
@@ -8632,6 +8662,7 @@ export async function createWorker(formData: FormData) {
     email,
     fullName,
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
+    tenantId: context.appUser.tenant_id,
   });
 
   if (!invite.ok) {
@@ -8797,6 +8828,7 @@ export async function importWorkersFromCsv(formData: FormData) {
         email: row.email,
         fullName: row.fullName,
         redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
+        tenantId: context.appUser.tenant_id,
       });
 
       if (!invite.ok) {

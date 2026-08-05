@@ -68,6 +68,15 @@ describe("buildResendRequest", () => {
       to: ["worker@example.com"],
     });
   });
+
+  it("includes reply_to only when replyTo is set", () => {
+    const withReply = buildResendRequest({ ...validPayload, replyTo: "info@corpathway360.com" }, "re_test_key");
+    expect(JSON.parse(withReply.init.body as string).reply_to).toBe("info@corpathway360.com");
+
+    // Absent replyTo is dropped by JSON.stringify, so the field never appears.
+    const withoutReply = buildResendRequest(validPayload, "re_test_key");
+    expect("reply_to" in JSON.parse(withoutReply.init.body as string)).toBe(false);
+  });
 });
 
 describe("sendViaResend", () => {

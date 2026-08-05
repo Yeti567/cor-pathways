@@ -147,7 +147,7 @@ const cards = [
   },
   {
     title: "Consultant Access",
-    detail: "Control Cor Pathway 360 consultant access and review override audit records.",
+    detail: "Control Core Pathways consultant access and review override audit records.",
     href: "/admin/consultant-access",
     icon: ShieldCheck,
   },
@@ -174,7 +174,7 @@ export default async function AdminPage() {
       .order("name");
 
     return (
-      <AdminShell eyebrow="Consultant console" tenantName="Cor Pathway 360" title="Tenant Access">
+      <AdminShell eyebrow="Consultant console" tenantName="Core Pathways" title="Tenant Access">
         <div className="mb-4">
           <Link
             className="inline-flex h-10 items-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"
@@ -202,6 +202,14 @@ export default async function AdminPage() {
         </div>
       </AdminShell>
     );
+  }
+
+  // Consultants are served above. Everyone left has to be staff of this tenant, and
+  // saying so explicitly is what stops a carrier portal login from falling through into
+  // code that assumes an app user. canUseAdminPanel already refuses a null profile, so
+  // this changes no behaviour; it makes the assumption checkable instead of implied.
+  if (context.status !== "app_user") {
+    redirect(context.status === "subcontractor_user" ? "/sub" : "/choose");
   }
 
   if (!canUseAdminPanel(context.appUser)) {
