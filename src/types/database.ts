@@ -1124,10 +1124,13 @@ export type Database = {
           out_of_service_cleared_by: string | null;
           signature_name: string | null;
           notes: string | null;
-          source: "admin" | "worker" | "offline" | "import";
+          source: "admin" | "worker" | "offline" | "import" | "form";
           completed_at: string;
           valid_until: string;
           created_by: string | null;
+          // The pre-trip form submission this inspection was derived from. Null
+          // for inspections keyed in before capture moved to forms.
+          submission_id: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["dti_inspection"]["Row"]> &
           Pick<

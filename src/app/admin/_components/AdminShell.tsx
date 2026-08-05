@@ -10,6 +10,7 @@ import {
   FileText,
   FileSignature,
   FileSliders,
+  Forklift,
   Handshake,
   LayoutDashboard,
   LifeBuoy,
@@ -42,7 +43,6 @@ const TRADES_NAV_HREF = "/admin/trades";
 const GC_NAV_HREF = "/admin/projects";
 const INVENTORY_NAV_HREF = "/admin/inventory";
 const SUBCONTRACTORS_NAV_HREF = "/admin/subcontractors";
-const EQUIPMENT_NAV_HREF = "/admin/equipment";
 
 const navItems = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
@@ -51,7 +51,7 @@ const navItems = [
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/admin/incidents", label: "Incidents", icon: AlertTriangle },
   { href: "/admin/follow-ups", label: "Corrective Actions", icon: Wrench },
-  { href: "/admin/equipment", label: "Equipment", icon: Truck },
+  { href: "/admin/equipment", label: "Equipment", icon: Forklift },
   { href: TRANSPORT_NAV_HREF, label: "Transport", icon: Truck },
   { href: COR_NAV_HREF, label: "COR Audit", icon: BadgeCheck },
   { href: OSHA_NAV_HREF, label: "OSHA Safety", icon: ShieldCheck },
@@ -120,11 +120,11 @@ export async function AdminShell({
     .filter((item) => item.href !== TRADES_NAV_HREF || tradesEnabled)
     .filter((item) => item.href !== GC_NAV_HREF || gcEnabled)
     .filter((item) => item.href !== INVENTORY_NAV_HREF || inventoryEnabled)
-    .filter((item) => item.href !== SUBCONTRACTORS_NAV_HREF || subcontractorsEnabled)
-    // When transport is on, the Vehicle Master inside Transport replaces the
-    // general Equipment module, so hide the standalone Equipment nav entry to
-    // avoid a confusing duplicate. The route still works for any deep links.
-    .filter((item) => item.href !== EQUIPMENT_NAV_HREF || !transportEnabled);
+    .filter((item) => item.href !== SUBCONTRACTORS_NAV_HREF || subcontractorsEnabled);
+  // Equipment and Transport both stay in the nav. A company running commercial
+  // vehicles still has job equipment to track, and the two are different things:
+  // Transport is the NSC/COR file room for road units, Equipment is every unit
+  // the company owns. Transport's fleet view is a lens over the same records.
 
   const navLinks = visibleNavItems.map((item) => {
     const Icon = item.icon;

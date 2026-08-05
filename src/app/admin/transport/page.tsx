@@ -4,10 +4,12 @@ import {
   AlertTriangle,
   BadgeCheck,
   ClipboardList,
+  FileBadge,
   FileText,
   IdCard,
   PackageCheck,
   ShieldCheck,
+  Stamp,
   Truck,
   Wrench,
 } from "lucide-react";
@@ -15,7 +17,7 @@ import { updateTransportSafetyFitness } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
-import { buildEquipmentInventoryRows } from "@/lib/equipment";
+import { buildEquipmentInventoryRows, buildVehicleFileStatuses, vehicleFileGaps } from "@/lib/equipment";
 import {
   companyDeficiencies,
   driverDeficiencies,
@@ -51,7 +53,7 @@ type FleetServiceRow = Pick<
 >;
 type FleetDocumentRow = Pick<
   Database["public"]["Tables"]["equipment_document"]["Row"],
-  "equipment_id" | "expiry_date" | "is_active" | "reminder_lead_days" | "title"
+  "equipment_id" | "doc_type" | "expiry_date" | "is_active" | "reminder_lead_days" | "title"
 >;
 
 type TransportPageProps = {
@@ -68,9 +70,11 @@ type RegistryCard = {
   href?: string;
 };
 
-// The seven legally mandated file registries (Alberta NSC + COR). Vehicle Master
-// reuses the Equipment module; Collision reuses Incidents. The remaining registries
-// are delivered in later slices of the transport module build.
+// The seven file registries an Alberta NSC facility audit asks to see. Vehicle
+// Master, Registration, and CVIP are all backed by the Equipment module's unit
+// records and documents; Collision reuses Incidents. Registration and CVIP are
+// two separate files in a carrier's file room and are asked for separately at
+// audit, which is why they are two cards rather than one.
 const REGISTRIES: RegistryCard[] = [
   {
     title: "1. Driver Qualification Files",
@@ -88,7 +92,7 @@ const REGISTRIES: RegistryCard[] = [
   },
   {
     title: "3. Vehicle Master & Maintenance",
-    description: "Unit records, meter and hours history, scheduled service windows, CVIP, and maintenance logs.",
+    description: "Unit records, meter and hours history, scheduled service windows, and maintenance logs.",
     icon: Wrench,
     status: "available",
     href: "/admin/transport/fleet",
@@ -105,6 +109,20 @@ const REGISTRIES: RegistryCard[] = [
     description: "Shipping documents, waste manifests, and 2-year retention for dangerous goods in transport.",
     icon: PackageCheck,
     status: "planned",
+  },
+  {
+    title: "6. Vehicle Registration & Insurance",
+    description: "Registration certificate and proof of insurance carried in the cab, plus operating permits, per unit.",
+    icon: FileBadge,
+    status: "available",
+    href: "/admin/transport/vehicle-files?file=vehicle_registration",
+  },
+  {
+    title: "7. CVIP Inspection Certificates",
+    description: "The annual Commercial Vehicle Inspection Program certificate and decal for every road unit.",
+    icon: Stamp,
+    status: "available",
+    href: "/admin/transport/vehicle-files?file=vehicle_cvip",
   },
 ];
 
@@ -176,7 +194,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         .returns<FleetServiceRow[]>(),
       supabase
         .from("equipment_document")
-        .select("equipment_id, title, expiry_date, reminder_lead_days, is_active")
+        .select("equipment_id, doc_type, title, expiry_date, reminder_lead_days, is_active")
         .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .is("deleted_at", null)
@@ -273,6 +291,30 @@ export default async function TransportPage({ searchParams }: TransportPageProps
   });
   const fleetAttention = fleetRows.filter((row) => row.serviceIndicator.state !== "current").length;
 
+  // Registration/insurance and CVIP gaps across the commercial fleet (registries
+  // 6 and 7). Only NSC-regulated units carry these files.
+  const documentsByEquipment = new Map<string, FleetDocumentRow[]>();
+  for (const document of fleetDocuments ?? []) {
+    documentsByEquipment.set(document.equipment_id, [
+      ...(documentsByEquipment.get(document.equipment_id) ?? []),
+      document,
+    ]);
+  }
+  const commercialUnits = (fleetEquipment ?? []).filter((unit) => unit.is_commercial);
+  const vehicleFileGapCount = commercialUnits.reduce((total, unit) => {
+    const statuses = buildVehicleFileStatuses({
+      category: unit.category,
+      documents: (documentsByEquipment.get(unit.id) ?? []).map((document) => ({
+        docType: document.doc_type,
+        expiryDate: document.expiry_date,
+        isActive: document.is_active,
+        reminderLeadDays: document.reminder_lead_days,
+      })),
+    });
+
+    return total + vehicleFileGaps(statuses).length;
+  }, 0);
+
   const snapshot = [
     {
       label: "Drivers with deficiencies",
@@ -308,6 +350,13 @@ export default async function TransportPage({ searchParams }: TransportPageProps
       detail: `of ${(fleetEquipment ?? []).length} units`,
       href: "/admin/transport/fleet",
       alert: fleetAttention > 0,
+    },
+    {
+      label: "Vehicle file gaps",
+      value: String(vehicleFileGapCount),
+      detail: `Registration, insurance, CVIP · ${commercialUnits.length} commercial units`,
+      href: "/admin/transport/vehicle-files",
+      alert: vehicleFileGapCount > 0,
     },
   ];
 
@@ -349,8 +398,8 @@ export default async function TransportPage({ searchParams }: TransportPageProps
           <div>
             <h2 className="text-lg font-semibold text-[var(--ink)]">Commercial Vehicle Compliance</h2>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">
-              The seven file registries required for an Alberta NSC facility audit and COR certification. A required
-              document with nothing on file is tracked as a deficiency. Turn this module off under{" "}
+              The seven files an Alberta NSC facility audit asks to see. A required document with nothing on file, or
+              one that has expired, is tracked as a deficiency. Turn this module off under{" "}
               <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/setup">
                 Setup
               </Link>
@@ -411,7 +460,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         </details>
       </section>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {snapshot.map((stat) => (
           <Link
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm transition hover:border-[var(--primary)]"

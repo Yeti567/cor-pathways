@@ -620,6 +620,166 @@ export function getEquipmentComplianceStatus(
   };
 }
 
+// --- Vehicle compliance files (Transport registries 6 and 7) ----------------
+//
+// A carrier's file room keeps the registration/insurance file and the CVIP file
+// as two separate files, and Alberta Transportation asks for them separately at
+// a facility audit, so the Transport module surfaces them as two registries.
+// Both are satisfied by equipment_document rows on the unit, matched on doc_type,
+// so there is no second document store to keep in sync with Equipment.
+
+export type VehicleFileRegistryKey = "vehicle_registration" | "vehicle_cvip";
+
+export type VehicleFileRequirement = {
+  registryKey: VehicleFileRegistryKey;
+  // The equipment_document.doc_type that satisfies this file.
+  docType: EquipmentDocumentType;
+  label: string;
+  description: string;
+  required: boolean;
+  // Fleet categories this file applies to. A trailer is registered and CVIP
+  // inspected in its own right, but it is insured under the towing unit's
+  // policy, so insurance is not a trailer file.
+  categories: readonly EquipmentCategory[];
+};
+
+export const VEHICLE_FILE_REQUIREMENTS: readonly VehicleFileRequirement[] = [
+  {
+    registryKey: "vehicle_registration",
+    docType: "registration",
+    label: "Vehicle registration (cab card)",
+    description: "Current registration certificate for the unit, carried in the cab.",
+    required: true,
+    categories: ["vehicle", "trailer"],
+  },
+  {
+    registryKey: "vehicle_registration",
+    docType: "insurance",
+    label: "Insurance certificate (pink card)",
+    description: "Proof of financial responsibility for the power unit.",
+    required: true,
+    categories: ["vehicle"],
+  },
+  {
+    registryKey: "vehicle_registration",
+    docType: "permit",
+    label: "Operating permits",
+    description: "Oversize, overweight, IRP cab card, or fuel tax permits where the work needs them.",
+    required: false,
+    categories: ["vehicle", "trailer"],
+  },
+  {
+    registryKey: "vehicle_cvip",
+    docType: "cvip",
+    label: "CVIP inspection certificate",
+    description: "Annual Commercial Vehicle Inspection Program certificate and decal for the unit.",
+    required: true,
+    categories: ["vehicle", "trailer"],
+  },
+] as const;
+
+export type VehicleFileState = "on_file" | "due_soon" | "expired" | "missing";
+
+export type VehicleFileStatus = {
+  registryKey: VehicleFileRegistryKey;
+  docType: EquipmentDocumentType;
+  label: string;
+  description: string;
+  required: boolean;
+  state: VehicleFileState;
+  expiryDate: string | null;
+  daysUntilExpiry: number | null;
+};
+
+export const VEHICLE_FILE_STATE_LABELS: Record<VehicleFileState, string> = {
+  on_file: "On file",
+  due_soon: "Renew soon",
+  expired: "Expired",
+  missing: "Missing",
+};
+
+export function vehicleFileStateClass(state: VehicleFileState) {
+  switch (state) {
+    case "on_file":
+      return "border-[var(--success)] bg-emerald-50 text-[var(--success)]";
+    case "due_soon":
+      return "border-[var(--warning)] bg-amber-50 text-[var(--warning)]";
+    default:
+      return "border-[var(--danger)] bg-red-50 text-[var(--danger)]";
+  }
+}
+
+export function vehicleFileRequirementsForCategory(category: string): VehicleFileRequirement[] {
+  return VEHICLE_FILE_REQUIREMENTS.filter((requirement) =>
+    (requirement.categories as readonly string[]).includes(category),
+  );
+}
+
+export type VehicleFileDocumentInput = {
+  docType: string;
+  expiryDate: string | null;
+  isActive: boolean;
+  reminderLeadDays: number | null;
+};
+
+/**
+ * The state of every compliance file that applies to one unit.
+ *
+ * The freshest document of each type wins: a unit that has last year's expired
+ * CVIP plus this year's valid one is on file, not expired. "Due soon" uses the
+ * document's own reminder lead so a 30-day CVIP warning and a 14-day permit
+ * warning can coexist on the same unit.
+ */
+export function buildVehicleFileStatuses(
+  input: { category: string; documents: VehicleFileDocumentInput[] },
+  now = new Date(),
+): VehicleFileStatus[] {
+  return vehicleFileRequirementsForCategory(input.category).map((requirement) => {
+    const ofType = input.documents.filter(
+      (document) => document.docType === requirement.docType && document.isActive,
+    );
+
+    if (ofType.length === 0) {
+      return {
+        registryKey: requirement.registryKey,
+        docType: requirement.docType,
+        label: requirement.label,
+        description: requirement.description,
+        required: requirement.required,
+        state: "missing",
+        expiryDate: null,
+        daysUntilExpiry: null,
+      };
+    }
+
+    // Rank by how much life is left, so the newest certificate represents the file.
+    const ranked = [...ofType].sort(
+      (a, b) => (daysUntil(b.expiryDate, now) ?? Number.MAX_SAFE_INTEGER) - (daysUntil(a.expiryDate, now) ?? Number.MAX_SAFE_INTEGER),
+    );
+    const best = ranked[0];
+    const days = daysUntil(best.expiryDate, now);
+    const lead = Number(best.reminderLeadDays ?? 30);
+    const state: VehicleFileState =
+      days === null ? "on_file" : days < 0 ? "expired" : days <= (Number.isFinite(lead) ? lead : 30) ? "due_soon" : "on_file";
+
+    return {
+      registryKey: requirement.registryKey,
+      docType: requirement.docType,
+      label: requirement.label,
+      description: requirement.description,
+      required: requirement.required,
+      state,
+      expiryDate: best.expiryDate,
+      daysUntilExpiry: days,
+    };
+  });
+}
+
+/** Files that are required, applicable, and not currently satisfied. */
+export function vehicleFileGaps(statuses: VehicleFileStatus[]): VehicleFileStatus[] {
+  return statuses.filter((status) => status.required && (status.state === "missing" || status.state === "expired"));
+}
+
 export function formatEquipmentComplianceDetail(status: EquipmentComplianceStatus) {
   if (!status.applicable) {
     return "Not a commercial unit";

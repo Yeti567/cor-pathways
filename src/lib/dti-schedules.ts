@@ -22,6 +22,12 @@ export type ScheduleItem = {
   minorDefects: string[];
   // "Major defects": record, report, and take the vehicle out of service.
   majorDefects: string[];
+  // What the driver physically does to inspect this item. The regulation lists
+  // only what counts as a defect, which leaves an item like "Cab" reading as a
+  // bare word next to a pass button. These are the checks behind the word, so a
+  // driver declares work they actually did rather than clicking pass on a label.
+  // Not regulation text: operational guidance built from the defect list.
+  checks: string[];
 };
 
 export type ScheduleDefinition = {
@@ -33,8 +39,158 @@ export type ScheduleDefinition = {
   items: ScheduleItem[];
 };
 
+// The checks behind each item label, keyed by the label itself because the same
+// component is inspected the same way whether it is on a truck, a bus, or a motor
+// coach. Attached to every schedule's items by withChecks() below, so a label that
+// appears in two schedules cannot drift apart.
+const ITEM_CHECKS: Record<string, string[]> = {
+  "Accessibility devices": [
+    "Cycle the lift, ramp, or kneeling system through its full travel and confirm it returns and stows",
+    "Confirm the interlock holds the vehicle while the device is deployed",
+    "Confirm the movement alarm sounds",
+  ],
+  "Air brake system": [
+    "Build system pressure to governor cut-out and confirm the compressor cuts out at the correct pressure",
+    "Run the leak-down test: engine off, brakes released, confirm the pressure drop stays inside the allowed rate, then apply and hold and confirm the applied drop is also inside limits",
+    "Fan the pressure down and confirm the low-air warning light and buzzer come on before pressure falls below the warning threshold, and keep fanning to confirm the tractor protection valve and parking brakes apply",
+    "Confirm the pushrod stroke on every brake is within its adjustment limit, and that slack adjusters and chambers are secure",
+    "Drain the tanks and confirm no water or oil is carrying over",
+    "Confirm the service, parking, and emergency brakes each hold",
+  ],
+  Cab: [
+    "Open and close every occupant compartment door from inside and outside and confirm each latches securely",
+    "Confirm the cab and sleeper doors, steps, and grab handles are secure and undamaged",
+  ],
+  "Cargo securement": [
+    "Walk the load and confirm nothing has shifted",
+    "Count the tiedowns against what the load needs and confirm each is rated, undamaged, and tensioned",
+    "Confirm any required covering is the right type, secure, and not flapping",
+  ],
+  "Coupling devices": [
+    "Confirm the fifth wheel or pintle is locked, with the jaws closed around the kingpin and the release handle stowed",
+    "Confirm the mounting bolts and plate are tight, with no loose or missing fasteners and no cracks",
+    "Tug test against the locked coupling and confirm it holds",
+    "Confirm safety chains or cables are the right rating, attached, and undamaged",
+    "Confirm air and electrical lines are connected, secure, and not chafing or stretched",
+  ],
+  "Dangerous goods": [
+    "Confirm placards are correct for the load, in place on all required sides, and legible",
+    "Confirm the shipping document is in the required location and matches the load",
+    "Confirm the emergency response plan reference and any required equipment are on board",
+  ],
+  "Doors and emergency exits": [
+    "Open and close each door, window, and hatch and confirm it latches securely",
+    "Confirm every required emergency exit releases and its alarm sounds",
+  ],
+  "Driver controls": [
+    "With the ignition on, confirm every warning light and telltale illuminates during the bulb check and then goes out as it should",
+    "Confirm the air or oil pressure, temperature, voltage, and fuel gauges all read and are not stuck",
+    "Confirm the accelerator returns freely to idle and the clutch and gear selector work normally",
+    "Test every switch you rely on: lights, wipers, washers, heater, defroster, mirrors, and any auxiliary control",
+  ],
+  "Driver seat": [
+    "Confirm the seat locks in position and does not slide or drop",
+    "Confirm the seatbelt latches, retracts, and is not cut, frayed, or twisted, and that its anchors are secure",
+  ],
+  "Electric brake system": [
+    "Confirm the wiring and connectors are secure and not chafed",
+    "Confirm the breakaway device is connected and its battery is charged",
+    "Confirm the brakes apply from the controller",
+  ],
+  "Emergency equipment and safety devices": [
+    "Confirm the fire extinguisher is present, charged, in date, and secure",
+    "Confirm the warning triangles or flares are present and complete",
+    "Confirm the first aid kit and any spare fuses are present and complete",
+  ],
+  "Exhaust system": [
+    "Confirm the system is secure, with no leaks at the manifold, joints, or muffler",
+    "Confirm no exhaust is entering the cab or sleeper",
+  ],
+  "Exterior body": [
+    "Walk the unit and confirm every body panel and compartment door is secure and closed",
+  ],
+  "Exterior body and frame": [
+    "Walk the unit and confirm every body panel and compartment door is secure and closed",
+    "Confirm no frame member is cracked, shifted, sagging, or collapsing",
+  ],
+  "Frame and cargo body": [
+    "Walk both rails and confirm no frame member is cracked, shifted, sagging, or collapsing",
+    "Confirm crossmembers, body mounts, and the deck or box are secure and undamaged",
+  ],
+  "Fuel system": [
+    "Confirm the tanks and straps are secure",
+    "Confirm the caps are present and sealed",
+    "Look under the tanks and lines and confirm there is no dripping leak",
+  ],
+  General: [
+    "Walk the whole unit and confirm nothing is damaged or deteriorated in a way that would affect safe operation",
+  ],
+  "Glass and mirrors": [
+    "Confirm the windshield and windows are not cracked or discoloured in the driver's field of view",
+    "Confirm every required mirror is present, undamaged, securely mounted, and adjusted to give the required view",
+  ],
+  "Heater/defroster": [
+    "Run the defroster and confirm it clears the windshield",
+    "Confirm the fan and temperature controls work through their range",
+  ],
+  Horn: ["Sound the horn and confirm it works"],
+  "Hydraulic brake system": [
+    "Confirm the reservoir is above the minimum mark and at least a quarter full",
+    "Press and hold the pedal and confirm it does not fade or sink, and that there is adequate reserve travel",
+    "Confirm the power assist works and no warning lamp stays on",
+    "Look at the lines, hoses, and around each wheel and confirm there is no fluid leak",
+    "Confirm the parking brake holds",
+  ],
+  "Lamps and reflectors": [
+    "Walk around with the lights on and confirm the headlamps on low and high beam, tail lamps, brake lamps, turn indicators, hazards, clearance and marker lamps, and licence plate lamp all work",
+    "Confirm every required reflector is present, clean, and undamaged",
+  ],
+  "Passenger compartment": [
+    "Confirm the steps and floor are sound and the stanchion padding is intact",
+    "Confirm the overhead racks and compartments are secure",
+    "Confirm every occupied seat is secure and its restraints and mobility device restraints work",
+  ],
+  Steering: [
+    "Turn the wheel and confirm free play is within limit and the front wheels respond immediately",
+    "Confirm the steering wheel and column are secure",
+    "Confirm the linkage, box, and power steering are secure with no leak or damage",
+  ],
+  Suspension: [
+    "Confirm the air bags are inflated, undamaged, and securely mounted, and that the system is not leaking",
+    "Confirm no spring leaf is cracked, broken, shifted, or missing",
+    "Confirm the U-bolts, hangers, shackles, and torque rods are tight and undamaged",
+  ],
+  "Suspension system": [
+    "Confirm the air bags are inflated, undamaged, and securely mounted, and that the system is not leaking",
+    "Confirm no spring leaf is cracked, broken, shifted, or missing",
+    "Confirm the U-bolts, hangers, shackles, and torque rods are tight and undamaged",
+  ],
+  Tires: [
+    "Check the inflation pressure on every tire, including the inside duals, with a gauge; a thump does not read pressure and a flat inside dual is carried by its partner until that one fails too",
+    "Confirm the tread depth on every tire is above the wear limit",
+    "Confirm no tire has a cut, bulge, exposed cord, or sidewall damage, and that none is marked not for highway use",
+    "Confirm no tire touches another tire or any part of the vehicle other than a mud flap",
+  ],
+  "Wheels, hubs and fasteners": [
+    "Confirm the hub oil is above the minimum line in every sight glass and that the cap and seal are not leaking; a hub that runs out of oil seizes the bearing and the wheel can leave the vehicle",
+    "Confirm every wheel nut is present and tight, and look for rust streaks, shiny threads, or a shifted nut as a sign one has been working loose",
+    "Confirm no wheel, rim, or attaching part is cracked, bent, or broken",
+    "Feel the hubs for excessive heat and look for grease or oil thrown onto the tire or backing plate",
+  ],
+  "Windshield wiper/washer": [
+    "Run the wipers through every speed and confirm they clear the driver's field of view",
+    "Confirm the blades are intact and the washer sprays and has fluid",
+  ],
+};
+
+// Attach the checks to a schedule's items. An item with no entry gets an empty
+// list rather than a wrong one, so a new item shows up as content to write.
+function withChecks(items: Omit<ScheduleItem, "checks">[]): ScheduleItem[] {
+  return items.map((item) => ({ ...item, checks: ITEM_CHECKS[item.label] ?? [] }));
+}
+
 // NSC Standard 13, Schedule 1: Truck, Tractor, or Trailer Daily Inspection.
-const SCHEDULE_1_ITEMS: ScheduleItem[] = [
+const SCHEDULE_1_ITEMS: Omit<ScheduleItem, "checks">[] = [
   {
     no: 1,
     label: "Air brake system",
@@ -239,7 +395,7 @@ const SCHEDULE_1_ITEMS: ScheduleItem[] = [
 ];
 
 // NSC Standard 13, Schedule 2: Bus Daily Inspection.
-const SCHEDULE_2_ITEMS: ScheduleItem[] = [
+const SCHEDULE_2_ITEMS: Omit<ScheduleItem, "checks">[] = [
   {
     no: 1,
     label: "Accessibility devices",
@@ -468,7 +624,7 @@ const SCHEDULE_2_ITEMS: ScheduleItem[] = [
 ];
 
 // NSC Standard 13, Schedule 3: Motor Coach Daily Inspection.
-const SCHEDULE_3_ITEMS: ScheduleItem[] = [
+const SCHEDULE_3_ITEMS: Omit<ScheduleItem, "checks">[] = [
   {
     no: 1,
     label: "Accessibility devices",
@@ -665,21 +821,21 @@ const SCHEDULES: Record<ScheduleNo, ScheduleDefinition> = {
     title: "Truck, Tractor, or Trailer Daily Inspection",
     appliesTo: "Trucks, tractors, and trailers",
     isComplete: true,
-    items: SCHEDULE_1_ITEMS,
+    items: withChecks(SCHEDULE_1_ITEMS),
   },
   2: {
     scheduleNo: 2,
     title: "Bus Daily Inspection",
     appliesTo: "Buses and trailers drawn by buses",
     isComplete: true,
-    items: SCHEDULE_2_ITEMS,
+    items: withChecks(SCHEDULE_2_ITEMS),
   },
   3: {
     scheduleNo: 3,
     title: "Motor Coach Daily Inspection",
     appliesTo: "Motor coaches",
     isComplete: true,
-    items: SCHEDULE_3_ITEMS,
+    items: withChecks(SCHEDULE_3_ITEMS),
   },
 };
 

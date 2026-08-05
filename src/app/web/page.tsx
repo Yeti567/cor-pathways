@@ -1269,21 +1269,6 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
       equipment.name ? `${equipment.unitNumber} - ${equipment.name}` : equipment.unitNumber,
     ]),
   );
-  const inspectionVehicles = dailyInspectionOn
-    ? equipmentSummaries
-        .filter(
-          (equipment) =>
-            equipment.status === "active" &&
-            (equipment.category === "vehicle" ||
-              equipment.category === "trailer" ||
-              equipment.category === "mobile_equipment"),
-        )
-        .map((equipment) => ({
-          id: equipment.id,
-          category: equipment.category,
-          label: equipmentLabelById.get(equipment.id) ?? equipment.unitNumber,
-        }))
-    : [];
   const baseNav = hasEquipmentSurface ? mobileNav : mobileNav.filter((item) => item.label !== "Equipment");
   const navWithChangeOrders = changeOrdersOn
     ? [...baseNav, { href: "#field-tickets", label: "Variations", icon: FileSignature }]
@@ -2050,7 +2035,7 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
           ) : null}
 
           {dailyInspectionOn ? (
-            <DailyInspectionPanel recent={inspectionRecent} vehicles={inspectionVehicles} />
+            <DailyInspectionPanel recent={inspectionRecent} />
           ) : null}
 
           {showInventoryPanel ? (

@@ -1886,8 +1886,11 @@ export function AssignedFormsPanel({
             </span>
           ) : null}
         </span>
+        {/* whitespace-pre-line so multi-line guidance (the pre-trip checks and
+            defect definitions, for one) keeps its line breaks instead of
+            collapsing into a wall of text. */}
         {item.helperText && item.fieldType !== "text_info" ? (
-          <span className="mt-1 block text-sm text-[var(--ink-muted)]">{item.helperText}</span>
+          <span className="mt-1 block whitespace-pre-line text-sm text-[var(--ink-muted)]">{item.helperText}</span>
         ) : null}
         {renderField(item, value, onChange)}
         {validationErrors[validationKey] ? (

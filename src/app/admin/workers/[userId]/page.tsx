@@ -516,9 +516,20 @@ export default async function WorkerDetailPage({ params, searchParams }: WorkerD
                   </div>
                 </div>
                 <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className="text-sm font-medium text-[var(--ink)]">Certification type</span>
-                    <select className="h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm" name="certificationTypeId">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <label className="text-sm font-medium text-[var(--ink)]" htmlFor="certificationTypeId">
+                        Certification type
+                      </label>
+                      <Link className="text-xs font-semibold text-[var(--primary)] hover:underline" href="/admin/certification-types">
+                        Set these up
+                      </Link>
+                    </div>
+                    <select
+                      className="h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm"
+                      id="certificationTypeId"
+                      name="certificationTypeId"
+                    >
                       <option value="">Manual entry</option>
                       {(certificationTypes ?? []).map((certificationType) => (
                         <option key={certificationType.id} value={certificationType.id}>
@@ -526,7 +537,16 @@ export default async function WorkerDetailPage({ params, searchParams }: WorkerD
                         </option>
                       ))}
                     </select>
-                  </label>
+                    {(certificationTypes ?? []).length === 0 ? (
+                      <span className="block text-xs text-[var(--ink-muted)]">
+                        No certification types yet. Add reusable names in{" "}
+                        <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/certification-types">
+                          Certification Types
+                        </Link>
+                        , or leave this on Manual entry and type the name.
+                      </span>
+                    ) : null}
+                  </div>
                   <label className="space-y-2">
                     <span className="text-sm font-medium text-[var(--ink)]">Name</span>
                     <input className="h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm" name="name" placeholder="Auto from type if blank" />

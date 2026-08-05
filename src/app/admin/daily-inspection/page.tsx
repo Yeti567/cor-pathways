@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, ClipboardCheck, MapPin, Plus, ShieldCheck } from "lucide-react";
-import { clearOutOfService, createInspection } from "@/app/admin/daily-inspection/actions";
+import { AlertTriangle, ClipboardCheck, ClipboardList, MapPin, RefreshCw, ScanLine, ShieldCheck } from "lucide-react";
+import { buildPreTripForm, clearOutOfService } from "@/app/admin/daily-inspection/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import {
@@ -16,8 +16,8 @@ import {
   type DtiInspectionRow,
   type FleetVehicleStatus,
 } from "@/lib/daily-inspection";
-import { InspectionChecklist } from "@/app/admin/daily-inspection/_components/InspectionChecklist";
 import { PROVINCE_LABELS, PROVINCES } from "@/lib/dti-rules";
+import { getPreTripFormSummary, reconcilePreTripSubmissions } from "@/lib/pre-trip-sync";
 import { requireAppUser } from "@/lib/current-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -51,9 +51,6 @@ function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-const inputClass =
-  "h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2";
-
 function vehicleLabel(equipment: EquipmentRow | undefined) {
   if (!equipment) {
     return "Vehicle";
@@ -79,6 +76,13 @@ export default async function DailyInspectionPage({ searchParams }: DailyInspect
 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
+
+  // Capture lives in the Forms module, so pull any completed pre-trip submissions
+  // into inspections before reading the board. Idempotent and cheap once caught
+  // up: it only reads submissions that have no inspection yet.
+  await reconcilePreTripSubmissions(supabase, { tenantId });
+  const preTripForm = await getPreTripFormSummary(supabase, tenantId);
+
   const [{ data: equipmentRows }, { data: inspectionRows }, { data: workerRows }] = await Promise.all([
     supabase
       .from("equipment")
@@ -261,124 +265,82 @@ export default async function DailyInspectionPage({ searchParams }: DailyInspect
       ) : null}
 
       <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
-              <ClipboardCheck className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-[var(--ink)]">New inspection</h2>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                Pick the vehicle and the province it is operating in, then walk the Schedule 1 checklist. A major defect
-                takes the vehicle out of service.
-              </p>
-            </div>
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
+            <ClipboardCheck className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-[var(--ink)]">The pre-trip is a form</h2>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Drivers fill it in the worker app like every other form, so it syncs offline, carries photos and
+              signatures, and raises corrective actions the normal way. This module reads those submissions back:
+              each completed pre-trip becomes an inspection on the board above, and a major defect takes the unit out
+              of service.
+            </p>
           </div>
         </div>
 
-        {vehicles.length === 0 ? (
-          <p className="mt-5 rounded-md border border-dashed border-[var(--border)] bg-white p-6 text-center text-sm text-[var(--ink-muted)]">
-            Add a vehicle or trailer in <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/equipment">Equipment</Link> first.
-          </p>
-        ) : (
-          <details className="mt-4">
-            <summary className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Start an inspection
-            </summary>
+        <div className="mt-4 grid gap-3 rounded-md border border-[var(--border)] bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[var(--ink)]">{preTripForm.name}</p>
+              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                {preTripForm.formId
+                  ? `${preTripForm.itemCount} inspection items, ${preTripForm.documentedItemCount} of the ${preTripForm.scheduleItemCount} NSC Schedule 1 items carrying their checks and defect definitions.`
+                  : "Not built yet. Build it to get the NSC Schedule 1 items, each with the checks to perform and the regulation's minor and major defect definitions."}
+              </p>
+            </div>
+            {preTripForm.status ? (
+              <span className="rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-2.5 py-1 text-xs font-semibold text-[var(--ink-muted)]">
+                {preTripForm.status}
+              </span>
+            ) : null}
+          </div>
 
-            <form action={createInspection} className="mt-4 space-y-5">
-              <div className="grid gap-3 rounded-md border border-[var(--border)] bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Vehicle</span>
-                  <select className={inputClass} name="equipment_id" required defaultValue="">
-                    <option value="" disabled>
-                      Select a vehicle
-                    </option>
-                    {vehicles.map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicleLabel(vehicle)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Trailer (optional)</span>
-                  <select className={inputClass} name="trailer_equipment_id" defaultValue="">
-                    <option value="">None</option>
-                    {vehicles
-                      .filter((vehicle) => vehicle.category === "trailer")
-                      .map((vehicle) => (
-                        <option key={vehicle.id} value={vehicle.id}>
-                          {vehicleLabel(vehicle)}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Province</span>
-                  <select className={inputClass} name="province" required defaultValue="">
-                    <option value="" disabled>
-                      Select a province
-                    </option>
-                    {PROVINCES.map((province) => (
-                      <option key={province} value={province}>
-                        {PROVINCE_LABELS[province]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Inspection type</span>
-                  <select className={inputClass} name="inspection_type" defaultValue="pre">
-                    <option value="pre">{INSPECTION_TYPE_LABELS.pre}</option>
-                    <option value="post">{INSPECTION_TYPE_LABELS.post}</option>
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Driver</span>
-                  <select className={inputClass} name="driver_user_id" defaultValue="">
-                    <option value="">Me ({context.appUser.full_name})</option>
-                    {workers.map((worker) => (
-                      <option key={worker.id} value={worker.id}>
-                        {worker.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Odometer / hours</span>
-                  <input className={inputClass} name="odometer" type="number" step="0.1" min="0" inputMode="decimal" />
-                </label>
-                <label className="space-y-1 sm:col-span-2 lg:col-span-2">
-                  <span className="text-sm font-medium text-[var(--ink)]">Location</span>
-                  <input className={inputClass} name="location" placeholder="Yard, terminal, or city" />
-                </label>
-              </div>
-
-              <InspectionChecklist />
-
-              <div className="grid gap-3 rounded-md border border-[var(--border)] bg-white p-4 sm:grid-cols-2">
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Driver signature (type name)</span>
-                  <input className={inputClass} name="signature_name" placeholder="Full name" />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Overall notes</span>
-                  <input className={inputClass} name="notes" placeholder="Optional" />
-                </label>
-                <div className="sm:col-span-2">
-                  <button
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"
-                    type="submit"
-                  >
-                    Submit inspection
-                  </button>
-                </div>
-              </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <form action={buildPreTripForm}>
+              <button
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"
+                type="submit"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                {preTripForm.formId ? "Refresh from NSC Schedule 1" : "Build the pre-trip form"}
+              </button>
             </form>
-          </details>
-        )}
+            {preTripForm.formId ? (
+              <Link
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
+                href={`/admin/forms/${preTripForm.formId}`}
+              >
+                <ClipboardList className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
+                Open in Forms
+              </Link>
+            ) : null}
+            <Link
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
+              href="/admin/forms"
+            >
+              <ScanLine className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
+              Scan your own pre-trip
+            </Link>
+          </div>
+
+          <p className="text-xs text-[var(--ink-muted)]">
+            Refreshing updates the wording on items this module owns and adds any that are missing. Items you added
+            yourself are left alone, and nothing is deleted, so past submissions keep their history. If your company
+            already runs its own paper pre-trip, scan it instead and let OCR build the form from your own sheet.
+          </p>
+        </div>
+
+        {vehicles.length === 0 ? (
+          <p className="mt-4 rounded-md border border-dashed border-[var(--border)] bg-white p-6 text-center text-sm text-[var(--ink-muted)]">
+            Add a vehicle or trailer in{" "}
+            <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/equipment">
+              Equipment
+            </Link>{" "}
+            so drivers have a unit to inspect.
+          </p>
+        ) : null}
       </section>
 
       <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">

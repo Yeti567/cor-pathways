@@ -343,10 +343,21 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
                   ))}
                 </select>
               </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-[var(--ink)]">Certification type</span>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <label className="text-sm font-medium text-[var(--ink)]" htmlFor="certificationTypeId">
+                    Certification type
+                  </label>
+                  <Link
+                    className="text-xs font-semibold text-[var(--primary)] hover:underline"
+                    href="/admin/certification-types"
+                  >
+                    Set these up
+                  </Link>
+                </div>
                 <select
                   className="h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
+                  id="certificationTypeId"
                   name="certificationTypeId"
                 >
                   <option value="">Manual entry</option>
@@ -356,7 +367,22 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
                     </option>
                   ))}
                 </select>
-              </label>
+                {/* Without this the dropdown reads as broken: the only choice is
+                    "Manual entry" and nothing says where the named types come from. */}
+                <span className="block text-xs text-[var(--ink-muted)]">
+                  {(certificationTypes ?? []).length === 0 ? (
+                    <>
+                      No certification types yet. Add reusable names such as First Aid or H2S Alive in{" "}
+                      <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/certification-types">
+                        Certification Types
+                      </Link>
+                      , or leave this on Manual entry and type the ticket name below.
+                    </>
+                  ) : (
+                    <>Pick a reusable type, or leave it on Manual entry and type the ticket name below.</>
+                  )}
+                </span>
+              </div>
               <label className="space-y-2">
                 <span className="text-sm font-medium text-[var(--ink)]">Ticket name</span>
                 <input
