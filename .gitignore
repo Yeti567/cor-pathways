@@ -54,6 +54,10 @@ supabase/.temp
 /docs/ai-assistant-plan.md
 /docs/inventory-tracking-plan.md
 /docs/sales-deck/
+# Borderline, and worth explaining. It is a module spec, which the rule above would
+# normally keep tracked, but half of it is competitor pricing and the commercial reason
+# for building the module. That half is exactly what this section exists to hold back.
+/docs/subcontractor-portal-module-plan.md
 
 # Internal working notes kept outside the repo. Not product documentation.
 /SCREENSHOTS-INDEX.md
