@@ -959,6 +959,60 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["consultant_audit_log"]["Row"]>;
         Relationships: [];
       };
+      app_error: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          signature: string;
+          source: "client" | "sync" | "server";
+          kind: string;
+          message: string;
+          stack: string | null;
+          route: string | null;
+          user_id: string | null;
+          user_role: string | null;
+          release: string | null;
+          user_agent: string | null;
+          context: Json;
+          occurred_at: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["app_error"]["Row"]> &
+          Pick<Database["public"]["Tables"]["app_error"]["Row"], "tenant_id" | "signature" | "source" | "kind" | "message">;
+        Update: Partial<Database["public"]["Tables"]["app_error"]["Row"]>;
+        Relationships: [];
+      };
+      app_error_signature: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          signature: string;
+          source: "client" | "sync" | "server";
+          kind: string;
+          sample_message: string;
+          sample_route: string | null;
+          first_seen_at: string;
+          last_seen_at: string;
+          occurrence_count: number;
+          affected_user_count: number;
+          severity: "critical" | "high" | "normal" | "low";
+          triage_note: string | null;
+          triage_model: string | null;
+          triaged_at: string | null;
+          notified_at: string | null;
+          resolved_at: string | null;
+          resolved_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["app_error_signature"]["Row"]> &
+          Pick<
+            Database["public"]["Tables"]["app_error_signature"]["Row"],
+            "tenant_id" | "signature" | "source" | "kind" | "sample_message" | "first_seen_at" | "last_seen_at"
+          >;
+        Update: Partial<Database["public"]["Tables"]["app_error_signature"]["Row"]>;
+        Relationships: [];
+      };
       tenant_audit_log: {
         Row: {
           id: string;

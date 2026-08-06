@@ -8,6 +8,7 @@ import {
   findWorkflowRunStepForSubmission,
   resolveNextWorkflowStepIds,
 } from "@/lib/workflow-station";
+import { reportDeadSyncMutation } from "@/lib/error-reporter";
 import { getOfflineDatabase, type OfflineSubmissionSourceAssignment, type QueuedMutation } from "./db";
 import { normalizeFieldMovementPayload } from "./inventory";
 import { getSyncSummary, markOfflineSyncComplete } from "./sync-queue";
@@ -671,6 +672,19 @@ async function markMutationFailed(mutation: QueuedMutation, errorMessage: string
     updatedAt: now,
     nextAttemptAt: null,
     lastError: errorMessage,
+  });
+
+  // Tell the server this work never landed. Until now a dead mutation was visible
+  // only to the person holding the phone, who reasonably believes that hitting
+  // submit finished the job. On an offline-first app used from trucks, a pre-trip
+  // that never left the cab is the failure most worth knowing about and the one
+  // nobody found out about until an audit.
+  reportDeadSyncMutation({
+    attempts: mutation.attempts + 1,
+    lastError: errorMessage,
+    operation: mutation.operation,
+    recordId: mutation.recordId,
+    table: mutation.table,
   });
 
   if (mutation.recordId) {
