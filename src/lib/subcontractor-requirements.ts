@@ -105,9 +105,14 @@ export const SUBCONTRACTOR_SLOTS: SubcontractorSlot[] = [
     key: "cargo_insurance",
     label: "Cargo insurance",
     group: "insurance",
-    description: "Covers the freight itself. Record the limit and the deductible.",
+    description:
+      "Covers the freight itself. Record the limit and the deductible. Only relevant where the carrier hauls goods of value: a sub moving the hiring company's own equipment between its own yards has nothing to insure here.",
     dueMode: "expiry",
-    required: true,
+    // Optional by default, and the only slot that is. Left required it sits
+    // permanently red for every carrier that does not haul freight, and a board
+    // that is always red is a board nobody reads. A company that does need it
+    // turns it on per slot under Subcontractors > Requirements.
+    required: false,
     reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
     captures: ["policy_number", "insurer", "coverage_amount", "deductible"],
   },

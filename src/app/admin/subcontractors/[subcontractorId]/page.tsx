@@ -547,7 +547,15 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
                       <article aria-label={slot.label} className="px-4 py-4" key={slot.key}>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-base font-semibold text-[var(--ink)]">{slot.label}</p>
+                            <p className="text-base font-semibold text-[var(--ink)]">
+                              {slot.label}
+                              {/* Without this an optional slot reads as a deficiency the
+                                  carrier is ignoring, when it is simply not counted. The
+                                  pack and the carrier's own portal already say so. */}
+                              {slot.required ? null : (
+                                <span className="ml-2 text-xs font-normal text-[var(--ink-muted)]">Optional</span>
+                              )}
+                            </p>
                             <p className="mt-1 max-w-2xl text-sm text-[var(--ink-muted)]">{slot.description}</p>
                           </div>
                           <span

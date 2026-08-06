@@ -233,13 +233,15 @@ describe("summariseSubcontractorCompliance", () => {
   });
 
   it("does not count a pending upload as satisfying a slot", () => {
+    // Uses a slot that is required by default. Cargo insurance is deliberately
+    // optional, so a pending upload there would correctly leave the carrier compliant.
     const documents = fullSet().map((document) =>
-      document.slotKey === "cargo_insurance" ? { ...document, reviewStatus: "pending" } : document,
+      document.slotKey === "general_liability" ? { ...document, reviewStatus: "pending" } : document,
     );
 
     const summary = summariseSubcontractorCompliance(documents, undefined, NOW);
     expect(summary.state).toBe("non_compliant");
-    expect(summary.missing.map((entry) => entry.slot.key)).toContain("cargo_insurance");
+    expect(summary.missing.map((entry) => entry.slot.key)).toContain("general_liability");
   });
 
   it("distinguishes a rejected document from one that was never sent", () => {
@@ -311,11 +313,11 @@ describe("summariseSubcontractorCompliance", () => {
   });
 
   it("stops counting a slot the tenant switched off", () => {
-    const documents = fullSet().filter((document) => document.slotKey !== "cargo_insurance");
+    const documents = fullSet().filter((document) => document.slotKey !== "general_liability");
 
     expect(summariseSubcontractorCompliance(documents, undefined, NOW).state).toBe("non_compliant");
 
-    const slots = resolveSubcontractorSlots([setting({ enabled: false, slotKey: "cargo_insurance" })]);
+    const slots = resolveSubcontractorSlots([setting({ enabled: false, slotKey: "general_liability" })]);
     const summary = summariseSubcontractorCompliance(documents, slots, NOW);
     expect(summary.state).toBe("compliant");
     expect(summary.requiredCount).toBe(SUBCONTRACTOR_SLOTS.filter((entry) => entry.required).length - 1);
@@ -355,5 +357,54 @@ describe("summariseSubcontractorCompliance", () => {
 
     const summary = summariseSubcontractorCompliance(fullSet(), slots, NOW);
     expect(summary.underLimit.map((entry) => entry.slot.key)).toEqual(["fleet_insurance"]);
+  });
+});
+
+describe("which subcontractor files are required by default", () => {
+  // The hiring company's own due diligence, not a regulatory duty. Cargo
+  // insurance is the one slot that is situational: a sub moving the hiring
+  // company's own equipment between its own yards has no freight to insure, and
+  // leaving it required paints the board permanently red for those carriers.
+  it("requires everything except cargo insurance", () => {
+    const optional = SUBCONTRACTOR_SLOTS.filter((slot) => !slot.required).map((slot) => slot.key);
+
+    expect(optional).toEqual(["cargo_insurance"]);
+  });
+
+  it("keeps the two protections that cost nothing to hold", () => {
+    const byKey = new Map(SUBCONTRACTOR_SLOTS.map((slot) => [slot.key, slot]));
+
+    // Liability shield: hire a sub whose WCB account is in arrears without a
+    // clearance and the hiring employer can be pursued for their premiums.
+    expect(byKey.get("wcb_clearance")?.required).toBe(true);
+    // Never expires, so it never nags, and it is the first thing an insurer asks
+    // for after an incident.
+    expect(byKey.get("carrier_agreement")?.required).toBe(true);
+    expect(byKey.get("carrier_agreement")?.dueMode).toBe("none");
+  });
+
+  it("carries the two signals that say whether a carrier is high risk", () => {
+    const byKey = new Map(SUBCONTRACTOR_SLOTS.map((slot) => [slot.key, slot]));
+    const profile = byKey.get("carrier_profile");
+    const rate = byKey.get("wcb_rate_statement");
+
+    // Refreshed on an interval because neither document carries its own expiry.
+    expect(profile?.dueMode).toBe("interval");
+    expect(profile?.intervalMonths).toBe(6);
+    expect(profile?.captures).toContain("safety_rating");
+
+    expect(rate?.dueMode).toBe("interval");
+    expect(rate?.intervalMonths).toBe(12);
+    expect(rate?.captures).toEqual(expect.arrayContaining(["industry_rate", "employer_rate"]));
+  });
+
+  it("does not ask a subcontractor for unit-level truck documents", () => {
+    // An independent carrier holds their own Safety Fitness Certificate, so their
+    // registrations and CVIPs are their own duty and land on their own carrier
+    // profile. A leased-on owner-operator runs under the hiring company's
+    // certificate and belongs in Equipment and Transport instead.
+    const keys = SUBCONTRACTOR_SLOTS.map((slot) => slot.key).join(" ");
+
+    expect(keys).not.toMatch(/registration|cvip/i);
   });
 });
