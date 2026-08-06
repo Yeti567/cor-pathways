@@ -13,6 +13,10 @@ import {
   PRE_TRIP_ITEMS_SECTION_TITLE,
 } from "@/lib/pre-trip-form";
 import { derivePreTripInspections } from "@/lib/pre-trip-reconcile";
+import {
+  inspectionDefectFollowUpTitle,
+  severityFromInspectionDefectTitle,
+} from "@/lib/offline/follow-ups";
 
 describe("schedule content", () => {
   it("gives every Schedule 1 item checks to perform, so none is a bare label", () => {
@@ -269,6 +273,80 @@ describe("derivePreTripInspections", () => {
     expect(inspections[0].province).toBe("BC");
   });
 
+  // Regression: the driver's explicit "Major (out of service)" choice is not in
+  // the submission value, which only says "fail". It survives in the corrective
+  // action raised alongside it. Reading only the item's default tag recorded a
+  // major defect as minor and left the truck showing valid on the fleet board.
+  it("takes the driver's chosen severity over the item's default", () => {
+    const { inspections } = derivePreTripInspections({
+      formItems,
+      submissions: [SUBMISSION],
+      values: values({
+        "item-equipment": { type: "equipment", equipmentId: "unit-7", meterReading: 1 },
+        "item-province": "Alberta",
+        // Cab defaults to minor. The driver called it major.
+        "item-2": "fail",
+        "item-1": "pass",
+      }),
+      chosenSeverities: [{ submission_id: SUBMISSION.id, form_item_id: "item-2", severity: "major" }],
+    });
+
+    expect(inspections[0].overallResult).toBe("major");
+    expect(inspections[0].outOfService).toBe(true);
+  });
+
+  it("lets the driver downgrade an item whose default is major", () => {
+    const { inspections } = derivePreTripInspections({
+      formItems,
+      submissions: [SUBMISSION],
+      values: values({
+        "item-equipment": { type: "equipment", equipmentId: "unit-7", meterReading: 1 },
+        "item-province": "Alberta",
+        // Air brake defaults to major here; the driver judged it minor.
+        "item-1": "fail",
+        "item-2": "pass",
+      }),
+      chosenSeverities: [{ submission_id: SUBMISSION.id, form_item_id: "item-1", severity: "minor" }],
+    });
+
+    expect(inspections[0].overallResult).toBe("minor");
+    expect(inspections[0].outOfService).toBe(false);
+  });
+
+  it("ignores a hand-raised corrective action that names no item", () => {
+    const { inspections } = derivePreTripInspections({
+      formItems,
+      submissions: [SUBMISSION],
+      values: values({
+        "item-equipment": { type: "equipment", equipmentId: "unit-7", meterReading: 1 },
+        "item-province": "Alberta",
+        "item-1": "pass",
+        "item-2": "pass",
+      }),
+      chosenSeverities: [{ submission_id: SUBMISSION.id, form_item_id: null, severity: "major" }],
+    });
+
+    expect(inspections[0].overallResult).toBe("clean");
+    expect(inspections[0].outOfService).toBe(false);
+  });
+
+  it("does not let one submission's severity leak into another", () => {
+    const other = { ...SUBMISSION, id: "submission-2" };
+    const { inspections } = derivePreTripInspections({
+      formItems,
+      submissions: [SUBMISSION],
+      values: values({
+        "item-equipment": { type: "equipment", equipmentId: "unit-7", meterReading: 1 },
+        "item-province": "Alberta",
+        "item-2": "fail",
+        "item-1": "pass",
+      }),
+      chosenSeverities: [{ submission_id: other.id, form_item_id: "item-2", severity: "major" }],
+    });
+
+    expect(inspections[0].overallResult).toBe("minor");
+  });
+
   it("ignores answers to form items it does not own", () => {
     const { inspections } = derivePreTripInspections({
       formItems,
@@ -283,5 +361,21 @@ describe("derivePreTripInspections", () => {
 
     expect(inspections[0].items).toHaveLength(1);
     expect(inspections[0].overallResult).toBe("clean");
+  });
+});
+
+describe("corrective action severity round trip", () => {
+  // The title is the only durable record of the worker's choice, so the two
+  // halves have to agree. Written as a round trip rather than a literal so a
+  // wording change cannot silently break the compliance read.
+  it("reads back the severity it wrote", () => {
+    expect(severityFromInspectionDefectTitle(inspectionDefectFollowUpTitle("major", "1. Air brake system"))).toBe(
+      "major",
+    );
+    expect(severityFromInspectionDefectTitle(inspectionDefectFollowUpTitle("minor", "2. Cab"))).toBe("minor");
+  });
+
+  it("returns null for a corrective action raised by hand", () => {
+    expect(severityFromInspectionDefectTitle("Replace the yard gate lock")).toBeNull();
   });
 });

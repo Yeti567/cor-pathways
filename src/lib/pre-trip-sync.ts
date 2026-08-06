@@ -17,7 +17,12 @@ import {
   PRE_TRIP_ITEM_NO_KEY,
   scheduleItemNoForLabel,
 } from "@/lib/pre-trip-form";
-import { derivePreTripInspections, type PreTripFormItemRow } from "@/lib/pre-trip-reconcile";
+import {
+  derivePreTripInspections,
+  type PreTripChosenSeverity,
+  type PreTripFormItemRow,
+} from "@/lib/pre-trip-reconcile";
+import { severityFromInspectionDefectTitle } from "@/lib/offline/follow-ups";
 import type { Province } from "@/lib/dti-rules";
 import type { Json } from "@/types/database";
 
@@ -269,7 +274,75 @@ export async function syncPreTripForm(
   return { formId, created, itemsInserted, itemsUpdated };
 }
 
-export type ReconcileResult = { created: number; skipped: number };
+export type ReconcileResult = { created: number; skipped: number; escalated: number };
+
+type DefectActionRow = { parent_submission_id: string; form_item_id: string | null; title: string };
+
+function chosenSeveritiesFrom(rows: DefectActionRow[]): PreTripChosenSeverity[] {
+  return rows.flatMap((row) => {
+    const severity = severityFromInspectionDefectTitle(row.title);
+
+    return severity
+      ? [{ submission_id: row.parent_submission_id, form_item_id: row.form_item_id, severity }]
+      : [];
+  });
+}
+
+/**
+ * Catch a major defect whose corrective action arrived after its inspection.
+ *
+ * Submissions and their corrective actions sync as separate rows, so an offline
+ * device can land the pre-trip first. If that happens the inspection is written
+ * as minor and the unit reads valid. This upgrades it the moment the major
+ * corrective action shows up. It only ever escalates: nothing here can put a
+ * unit back on the road, because that decision belongs to a person.
+ */
+async function escalateLateMajorDefects(supabase: Client, tenantId: string): Promise<number> {
+  const { data: candidates } = await supabase
+    .from("dti_inspection")
+    .select("id, submission_id, overall_result")
+    .eq("tenant_id", tenantId)
+    .eq("source", "form")
+    .eq("out_of_service", false)
+    .not("submission_id", "is", null)
+    .returns<{ id: string; submission_id: string; overall_result: string }[]>();
+
+  if (!candidates || candidates.length === 0) {
+    return 0;
+  }
+
+  const { data: majors } = await supabase
+    .from("follow_ups")
+    .select("parent_submission_id, form_item_id, title")
+    .eq("tenant_id", tenantId)
+    .in(
+      "parent_submission_id",
+      candidates.map((row) => row.submission_id),
+    )
+    .like("title", "Major vehicle defect:%")
+    .returns<DefectActionRow[]>();
+
+  const majorSubmissions = new Set((majors ?? []).map((row) => row.parent_submission_id));
+  let escalated = 0;
+
+  for (const candidate of candidates) {
+    if (!majorSubmissions.has(candidate.submission_id)) {
+      continue;
+    }
+
+    const { error } = await supabase
+      .from("dti_inspection")
+      .update({ overall_result: "major", out_of_service: true })
+      .eq("id", candidate.id)
+      .eq("tenant_id", tenantId);
+
+    if (!error) {
+      escalated += 1;
+    }
+  }
+
+  return escalated;
+}
 
 /**
  * Turn completed pre-trip submissions into inspections.
@@ -293,7 +366,7 @@ export async function reconcilePreTripSubmissions(
     .maybeSingle<FormRow>();
 
   if (!form) {
-    return { created: 0, skipped: 0 };
+    return { created: 0, skipped: 0, escalated: 0 };
   }
 
   const [{ data: formItems }, { data: linked }] = await Promise.all([
@@ -313,12 +386,15 @@ export async function reconcilePreTripSubmissions(
 
   const alreadyLinked = new Set((linked ?? []).map((row) => row.submission_id));
 
+  // "submitted" is the terminal state for a submission; the only other value the
+  // app writes is "draft". A draft is a pre-trip in progress and must not become
+  // an inspection, or a half-walked truck would show valid on the fleet board.
   const { data: submissions } = await supabase
     .from("submissions")
     .select("id, submitted_by, submitted_at, created_at")
     .eq("tenant_id", tenantId)
     .eq("form_id", form.id)
-    .eq("status", "completed")
+    .eq("status", "submitted")
     .order("submitted_at", { ascending: false, nullsFirst: false })
     .limit(limit)
     .returns<{ id: string; submitted_by: string | null; submitted_at: string | null; created_at: string }[]>();
@@ -326,23 +402,30 @@ export async function reconcilePreTripSubmissions(
   const pending = (submissions ?? []).filter((submission) => !alreadyLinked.has(submission.id));
 
   if (pending.length === 0) {
-    return { created: 0, skipped: 0 };
+    return { created: 0, skipped: 0, escalated: await escalateLateMajorDefects(supabase, tenantId) };
   }
 
-  const { data: values } = await supabase
-    .from("submission_values")
-    .select("submission_id, form_item_id, value")
-    .eq("tenant_id", tenantId)
-    .in(
-      "submission_id",
-      pending.map((submission) => submission.id),
-    )
-    .returns<{ submission_id: string; form_item_id: string; value: unknown }[]>();
+  const pendingIds = pending.map((submission) => submission.id);
+  const [{ data: values }, { data: defectActions }] = await Promise.all([
+    supabase
+      .from("submission_values")
+      .select("submission_id, form_item_id, value")
+      .eq("tenant_id", tenantId)
+      .in("submission_id", pendingIds)
+      .returns<{ submission_id: string; form_item_id: string; value: unknown }[]>(),
+    supabase
+      .from("follow_ups")
+      .select("parent_submission_id, form_item_id, title")
+      .eq("tenant_id", tenantId)
+      .in("parent_submission_id", pendingIds)
+      .returns<{ parent_submission_id: string; form_item_id: string | null; title: string }[]>(),
+  ]);
 
   const { inspections, skipped } = derivePreTripInspections({
     formItems: formItems ?? [],
     submissions: pending,
     values: values ?? [],
+    chosenSeverities: chosenSeveritiesFrom(defectActions ?? []),
     fallbackProvince: input.fallbackProvince ?? null,
   });
 
@@ -391,5 +474,5 @@ export async function reconcilePreTripSubmissions(
     created += 1;
   }
 
-  return { created, skipped: skipped.length };
+  return { created, skipped: skipped.length, escalated: await escalateLateMajorDefects(supabase, tenantId) };
 }

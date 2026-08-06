@@ -41,6 +41,22 @@ export type PreTripValueRow = {
   value: unknown;
 };
 
+/**
+ * The severity the driver actually chose for a failed item.
+ *
+ * A failed item stores only "fail"; the item's own defect_severity tag is the
+ * default that was offered, not the answer. The driver's choice survives in the
+ * corrective action raised alongside the submission, so that is what decides
+ * whether the unit comes off the road. Getting this wrong is the dangerous
+ * direction: a truck the driver called a major defect on would otherwise show
+ * green on the fleet board.
+ */
+export type PreTripChosenSeverity = {
+  submission_id: string;
+  form_item_id: string | null;
+  severity: "major" | "minor";
+};
+
 export type DerivedInspectionItem = {
   item_no: number;
   item_label: string;
@@ -128,6 +144,7 @@ export function derivePreTripInspections(input: {
   formItems: PreTripFormItemRow[];
   submissions: PreTripSubmissionRow[];
   values: PreTripValueRow[];
+  chosenSeverities?: PreTripChosenSeverity[];
   fallbackProvince?: Province | null;
 }): { inspections: DerivedInspection[]; skipped: SkippedSubmission[] } {
   const itemsById = new Map(input.formItems.map((item) => [item.id, item]));
@@ -136,6 +153,16 @@ export function derivePreTripInspections(input: {
   const valuesBySubmission = new Map<string, PreTripValueRow[]>();
   for (const value of input.values) {
     valuesBySubmission.set(value.submission_id, [...(valuesBySubmission.get(value.submission_id) ?? []), value]);
+  }
+
+  // Keyed per submission + item. A corrective action with no form_item_id was
+  // raised by hand rather than by a failed item, so it says nothing about an
+  // item's severity and is ignored.
+  const chosenByKey = new Map<string, "major" | "minor">();
+  for (const chosen of input.chosenSeverities ?? []) {
+    if (chosen.form_item_id) {
+      chosenByKey.set(`${chosen.submission_id}:${chosen.form_item_id}`, chosen.severity);
+    }
   }
 
   const inspections: DerivedInspection[] = [];
@@ -179,10 +206,16 @@ export function derivePreTripInspections(input: {
       const itemNo = settingNumber(formItem.settings, PRE_TRIP_ITEM_NO_KEY);
 
       if (itemNo !== null && formItem.field_type === "pass_fail_na") {
+        // The driver's own call wins; the item's tag is only the default that
+        // was offered, because the same component can be a minor or a major
+        // defect depending on the actual condition.
+        const severity =
+          chosenByKey.get(`${submission.id}:${formItem.id}`) ?? defaultSeverity(formItem.settings);
+
         items.push({
           item_no: itemNo,
           item_label: scheduleLabels.get(itemNo) ?? formItem.label,
-          status: itemStatusFromAnswer(row.value, defaultSeverity(formItem.settings)),
+          status: itemStatusFromAnswer(row.value, severity),
           note: null,
         });
       }

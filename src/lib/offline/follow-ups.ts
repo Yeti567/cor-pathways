@@ -117,6 +117,27 @@ function isPassFailFail(value: Json | undefined): boolean {
   return false;
 }
 
+// The corrective action's title is the only durable record of the severity the
+// worker actually chose: the submission value only says "fail", and the item's
+// own tag is just the default that was offered. Built and read through this one
+// pair so the compliance module can recover the worker's choice server-side
+// without matching on a string literal that lives in two places.
+export function inspectionDefectFollowUpTitle(severity: InspectionDefectSeverity, itemLabel: string) {
+  return `${severity === "major" ? "Major" : "Minor"} vehicle defect: ${itemLabel}`;
+}
+
+export function severityFromInspectionDefectTitle(title: string): InspectionDefectSeverity | null {
+  if (title.startsWith("Major vehicle defect:")) {
+    return "major";
+  }
+
+  if (title.startsWith("Minor vehicle defect:")) {
+    return "minor";
+  }
+
+  return null;
+}
+
 function defectSeverity(settings: Json): InspectionDefectSeverity {
   if (settings && typeof settings === "object" && !Array.isArray(settings)) {
     const tagged = (settings as Record<string, Json | undefined>).defect_severity;
@@ -200,7 +221,7 @@ export function createInspectionDefectFollowUps({
         parent_submission_id: submissionId,
         status: "open",
         tenant_id: tenantId,
-        title: `${isMajor ? "Major" : "Minor"} vehicle defect: ${item.label}`,
+        title: inspectionDefectFollowUpTitle(severity, item.label),
         updated_at: createdAt,
       });
     }
