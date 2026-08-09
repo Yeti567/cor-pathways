@@ -8077,11 +8077,12 @@ export async function createEquipmentDocument(formData: FormData) {
   const context = await requireEquipmentManager();
   const supabase = await createSupabaseServerClient();
   const equipmentId = stringValue(formData, "equipmentId");
-  const title = stringValue(formData, "title");
+  const titleInput = stringValue(formData, "title");
   const expiryDate = dateOnlyValue(formData, "expiryDate");
   const attachmentFiles = getUploadFiles(formData, "attachments");
+  const docType = coerceEquipmentDocumentType(stringValue(formData, "docType"));
 
-  if (!equipmentId || !title || !expiryDate) {
+  if (!equipmentId || !expiryDate) {
     redirect("/admin/equipment?error=Choose%20equipment%20and%20enter%20document%20details.");
   }
 
@@ -8089,6 +8090,36 @@ export async function createEquipmentDocument(formData: FormData) {
 
   if (!equipment) {
     redirect("/admin/equipment?error=Choose%20valid%20equipment.");
+  }
+
+  // A certification document can name which certification it records, chosen from the
+  // tenant's own equipment_certification_types list. Any other document type ignores it.
+  const certificationTypeIdInput = stringValue(formData, "certificationTypeId");
+  let certificationTypeId: string | null = null;
+  let certificationTypeName: string | null = null;
+
+  if (docType === "certification" && certificationTypeIdInput) {
+    const { data: certificationType } = await supabase
+      .from("equipment_certification_types")
+      .select("id, name")
+      .eq("id", certificationTypeIdInput)
+      .eq("tenant_id", context.appUser.tenant_id)
+      .maybeSingle<{ id: string; name: string }>();
+
+    if (!certificationType) {
+      redirectEquipmentError(equipmentId, "documents", "Choose a valid certification type.");
+    }
+
+    certificationTypeId = certificationType.id;
+    certificationTypeName = certificationType.name;
+  }
+
+  // Title is optional when a certification type supplies the name, exactly like the
+  // worker ticket flow. For every other document it is still required.
+  const title = titleInput || certificationTypeName || "";
+
+  if (!title) {
+    redirectEquipmentError(equipmentId, "documents", "Enter a document title or choose a certification type.");
   }
 
   let uploadedAttachmentPaths: string[];
@@ -8105,7 +8136,6 @@ export async function createEquipmentDocument(formData: FormData) {
     redirectEquipmentError(equipmentId, "documents", error instanceof Error ? error.message : "Attachments were not uploaded.");
   }
 
-  const docType = coerceEquipmentDocumentType(stringValue(formData, "docType"));
   const reminderLeadDays = Math.max(0, numberValue(formData, "reminderLeadDays", 30));
   const { data: equipmentDocument, error } = await supabase
     .from("equipment_document")
@@ -8115,12 +8145,14 @@ export async function createEquipmentDocument(formData: FormData) {
         actorId: context.appUser.id,
         details: {
           attachment_count: uploadedAttachmentPaths.length,
+          certification_type_id: certificationTypeId,
           doc_type: docType,
           expiry_date: expiryDate,
         },
         source: "admin",
       }),
       attachment_ids: [...parseEquipmentAttachmentIds(stringValue(formData, "attachmentIds")), ...uploadedAttachmentPaths],
+      certification_type_id: certificationTypeId,
       created_by: context.appUser.id,
       doc_type: docType,
       equipment_id: equipmentId,
@@ -8145,6 +8177,7 @@ export async function createEquipmentDocument(formData: FormData) {
     entityTable: "equipment_document",
     metadata: {
       attachment_count: uploadedAttachmentPaths.length,
+      certification_type_id: certificationTypeId,
       doc_type: docType,
       equipment_id: equipmentId,
       expiry_date: expiryDate,
@@ -9327,6 +9360,93 @@ export async function deleteCertificationType(formData: FormData) {
   revalidatePath("/admin/certification-types");
   revalidatePath("/admin/workers");
   redirect("/admin/certification-types?notice=Certification%20type%20deleted.");
+}
+
+export async function createEquipmentCertificationType(formData: FormData) {
+  const context = await requireEquipmentManager();
+  const supabase = await createSupabaseServerClient();
+  const name = stringValue(formData, "name");
+
+  if (!name) {
+    redirect("/admin/equipment/certification-types?error=Enter%20a%20certification%20type%20name.");
+  }
+
+  const { data: certificationType, error } = await supabase
+    .from("equipment_certification_types")
+    .insert({
+      name,
+      tenant_id: context.appUser.tenant_id,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (error || !certificationType) {
+    redirect(
+      `/admin/equipment/certification-types?error=${encodeURIComponent(error?.message ?? "Certification type was not created.")}`,
+    );
+  }
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "equipment_certification_type.create",
+    entityId: certificationType.id,
+    entityTable: "equipment_certification_types",
+    metadata: {
+      name,
+    },
+  });
+
+  revalidatePath("/admin/equipment/certification-types");
+  redirect("/admin/equipment/certification-types?notice=Certification%20type%20created.");
+}
+
+export async function deleteEquipmentCertificationType(formData: FormData) {
+  const context = await requireEquipmentManager();
+  const supabase = await createSupabaseServerClient();
+  const certificationTypeId = stringValue(formData, "certificationTypeId");
+
+  if (!certificationTypeId) {
+    redirect("/admin/equipment/certification-types?error=Choose%20a%20certification%20type.");
+  }
+
+  const { data: certificationType, error: lookupError } = await supabase
+    .from("equipment_certification_types")
+    .select("id, name")
+    .eq("id", certificationTypeId)
+    .eq("tenant_id", context.appUser.tenant_id)
+    .maybeSingle<{ id: string; name: string }>();
+
+  if (lookupError || !certificationType) {
+    redirect(
+      `/admin/equipment/certification-types?error=${encodeURIComponent(
+        lookupError?.message ?? "Choose a valid certification type.",
+      )}`,
+    );
+  }
+
+  // The FK is ON DELETE SET NULL, so units keep the certificates they have already
+  // filed against this type. Their titles were captured at upload time, so the record
+  // stays readable; it simply stops being one of the offered types.
+  const { error } = await supabase
+    .from("equipment_certification_types")
+    .delete()
+    .eq("id", certificationTypeId)
+    .eq("tenant_id", context.appUser.tenant_id);
+
+  if (error) {
+    redirect(`/admin/equipment/certification-types?error=${encodeURIComponent(error.message)}`);
+  }
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "equipment_certification_type.delete",
+    entityId: certificationType.id,
+    entityTable: "equipment_certification_types",
+    metadata: {
+      name: certificationType.name,
+    },
+  });
+
+  revalidatePath("/admin/equipment/certification-types");
+  redirect("/admin/equipment/certification-types?notice=Certification%20type%20deleted.");
 }
 
 export async function createWorkerCertification(formData: FormData) {

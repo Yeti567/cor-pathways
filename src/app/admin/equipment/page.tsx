@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, CalendarClock, Gauge, MapPin, Save, Search, SlidersHorizontal, Truck, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, BadgeCheck, CalendarClock, Gauge, MapPin, Save, Search, SlidersHorizontal, Truck, UserRound, Wrench } from "lucide-react";
 import { createEquipment } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
@@ -178,6 +178,16 @@ export default async function EquipmentPage({ searchParams }: EquipmentPageProps
           {error}
         </p>
       ) : null}
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Link
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
+          href="/admin/equipment/certification-types"
+        >
+          <BadgeCheck className="h-4 w-4" aria-hidden="true" />
+          Vehicle certification types
+        </Link>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">

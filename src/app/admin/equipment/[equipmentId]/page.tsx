@@ -31,13 +31,14 @@ import {
   updateEquipment,
   uploadEquipmentPhotos,
 } from "@/app/admin/actions";
+import { AddEquipmentDocumentFields } from "@/app/admin/equipment/[equipmentId]/AddEquipmentDocumentFields";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
+import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { requireAppUser } from "@/lib/current-user";
 import {
   coerceEquipmentTab,
   equipmentCategoryOptions,
-  equipmentDocumentTypeOptions,
   equipmentDueStatusClass,
   equipmentIntervalModeOptions,
   equipmentMaintenanceTypeOptions,
@@ -457,6 +458,12 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
     })),
     hasMaintenanceRecord: (maintenance?.length ?? 0) > 0 || (scheduledServices?.length ?? 0) > 0,
   });
+
+  // The tenant's vehicle certification type list (CVIP, picker, tank, pressure test...),
+  // seeded on first read. Drives the Add Document certification picker and names filed
+  // certifications in the list below.
+  const equipmentCertificationTypes = await ensureEquipmentCertificationTypes(supabase, context.appUser.tenant_id);
+  const certificationTypeNameById = new Map(equipmentCertificationTypes.map((type) => [type.id, type.name]));
 
   return (
     <AdminShell
@@ -1266,20 +1273,9 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
             <input name="equipmentId" type="hidden" value={equipment.id} />
             <h2 className="text-lg font-semibold text-[var(--ink)]">Add Document</h2>
             <div className="mt-4 grid gap-4">
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-[var(--ink)]">Title</span>
-                <input className={inputClass} name="title" placeholder="Registration" required />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-[var(--ink)]">Document type</span>
-                <select className={inputClass} defaultValue="registration" name="docType">
-                  {equipmentDocumentTypeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <AddEquipmentDocumentFields
+                certificationTypes={equipmentCertificationTypes.map((type) => ({ id: type.id, name: type.name }))}
+              />
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-2">
                   <span className="text-sm font-medium text-[var(--ink)]">Issued date</span>
@@ -1326,7 +1322,11 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                     <div className="grid gap-3 px-4 py-4 lg:grid-cols-[1fr_140px_130px_120px] lg:items-center" key={document.id}>
                       <div>
                         <p className="font-semibold text-[var(--ink)]">{document.title}</p>
-                        <p className="mt-1 text-sm text-[var(--ink-muted)]">{document.doc_type.replaceAll("_", " ")}</p>
+                        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                          {(document.certification_type_id
+                            ? certificationTypeNameById.get(document.certification_type_id)
+                            : null) ?? document.doc_type.replaceAll("_", " ")}
+                        </p>
                       </div>
                       <p className="text-sm text-[var(--ink-muted)]">{formatDate(document.expiry_date)}</p>
                       <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${equipmentDueStatusClass(status)}`}>

@@ -57,6 +57,20 @@ export const equipmentDocumentTypeOptions = [
   { value: "other", label: "Other" },
 ] as const;
 
+// The standard Western Canadian commercial-vehicle certification list a tenant starts
+// with. Kept in lockstep with the seed block in
+// supabase/migrations/20260809011025_equipment_certification_types.sql: the migration
+// seeds existing tenants, and ensureEquipmentCertificationTypes seeds a new tenant the
+// first time its list is read, so both need the same names. The list is tenant-editable
+// after seeding, so this is a starting point, not a fixed set.
+export const DEFAULT_EQUIPMENT_CERTIFICATION_TYPES = [
+  "CVIP inspection",
+  "Crane / picker inspection",
+  "Tank inspection (CSA B620)",
+  "Pressure test (hydrostatic / pneumatic)",
+  "Fire extinguisher inspection",
+] as const;
+
 export const equipmentTabs = ["overview", "service", "maintenance", "meter", "documents", "forms"] as const;
 
 export type EquipmentCategory = (typeof equipmentCategoryOptions)[number]["value"];

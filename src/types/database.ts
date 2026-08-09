@@ -1293,6 +1293,7 @@ export type Database = {
         Row: TenantScopedRow & {
           action_metadata: Json;
           attachment_ids: string[];
+          certification_type_id: string | null;
           created_by: string | null;
           deleted_at: string | null;
           doc_type: "registration" | "insurance" | "cvip" | "permit" | "certification" | "other";
@@ -1309,6 +1310,15 @@ export type Database = {
             "tenant_id" | "equipment_id" | "expiry_date" | "title"
           >;
         Update: Partial<Database["public"]["Tables"]["equipment_document"]["Row"]>;
+        Relationships: [];
+      };
+      equipment_certification_types: {
+        Row: TenantScopedRow & {
+          name: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["equipment_certification_types"]["Row"]> &
+          Pick<Database["public"]["Tables"]["equipment_certification_types"]["Row"], "tenant_id" | "name">;
+        Update: Partial<Database["public"]["Tables"]["equipment_certification_types"]["Row"]>;
         Relationships: [];
       };
       co_project: {
