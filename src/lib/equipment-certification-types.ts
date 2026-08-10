@@ -12,15 +12,23 @@ type ServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
  *
  * Existing tenants were seeded by the 20260809011025 migration. A tenant created after
  * that migration has an empty list, so the first render that needs it lays the standard
- * set down here. The insert is best-effort: two concurrent first renders can race, and
- * the unique (tenant_id, lower(name)) index turns the loser into a harmless conflict
- * rather than a duplicate. Writing on read mirrors the certification-types page, which
- * already sends reminder notifications during render.
+ * set down here. Writing on read mirrors the certification-types page, which already
+ * sends reminder notifications during render.
+ *
+ * The seed returns the rows it just wrote rather than reading them back. An earlier
+ * version inserted and then issued a second select, and that select came back empty on
+ * the very first visit even though the insert had plainly succeeded, so a brand new
+ * tenant saw no certifications at all until it reloaded. That is the exact "the feature
+ * is missing" impression this whole area exists to remove, and one round trip cannot
+ * disagree with itself the way two can.
  */
 export async function ensureEquipmentCertificationTypes(
   supabase: ServerClient,
   tenantId: string,
 ): Promise<EquipmentCertificationTypeRow[]> {
+  const byName = (rows: EquipmentCertificationTypeRow[]) =>
+    [...rows].sort((a, b) => a.name.localeCompare(b.name));
+
   const { data: existing } = await supabase
     .from("equipment_certification_types")
     .select("*")
@@ -32,10 +40,19 @@ export async function ensureEquipmentCertificationTypes(
     return existing;
   }
 
-  await supabase
+  const { data: inserted } = await supabase
     .from("equipment_certification_types")
-    .insert(DEFAULT_EQUIPMENT_CERTIFICATION_TYPES.map((name) => ({ name, tenant_id: tenantId })));
+    .insert(DEFAULT_EQUIPMENT_CERTIFICATION_TYPES.map((name) => ({ name, tenant_id: tenantId })))
+    .select("*")
+    .returns<EquipmentCertificationTypeRow[]>();
 
+  if (inserted && inserted.length > 0) {
+    return byName(inserted);
+  }
+
+  // No rows came back, so this render lost a race with another first render and the
+  // unique (tenant_id, lower(name)) index rejected the whole insert. The winner's rows
+  // are there to be read.
   const { data: seeded } = await supabase
     .from("equipment_certification_types")
     .select("*")
