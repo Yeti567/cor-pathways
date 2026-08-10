@@ -22,7 +22,7 @@ type ScheduledService = Pick<
 >;
 type EquipmentDocument = Pick<
   Database["public"]["Tables"]["equipment_document"]["Row"],
-  "equipment_id" | "expiry_date" | "id" | "is_active" | "reminder_lead_days" | "title"
+  "certification_type_id" | "equipment_id" | "expiry_date" | "id" | "is_active" | "reminder_lead_days" | "title"
 >;
 type User = Pick<
   Database["public"]["Tables"]["users"]["Row"],
@@ -77,6 +77,7 @@ function service(input: Partial<ScheduledService> = {}): ScheduledService {
 
 function document(input: Partial<EquipmentDocument> = {}): EquipmentDocument {
   return {
+    certification_type_id: null,
     equipment_id: equipment.id,
     expiry_date: "2026-06-10",
     id: "document-1",
@@ -129,6 +130,39 @@ describe("equipment reminders", () => {
       title: "Equipment document expiring: Registration",
       user_id: manager.id,
     });
+  });
+
+  it("names an expiring certification from the tenant's live type list", () => {
+    const notifications = buildEquipmentAttentionNotifications({
+      // The stored title is what the type was called when the certificate was filed.
+      // Renaming the type has to rename the reminder, or the two drift apart.
+      certificationTypeNames: new Map([["type-tank", "Tank inspection (CSA B620)"]]),
+      createdAt: "2026-05-24T12:00:00.000Z",
+      documents: [document({ certification_type_id: "type-tank", title: "Tank inspection" })],
+      equipment: [equipment],
+      now: new Date("2026-05-24T12:00:00.000Z"),
+      scheduledServices: [],
+      tenantId: "tenant-1",
+      users: [manager],
+    });
+
+    expect(notifications[0].title).toBe("Equipment document expiring: Tank inspection (CSA B620)");
+    expect(notifications[0].body).toContain("Tank inspection (CSA B620)");
+  });
+
+  it("falls back to the stored title when the certification type is gone", () => {
+    const notifications = buildEquipmentAttentionNotifications({
+      certificationTypeNames: new Map(),
+      createdAt: "2026-05-24T12:00:00.000Z",
+      documents: [document({ certification_type_id: "type-deleted", title: "Pressure test" })],
+      equipment: [equipment],
+      now: new Date("2026-05-24T12:00:00.000Z"),
+      scheduledServices: [],
+      tenantId: "tenant-1",
+      users: [manager],
+    });
+
+    expect(notifications[0].title).toBe("Equipment document expiring: Pressure test");
   });
 
   it("skips current service and inactive documents", () => {

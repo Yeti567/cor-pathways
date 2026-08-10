@@ -3,13 +3,19 @@ import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowLeft, BadgeCheck, FileText, Truck } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
+import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { requireAppUser } from "@/lib/current-user";
 import {
+  buildUnitCertificationStatuses,
   buildVehicleFileStatuses,
+  certificationTypeNameMap,
   formatEquipmentCategory,
+  unitCertificationGaps,
+  unitExpectsCertifications,
   vehicleFileGaps,
   vehicleFileStateClass,
   VEHICLE_FILE_STATE_LABELS,
+  type UnitCertificationStatus,
   type VehicleFileRegistryKey,
   type VehicleFileStatus,
 } from "@/lib/equipment";
@@ -26,17 +32,31 @@ type EquipmentRow = Pick<
 >;
 type DocumentRow = Pick<
   Database["public"]["Tables"]["equipment_document"]["Row"],
-  "equipment_id" | "doc_type" | "expiry_date" | "is_active" | "reminder_lead_days" | "title"
+  | "certification_type_id"
+  | "equipment_id"
+  | "doc_type"
+  | "expiry_date"
+  | "is_active"
+  | "reminder_lead_days"
+  | "title"
 >;
 
 type VehicleFilesPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-// The two registries this page serves. Card 6 and card 7 on the Transport home
-// link here with ?file= set, so each lands on just its own file.
+// The views this page serves. Card 6 and card 7 on the Transport home link here with
+// ?file= set, so each lands on just its own file.
+//
+// This page is a READ-ONLY audit view. Nothing is entered here. A unit's documents live
+// on the unit in Equipment, which is the single system of record, and this page reads
+// those same equipment_document rows arranged the way an Alberta facility audit asks
+// for them. Every row therefore deep-links back to the unit file rather than growing a
+// second place to type, which is how the two modules stay one source of truth.
+type FileViewKey = "all" | VehicleFileRegistryKey | "vehicle_certifications";
+
 const FILE_VIEWS: {
-  value: "all" | VehicleFileRegistryKey;
+  value: FileViewKey;
   label: string;
   heading: string;
   blurb: string;
@@ -45,7 +65,7 @@ const FILE_VIEWS: {
     value: "all",
     label: "All vehicle files",
     heading: "Vehicle files",
-    blurb: "Registration, insurance, permits, and CVIP for every road unit in the fleet.",
+    blurb: "Registration, insurance, permits, CVIP, and certifications for every road unit in the fleet.",
   },
   {
     value: "vehicle_registration",
@@ -61,6 +81,13 @@ const FILE_VIEWS: {
     blurb:
       "The annual Commercial Vehicle Inspection Program certificate and decal for each unit. A unit with no valid CVIP may not be operated.",
   },
+  {
+    value: "vehicle_certifications",
+    label: "Certifications",
+    heading: "Unit certifications",
+    blurb:
+      "Picker and crane inspections, CSA B620 tank inspections, pressure tests, and anything else on your certification list, per unit.",
+  },
 ];
 
 function firstParam(value: string | string[] | undefined) {
@@ -75,7 +102,7 @@ function unitLabel(unit: EquipmentRow) {
   return unit.name ? `${unit.unit_number} - ${unit.name}` : unit.unit_number;
 }
 
-function expiryDetail(status: VehicleFileStatus) {
+function expiryDetail(status: Pick<VehicleFileStatus, "state" | "expiryDate" | "daysUntilExpiry">) {
   if (status.state === "missing") {
     return "Nothing on file";
   }
@@ -89,6 +116,25 @@ function expiryDetail(status: VehicleFileStatus) {
     return `Expired ${Math.abs(status.daysUntilExpiry)} days ago`;
   }
   return `${status.expiryDate.slice(0, 10)} (${status.daysUntilExpiry} days)`;
+}
+
+function CertificationCard({ certification }: { certification: UnitCertificationStatus }) {
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-white p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold text-[var(--ink)]">
+          {certification.label}
+          {certification.expected ? "" : " (not on your list)"}
+        </p>
+        <span
+          className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${vehicleFileStateClass(certification.state)}`}
+        >
+          {VEHICLE_FILE_STATE_LABELS[certification.state]}
+        </span>
+      </div>
+      <p className="mt-1 text-xs font-medium text-[var(--ink-muted)]">{expiryDetail(certification)}</p>
+    </div>
+  );
 }
 
 export default async function VehicleFilesPage({ searchParams }: VehicleFilesPageProps) {
@@ -107,7 +153,7 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
-  const [{ data: equipmentRows }, { data: documentRows }] = await Promise.all([
+  const [{ data: equipmentRows }, { data: documentRows }, certificationTypes] = await Promise.all([
     supabase
       .from("equipment")
       .select("id, unit_number, name, category, status, is_commercial, license_plate, vin_or_serial")
@@ -120,10 +166,11 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
       .returns<EquipmentRow[]>(),
     supabase
       .from("equipment_document")
-      .select("equipment_id, doc_type, expiry_date, is_active, reminder_lead_days, title")
+      .select("equipment_id, doc_type, certification_type_id, expiry_date, is_active, reminder_lead_days, title")
       .eq("tenant_id", tenantId)
       .is("deleted_at", null)
       .returns<DocumentRow[]>(),
+    ensureEquipmentCertificationTypes(supabase, tenantId),
   ]);
 
   const documentsByEquipment = new Map<string, DocumentRow[]>();
@@ -134,30 +181,76 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
     ]);
   }
 
-  // Only NSC-regulated units carry these files. A shop trailer that is not a
-  // commercial unit would otherwise show up as permanently deficient.
-  const units = (equipmentRows ?? []).filter((unit) => unit.is_commercial);
+  const showRegistryFiles = view.value !== "vehicle_certifications";
+  const showCertifications = view.value === "all" || view.value === "vehicle_certifications";
+  const certificationTypeInputs = certificationTypes.map((type) => ({ id: type.id, name: type.name }));
+  const certificationTypeNames = certificationTypeNameMap(certificationTypeInputs);
+
+  // The registry files (registration, insurance, permits, CVIP) are NSC obligations, so
+  // only commercial units carry them: a shop trailer would otherwise read permanently
+  // deficient. Certifications are a property of the iron rather than of the regulation,
+  // so a picker truck outside NSC still needs its picker inspection.
+  //
+  // So the unit set follows whether certifications are on screen, not which view it is.
+  // Keying it to the certifications view alone hid a non-commercial unit's certification
+  // gaps on the combined view while the banner promised they were counted, which is the
+  // sort of quiet disagreement between two pages that makes the numbers untrustworthy.
+  const units = (equipmentRows ?? []).filter((unit) => unit.is_commercial || showCertifications);
 
   const rows = units.map((unit) => {
-    const statuses = buildVehicleFileStatuses({
-      category: unit.category,
-      documents: (documentsByEquipment.get(unit.id) ?? []).map((document) => ({
-        docType: document.doc_type,
-        expiryDate: document.expiry_date,
-        isActive: document.is_active,
-        reminderLeadDays: document.reminder_lead_days,
-      })),
-    });
+    const documents = documentsByEquipment.get(unit.id) ?? [];
+    const registryStatuses =
+      showRegistryFiles && unit.is_commercial
+        ? buildVehicleFileStatuses({
+            category: unit.category,
+            documents: documents.map((document) => ({
+              docType: document.doc_type,
+              expiryDate: document.expiry_date,
+              isActive: document.is_active,
+              reminderLeadDays: document.reminder_lead_days,
+            })),
+          })
+        : [];
 
-    const visible = view.value === "all" ? statuses : statuses.filter((status) => status.registryKey === view.value);
+    const visibleRegistry =
+      view.value === "all" || !showRegistryFiles
+        ? registryStatuses
+        : registryStatuses.filter((status) => status.registryKey === view.value);
 
-    return { unit, statuses: visible, gaps: vehicleFileGaps(visible) };
-  });
+    const certifications = showCertifications
+      ? buildUnitCertificationStatuses({
+          certificationTypes: unitExpectsCertifications(unit.category) ? certificationTypeInputs : [],
+          certificationTypeNames,
+          documents: documents.map((document) => ({
+            certificationTypeId: document.certification_type_id,
+            docType: document.doc_type,
+            expiryDate: document.expiry_date,
+            isActive: document.is_active,
+            reminderLeadDays: document.reminder_lead_days,
+            title: document.title,
+          })),
+        })
+      : [];
+
+    return {
+      unit,
+      statuses: visibleRegistry,
+      certifications,
+      gaps: [...vehicleFileGaps(visibleRegistry), ...unitCertificationGaps(certifications)],
+    };
+  })
+    // A non-commercial unit carries no registry files, so if it has also filed no
+    // certifications and the tenant has emptied the type list, there is nothing to say
+    // about it. Rendering its card anyway would be an empty box with a heading.
+    .filter((row) => row.statuses.length > 0 || row.certifications.length > 0);
 
   const unitsWithGaps = rows.filter((row) => row.gaps.length > 0).length;
   const totalGaps = rows.reduce((total, row) => total + row.gaps.length, 0);
   const expiringSoon = rows.reduce(
-    (total, row) => total + row.statuses.filter((status) => status.state === "due_soon").length,
+    (total, row) =>
+      total +
+      row.statuses.filter((status) => status.state === "due_soon").length +
+      row.certifications.filter((certification) => certification.state === "due_soon").length,
     0,
   );
 
@@ -171,13 +264,32 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
         Transport
       </Link>
 
-      <p className="mt-4 text-sm text-[var(--ink-muted)]">
-        {view.blurb} Files are the unit&apos;s own documents, so they are added and renewed on the unit in{" "}
-        <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/equipment">
-          Equipment
-        </Link>
-        .
-      </p>
+      <p className="mt-4 text-sm text-[var(--ink-muted)]">{view.blurb}</p>
+
+      <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3">
+        <p className="text-sm text-[var(--ink)]">
+          <span className="font-semibold">This is a read-only audit view.</span> Nothing is entered here. Every unit
+          keeps one file, on the unit in{" "}
+          <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/equipment">
+            Equipment
+          </Link>
+          , and this page reads those same documents arranged the way a facility audit asks for them. Use{" "}
+          <span className="font-semibold">Open unit file</span> on any unit to add or renew one.
+        </p>
+        {showCertifications ? (
+          <p className="mt-2 text-sm text-[var(--ink-muted)]">
+            Every certification on your list is expected on every vehicle and trailer, so one that has never been filed
+            counts as a gap. If the fleet carries no tanks or pickers, remove those from{" "}
+            <Link
+              className="font-semibold text-[var(--primary)] hover:underline"
+              href="/admin/equipment/certification-types"
+            >
+              the certification list
+            </Link>
+            .
+          </p>
+        ) : null}
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         {FILE_VIEWS.map((option) => (
@@ -219,14 +331,23 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
       {rows.length === 0 ? (
         <section className="mt-5 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] p-10 text-center shadow-sm">
           <Truck className="mx-auto h-8 w-8 text-[var(--primary)]" aria-hidden="true" />
-          <h2 className="mt-3 text-lg font-semibold text-[var(--ink)]">No commercial units yet</h2>
+          <h2 className="mt-3 text-lg font-semibold text-[var(--ink)]">
+            {showCertifications ? "No vehicles or trailers yet" : "No commercial units yet"}
+          </h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">
             Add a vehicle or trailer in{" "}
             <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/equipment">
               Equipment
-            </Link>{" "}
-            and tick <span className="font-semibold">Commercial vehicle</span>. Only NSC-regulated units carry these
-            files.
+            </Link>
+            {showCertifications ? (
+              ". Certifications are tracked on every road unit, commercial or not."
+            ) : (
+              <>
+                {" "}
+                and tick <span className="font-semibold">Commercial vehicle</span>. Only NSC-regulated units carry
+                these files.
+              </>
+            )}
           </p>
         </section>
       ) : (
@@ -259,7 +380,7 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
                   href={`/admin/equipment/${row.unit.id}?tab=documents`}
                 >
                   <FileText className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
-                  File a document
+                  Open unit file
                 </Link>
               </div>
 
@@ -285,6 +406,24 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
                   </div>
                 ))}
               </div>
+
+              {row.certifications.length > 0 ? (
+                <div className="mt-3">
+                  {row.statuses.length > 0 ? (
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                      Certifications
+                    </p>
+                  ) : null}
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {row.certifications.map((certification) => (
+                      <CertificationCard
+                        certification={certification}
+                        key={`${row.unit.id}-${certification.certificationTypeId ?? certification.label}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
           ))}
         </div>

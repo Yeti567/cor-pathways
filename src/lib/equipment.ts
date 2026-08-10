@@ -63,8 +63,15 @@ export const equipmentDocumentTypeOptions = [
 // seeds existing tenants, and ensureEquipmentCertificationTypes seeds a new tenant the
 // first time its list is read, so both need the same names. The list is tenant-editable
 // after seeding, so this is a starting point, not a fixed set.
+//
+// Every type here is EXPECTED ON EVERY FLEET UNIT (see buildUnitCertificationStatuses),
+// so a name added to this list makes every unit deficient until it is filed. Keep it to
+// what a Western Canadian fleet genuinely carries and let tenants trim further.
+//
+// CVIP is deliberately absent. It has its own doc_type above and its own Transport
+// registry file, so listing it here too would report one certificate as two gaps.
+// Migration 20260810120000 removes it from tenants seeded before that was noticed.
 export const DEFAULT_EQUIPMENT_CERTIFICATION_TYPES = [
-  "CVIP inspection",
   "Crane / picker inspection",
   "Tank inspection (CSA B620)",
   "Pressure test (hydrostatic / pneumatic)",
@@ -766,32 +773,246 @@ export function buildVehicleFileStatuses(
       };
     }
 
-    // Rank by how much life is left, so the newest certificate represents the file.
-    const ranked = [...ofType].sort(
-      (a, b) => (daysUntil(b.expiryDate, now) ?? Number.MAX_SAFE_INTEGER) - (daysUntil(a.expiryDate, now) ?? Number.MAX_SAFE_INTEGER),
-    );
-    const best = ranked[0];
-    const days = daysUntil(best.expiryDate, now);
-    const lead = Number(best.reminderLeadDays ?? 30);
-    const state: VehicleFileState =
-      days === null ? "on_file" : days < 0 ? "expired" : days <= (Number.isFinite(lead) ? lead : 30) ? "due_soon" : "on_file";
-
     return {
       registryKey: requirement.registryKey,
       docType: requirement.docType,
       label: requirement.label,
       description: requirement.description,
       required: requirement.required,
-      state,
-      expiryDate: best.expiryDate,
-      daysUntilExpiry: days,
+      ...freshestDocumentState(ofType, now),
     };
   });
+}
+
+/**
+ * How a set of documents covering the same file reads right now.
+ *
+ * The freshest one represents the file, so a unit holding last year's expired CVIP
+ * plus this year's valid one is on file rather than expired, and that document's own
+ * reminder lead decides when "renew soon" starts. Shared by the fixed vehicle-file
+ * registry and the per-unit certification list so both age a document identically:
+ * two copies of this rule would drift the first time one of them was tuned.
+ */
+function freshestDocumentState(
+  documents: readonly { expiryDate: string | null; reminderLeadDays: number | null }[],
+  now: Date,
+): { state: Exclude<VehicleFileState, "missing">; expiryDate: string | null; daysUntilExpiry: number | null } {
+  const ranked = [...documents].sort(
+    (a, b) =>
+      (daysUntil(b.expiryDate, now) ?? Number.MAX_SAFE_INTEGER) -
+      (daysUntil(a.expiryDate, now) ?? Number.MAX_SAFE_INTEGER),
+  );
+  const best = ranked[0];
+  const days = daysUntil(best.expiryDate, now);
+  const lead = Number(best.reminderLeadDays ?? 30);
+
+  return {
+    state:
+      days === null ? "on_file" : days < 0 ? "expired" : days <= (Number.isFinite(lead) ? lead : 30) ? "due_soon" : "on_file",
+    expiryDate: best.expiryDate,
+    daysUntilExpiry: days,
+  };
 }
 
 /** Files that are required, applicable, and not currently satisfied. */
 export function vehicleFileGaps(statuses: VehicleFileStatus[]): VehicleFileStatus[] {
   return statuses.filter((status) => status.required && (status.state === "missing" || status.state === "expired"));
+}
+
+// --- Unit certifications ----------------------------------------------------
+//
+// The fixed registry above answers "does this unit hold the three files every NSC
+// unit must hold". Certifications are the other half: a picker inspection, a CSA B620
+// tank inspection, a pressure test.
+//
+// These are tracked on a REQUIREMENT model: every certification type in the tenant's
+// list is expected on every fleet unit, so one that has never been filed reads as
+// Missing and counts as a gap, exactly like a missing registration.
+//
+// That makes the type list load-bearing. A tenant carrying no tanks must remove the
+// tank inspection type, or every unit in the yard reads permanently deficient for a
+// certificate it will never need. Every surface that renders these statuses therefore
+// has to point at the certification-types page, or the list silently becomes noise.
+// CVIP is deliberately NOT in the list: it has its own doc_type and its own registry
+// file above, and carrying it in both places would nag twice for one certificate.
+
+export type UnitCertificationTypeInput = {
+  id: string;
+  name: string;
+};
+
+export type UnitCertificationDocumentInput = {
+  certificationTypeId: string | null;
+  docType: string;
+  expiryDate: string | null;
+  isActive: boolean;
+  reminderLeadDays: number | null;
+  title: string | null;
+};
+
+export type UnitCertificationStatus = {
+  /** Null for a certification filed as free text rather than against a type. */
+  certificationTypeId: string | null;
+  label: string;
+  state: VehicleFileState;
+  expiryDate: string | null;
+  daysUntilExpiry: number | null;
+  /**
+   * False for a free-text certification the unit filed that is not in the tenant's
+   * list. Those are shown because they exist, but a type nobody expects cannot be
+   * missing, so they never contribute a gap.
+   */
+  expected: boolean;
+};
+
+/**
+ * The label a filed certification should carry, resolved at read time.
+ *
+ * The type name is looked up now rather than trusting the title frozen into the row
+ * at upload, so renaming "Tank inspection (CSA B620)" in the tenant's list renames it
+ * on every unit and in every reminder. A certification filed with a free-text title
+ * and no type still gets its title, so nothing filed goes unnamed.
+ */
+export function unitCertificationLabel(
+  document: Pick<UnitCertificationDocumentInput, "certificationTypeId" | "title">,
+  certificationTypeNames: ReadonlyMap<string, string>,
+) {
+  const typeName = document.certificationTypeId ? certificationTypeNames.get(document.certificationTypeId) : null;
+
+  return typeName ?? document.title?.trim() ?? "";
+}
+
+/** The tenant's type list as an id to name lookup, for the label resolver above. */
+export function certificationTypeNameMap(types: readonly UnitCertificationTypeInput[]): ReadonlyMap<string, string> {
+  return new Map(types.map((type) => [type.id, type.name]));
+}
+
+/**
+ * Whether the requirement model applies to this unit at all.
+ *
+ * Only road units. A picker inspection expected on a bench grinder is noise, and the
+ * whole risk of the requirement model is drowning real gaps in noise. A non-fleet unit
+ * still shows any certification someone filed against it, it just is not held to the
+ * list. Callers pass an empty type list for these units.
+ */
+export function unitExpectsCertifications(category: string) {
+  return category === "vehicle" || category === "trailer";
+}
+
+/**
+ * Every certification expected on one unit, plus any extra it has filed.
+ *
+ * One line per type in the tenant's list, whether or not the unit has filed it, so a
+ * never-filed certification reads as Missing. Filed documents are grouped by type, so
+ * a unit that has renewed the same inspection four years running shows one line at the
+ * newest expiry rather than four. A certification filed as free text with no type is
+ * appended as an unexpected extra: visible, but never counted as a gap.
+ */
+export function buildUnitCertificationStatuses(
+  input: {
+    /** The types this unit is held to. Empty for a unit outside the requirement model. */
+    certificationTypes: readonly UnitCertificationTypeInput[];
+    /**
+     * Names for resolving labels, when that is wider than the expected list. A unit
+     * outside the requirement model has no expected types but can still hold filed
+     * certifications, and those should follow a rename like everyone else's.
+     * Defaults to the expected list.
+     */
+    certificationTypeNames?: ReadonlyMap<string, string>;
+    documents: readonly UnitCertificationDocumentInput[];
+  },
+  now = new Date(),
+): UnitCertificationStatus[] {
+  const names = input.certificationTypeNames ?? certificationTypeNameMap(input.certificationTypes);
+  const filed = (input.documents ?? []).filter(
+    (document) => document.docType === "certification" && document.isActive,
+  );
+
+  const byTypeId = new Map<string, UnitCertificationDocumentInput[]>();
+  const freeText = new Map<string, { label: string; documents: UnitCertificationDocumentInput[] }>();
+
+  for (const document of filed) {
+    if (document.certificationTypeId) {
+      byTypeId.set(document.certificationTypeId, [...(byTypeId.get(document.certificationTypeId) ?? []), document]);
+      continue;
+    }
+
+    const label = document.title?.trim() ?? "";
+
+    if (!label) {
+      continue;
+    }
+
+    const key = label.toLowerCase();
+    const existing = freeText.get(key);
+
+    if (existing) {
+      existing.documents.push(document);
+      continue;
+    }
+
+    freeText.set(key, { label, documents: [document] });
+  }
+
+  const expected: UnitCertificationStatus[] = input.certificationTypes.map((type) => {
+    const documents = byTypeId.get(type.id) ?? [];
+
+    if (documents.length === 0) {
+      return {
+        certificationTypeId: type.id,
+        label: type.name,
+        state: "missing",
+        expiryDate: null,
+        daysUntilExpiry: null,
+        expected: true,
+      };
+    }
+
+    return {
+      certificationTypeId: type.id,
+      label: type.name,
+      expected: true,
+      ...freshestDocumentState(documents, now),
+    };
+  });
+
+  // A document pointing at a type the tenant has since deleted still exists on the
+  // unit (the FK is on delete set null, but a stale id survives an unrelated delete),
+  // so surface it rather than dropping a certificate someone filed.
+  const knownTypeIds = new Set(input.certificationTypes.map((type) => type.id));
+  const orphaned: UnitCertificationStatus[] = [...byTypeId.entries()]
+    .filter(([typeId]) => !knownTypeIds.has(typeId))
+    .map(([typeId, documents]) => ({
+      certificationTypeId: typeId,
+      label:
+        names.get(typeId) ?? documents.find((document) => document.title?.trim())?.title?.trim() ?? "Certification",
+      expected: false,
+      ...freshestDocumentState(documents, now),
+    }));
+
+  const extras: UnitCertificationStatus[] = [...freeText.values()].map((group) => ({
+    certificationTypeId: null,
+    label: group.label,
+    expected: false,
+    ...freshestDocumentState(group.documents, now),
+  }));
+
+  const byLabel = (a: UnitCertificationStatus, b: UnitCertificationStatus) => a.label.localeCompare(b.label);
+
+  return [...expected.sort(byLabel), ...[...orphaned, ...extras].sort(byLabel)];
+}
+
+/**
+ * Certifications this unit is expected to hold and does not, or holds expired.
+ *
+ * Missing and expired both count, matching vehicleFileGaps. Due-soon is deliberately
+ * excluded: a renewal window is not a deficiency at an audit. Free-text extras never
+ * count, because a type nobody expects cannot be missing.
+ */
+export function unitCertificationGaps(statuses: readonly UnitCertificationStatus[]): UnitCertificationStatus[] {
+  return statuses.filter(
+    (status) => status.expected && (status.state === "missing" || status.state === "expired"),
+  );
 }
 
 export function formatEquipmentComplianceDetail(status: EquipmentComplianceStatus) {

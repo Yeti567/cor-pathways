@@ -50,9 +50,14 @@ import {
   formatEquipmentCategory,
   formatEquipmentMeter,
   formatEquipmentStatus,
+  buildUnitCertificationStatuses,
   getEquipmentComplianceStatus,
   getEquipmentDocumentStatus,
   getEquipmentScheduleStatus,
+  unitCertificationGaps,
+  unitExpectsCertifications,
+  vehicleFileStateClass,
+  VEHICLE_FILE_STATE_LABELS,
   type EquipmentDueStatus,
   type EquipmentTab,
 } from "@/lib/equipment";
@@ -464,6 +469,27 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
   // certifications in the list below.
   const equipmentCertificationTypes = await ensureEquipmentCertificationTypes(supabase, context.appUser.tenant_id);
   const certificationTypeNameById = new Map(equipmentCertificationTypes.map((type) => [type.id, type.name]));
+
+  // Every certification this unit is expected to hold, plus any extra it has filed.
+  // Road units are held to the tenant's whole list, so a never-filed certification
+  // reads Missing; anything else is only shown what it has actually filed.
+  const certificationStatuses = buildUnitCertificationStatuses({
+    certificationTypes: unitExpectsCertifications(equipment.category)
+      ? equipmentCertificationTypes.map((type) => ({ id: type.id, name: type.name }))
+      : [],
+    // Names stay the full list even when nothing is expected, so a non-fleet unit's
+    // filed certification still follows a rename.
+    certificationTypeNames: certificationTypeNameById,
+    documents: (documents ?? []).map((document) => ({
+      certificationTypeId: document.certification_type_id,
+      docType: document.doc_type,
+      expiryDate: document.expiry_date,
+      isActive: document.is_active,
+      reminderLeadDays: document.reminder_lead_days,
+      title: document.title,
+    })),
+  });
+  const certificationGapCount = unitCertificationGaps(certificationStatuses).length;
 
   return (
     <AdminShell
@@ -1264,6 +1290,60 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                       {item.label}
                       {item.reason === "expired" ? " (expired)" : item.met ? "" : " (missing)"}
                     </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {certificationStatuses.length > 0 ? (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm xl:col-span-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold text-[var(--ink)]">
+                  Certifications
+                  {certificationGapCount > 0 ? (
+                    <span className="ml-2 font-semibold text-[var(--danger)]">
+                      {certificationGapCount} missing or expired
+                    </span>
+                  ) : null}
+                </h3>
+                <Link
+                  className="text-xs font-semibold text-[var(--primary)] hover:underline"
+                  href="/admin/equipment/certification-types"
+                >
+                  Edit the certification list
+                </Link>
+              </div>
+              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                {unitExpectsCertifications(equipment.category)
+                  ? "Every certification on your list is expected on every vehicle and trailer. If this fleet does not carry tanks or pickers, remove those from the list so they stop reporting as gaps."
+                  : "Certifications filed against this unit. Only vehicles and trailers are held to the full list."}
+              </p>
+              <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {certificationStatuses.map((certification) => (
+                  <li
+                    className="rounded-md border border-[var(--border)] bg-white p-3"
+                    key={certification.certificationTypeId ?? certification.label}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-[var(--ink)]">
+                        {certification.label}
+                        {certification.expected ? "" : " (not on your list)"}
+                      </p>
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${vehicleFileStateClass(certification.state)}`}
+                      >
+                        {VEHICLE_FILE_STATE_LABELS[certification.state]}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                      {certification.state === "missing"
+                        ? "Nothing on file. Add it with the form below, choosing document type Certification."
+                        : certification.daysUntilExpiry === null
+                          ? "No expiry recorded"
+                          : certification.daysUntilExpiry < 0
+                            ? `Expired ${Math.abs(certification.daysUntilExpiry)} days ago`
+                            : `${formatDate(certification.expiryDate)} (${certification.daysUntilExpiry} days)`}
+                    </p>
                   </li>
                 ))}
               </ul>

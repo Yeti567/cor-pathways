@@ -1,9 +1,11 @@
 import { isPowerAtLeast } from "@/lib/access-control";
 import {
+  certificationTypeNameMap,
   coerceEquipmentIntervalMode,
   formatEquipmentMeter,
   getEquipmentDocumentStatus,
   getEquipmentScheduleStatus,
+  unitCertificationLabel,
 } from "@/lib/equipment";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
@@ -35,7 +37,7 @@ type EquipmentReminderService = Pick<
 >;
 type EquipmentReminderDocument = Pick<
   Database["public"]["Tables"]["equipment_document"]["Row"],
-  "equipment_id" | "expiry_date" | "id" | "is_active" | "reminder_lead_days" | "title"
+  "certification_type_id" | "equipment_id" | "expiry_date" | "id" | "is_active" | "reminder_lead_days" | "title"
 >;
 type EquipmentReminderUser = Pick<
   Database["public"]["Tables"]["users"]["Row"],
@@ -146,6 +148,7 @@ function baseNotification(input: {
 }
 
 export function buildEquipmentAttentionNotifications({
+  certificationTypeNames = new Map<string, string>(),
   createdAt,
   documents,
   equipment,
@@ -154,6 +157,13 @@ export function buildEquipmentAttentionNotifications({
   tenantId,
   users,
 }: {
+  /**
+   * The tenant's certification type list, id to name. A certification document is
+   * named from this rather than from the title frozen in at upload, so renaming a
+   * type renames it in every reminder that goes out afterwards. Defaults to empty,
+   * which simply falls back to the stored title.
+   */
+  certificationTypeNames?: ReadonlyMap<string, string>;
   createdAt: string;
   documents: EquipmentReminderDocument[];
   equipment: EquipmentReminderEquipment[];
@@ -232,12 +242,20 @@ export function buildEquipmentAttentionNotifications({
       continue;
     }
 
+    // A certification is named from the tenant's live type list, so a reminder for a
+    // renamed type reads with the new name. Anything else keeps the title it was filed
+    // under, and a certification whose type has since been deleted falls back to it too.
+    const documentName =
+      unitCertificationLabel(
+        { certificationTypeId: document.certification_type_id, title: document.title },
+        certificationTypeNames,
+      ) || document.title;
     const titlePrefix = status.state === "overdue" ? "Equipment document expired" : "Equipment document expiring";
     const dueReference = documentDueReference(document);
     const body =
       status.state === "overdue"
-        ? `${equipmentName(unit)} has an expired document: ${document.title} ${dueReference}. Renew or replace this document.`
-        : `${equipmentName(unit)} has a document coming due: ${document.title} ${dueReference}. Renew it before it expires.`;
+        ? `${equipmentName(unit)} has an expired document: ${documentName} ${dueReference}. Renew or replace this document.`
+        : `${equipmentName(unit)} has a document coming due: ${documentName} ${dueReference}. Renew it before it expires.`;
 
     for (const recipient of recipientsForEquipment({ equipment: unit, users })) {
       notifications.push(
@@ -246,7 +264,7 @@ export function buildEquipmentAttentionNotifications({
           createdAt,
           recipientType: recipient.recipientType,
           tenantId,
-          title: `${titlePrefix}: ${document.title}`,
+          title: `${titlePrefix}: ${documentName}`,
           user: recipient.user,
         }),
       );
@@ -269,7 +287,7 @@ export async function sendEquipmentAttentionNotifications(
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const createdAt = now.toISOString();
   const thirtyDaysFromNow = dateInputValue(addDays(today, 30));
-  const [{ data: equipment, error: equipmentError }, { data: services, error: servicesError }, { data: documents, error: documentsError }, { data: users, error: usersError }] =
+  const [{ data: equipment, error: equipmentError }, { data: services, error: servicesError }, { data: documents, error: documentsError }, { data: users, error: usersError }, { data: certificationTypes }] =
     await Promise.all([
       supabase
         .from("equipment")
@@ -286,7 +304,7 @@ export async function sendEquipmentAttentionNotifications(
         .returns<EquipmentReminderService[]>(),
       supabase
         .from("equipment_document")
-        .select("id, equipment_id, title, expiry_date, reminder_lead_days, is_active")
+        .select("id, equipment_id, certification_type_id, title, expiry_date, reminder_lead_days, is_active")
         .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .is("deleted_at", null)
@@ -298,6 +316,13 @@ export async function sendEquipmentAttentionNotifications(
         .eq("tenant_id", tenantId)
         .eq("active", true)
         .returns<EquipmentReminderUser[]>(),
+      // Read-only: this runs from cron, so it must not seed. A tenant whose list has
+      // never been read simply gets titles instead of type names, never a write here.
+      supabase
+        .from("equipment_certification_types")
+        .select("id, name")
+        .eq("tenant_id", tenantId)
+        .returns<{ id: string; name: string }[]>(),
     ]);
 
   const error = equipmentError?.message ?? servicesError?.message ?? documentsError?.message ?? usersError?.message ?? null;
@@ -307,6 +332,7 @@ export async function sendEquipmentAttentionNotifications(
   }
 
   const candidateNotifications = buildEquipmentAttentionNotifications({
+    certificationTypeNames: certificationTypeNameMap(certificationTypes ?? []),
     createdAt,
     documents: documents ?? [],
     equipment: equipment ?? [],

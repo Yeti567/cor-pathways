@@ -17,7 +17,15 @@ import { updateTransportSafetyFitness } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
-import { buildEquipmentInventoryRows, buildVehicleFileStatuses, vehicleFileGaps } from "@/lib/equipment";
+import {
+  buildEquipmentInventoryRows,
+  buildUnitCertificationStatuses,
+  buildVehicleFileStatuses,
+  unitCertificationGaps,
+  unitExpectsCertifications,
+  vehicleFileGaps,
+} from "@/lib/equipment";
+import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import {
   companyDeficiencies,
   driverDeficiencies,
@@ -53,7 +61,13 @@ type FleetServiceRow = Pick<
 >;
 type FleetDocumentRow = Pick<
   Database["public"]["Tables"]["equipment_document"]["Row"],
-  "equipment_id" | "doc_type" | "expiry_date" | "is_active" | "reminder_lead_days" | "title"
+  | "certification_type_id"
+  | "equipment_id"
+  | "doc_type"
+  | "expiry_date"
+  | "is_active"
+  | "reminder_lead_days"
+  | "title"
 >;
 
 type TransportPageProps = {
@@ -161,7 +175,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
   const hosWindowStart = hosWindowStartIso();
-  const [{ data: drivers }, { data: driverDocuments }, { data: companyDocuments }, { data: fleetEquipment }, { data: fleetServices }, { data: fleetDocuments }, { data: hosEvents }] =
+  const [{ data: drivers }, { data: driverDocuments }, { data: companyDocuments }, { data: fleetEquipment }, { data: fleetServices }, { data: fleetDocuments }, { data: hosEvents }, certificationTypes] =
     await Promise.all([
       supabase.from("transport_driver").select("id, hos_cycle, hos_regime").eq("tenant_id", tenantId).is("deleted_at", null).returns<DriverRow[]>(),
       supabase
@@ -194,7 +208,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         .returns<FleetServiceRow[]>(),
       supabase
         .from("equipment_document")
-        .select("equipment_id, doc_type, title, expiry_date, reminder_lead_days, is_active")
+        .select("equipment_id, doc_type, certification_type_id, title, expiry_date, reminder_lead_days, is_active")
         .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .is("deleted_at", null)
@@ -206,6 +220,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         .gte("started_at", hosWindowStart)
         .order("started_at", { ascending: true })
         .returns<HosEventRow[]>(),
+      ensureEquipmentCertificationTypes(supabase, tenantId),
     ]);
 
   // HOS violations across the fleet, computed from the duty-status log.
@@ -315,6 +330,30 @@ export default async function TransportPage({ searchParams }: TransportPageProps
     return total + vehicleFileGaps(statuses).length;
   }, 0);
 
+  // Certification gaps run wider than the registry files: a picker truck outside NSC
+  // still needs its picker inspection, so this counts every road unit, not just the
+  // commercial ones. Missing counts alongside expired, matching the vehicle-files page.
+  const certificationTypeInputs = certificationTypes.map((type) => ({ id: type.id, name: type.name }));
+  const certificationGapCount = (fleetEquipment ?? []).reduce((total, unit) => {
+    if (!unitExpectsCertifications(unit.category)) {
+      return total;
+    }
+
+    const statuses = buildUnitCertificationStatuses({
+      certificationTypes: certificationTypeInputs,
+      documents: (documentsByEquipment.get(unit.id) ?? []).map((document) => ({
+        certificationTypeId: document.certification_type_id,
+        docType: document.doc_type,
+        expiryDate: document.expiry_date,
+        isActive: document.is_active,
+        reminderLeadDays: document.reminder_lead_days,
+        title: document.title,
+      })),
+    });
+
+    return total + unitCertificationGaps(statuses).length;
+  }, 0);
+
   const snapshot = [
     {
       label: "Drivers with deficiencies",
@@ -357,6 +396,13 @@ export default async function TransportPage({ searchParams }: TransportPageProps
       detail: `Registration, insurance, CVIP · ${commercialUnits.length} commercial units`,
       href: "/admin/transport/vehicle-files",
       alert: vehicleFileGapCount > 0,
+    },
+    {
+      label: "Certification gaps",
+      value: String(certificationGapCount),
+      detail: "Picker, tank, pressure test, and the rest of your list",
+      href: "/admin/transport/vehicle-files?file=vehicle_certifications",
+      alert: certificationGapCount > 0,
     },
   ];
 
