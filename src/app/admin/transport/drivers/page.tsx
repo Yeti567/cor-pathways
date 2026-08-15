@@ -175,6 +175,19 @@ export default async function TransportDriversPage({ searchParams }: DriversPage
               name="notes"
             />
           </label>
+          {/*
+            Adding a driver who is already on file splits their hours and their
+            documents across two records. The name check blocks that by default,
+            but two real people can share a name, so this is the escape hatch
+            rather than a hard rule.
+          */}
+          <label className="flex items-start gap-2 text-sm text-[var(--ink-muted)]">
+            <input className="mt-0.5" name="allowDuplicateName" type="checkbox" value="true" />
+            <span>
+              Create even if a driver with this name already exists
+              <span className="block text-xs">Only tick this when it is genuinely a different person.</span>
+            </span>
+          </label>
           <button
             className="inline-flex h-10 w-fit items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--primary-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
             type="submit"

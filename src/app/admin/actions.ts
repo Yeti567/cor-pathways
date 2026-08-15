@@ -69,6 +69,15 @@ import type { WorkOrderStatus, WorkType } from "@/lib/trades";
 import { isDemoTenant } from "@/lib/demo";
 import { inviteWorkerByEmail } from "@/lib/worker-invite";
 import { TRANSPORT_REQUIREMENTS } from "@/lib/transport-registry";
+import {
+  duplicateMessage,
+  findEmailDuplicate,
+  findEquipmentDuplicate,
+  findPersonNameDuplicate,
+  type EmailDuplicateRow,
+  type EquipmentDuplicateRow,
+  type PersonDuplicateRow,
+} from "@/lib/duplicate-check";
 import { isEldProvider, isEldProviderConfigured } from "@/lib/eld/providers";
 import { syncMotiveConnection } from "@/lib/eld/motive-sync";
 import { applySamsaraImport, storeSamsaraToken, syncSamsaraConnection } from "@/lib/eld/samsara-sync";
@@ -3665,6 +3674,29 @@ export async function createTransportDriver(formData: FormData) {
 
   if (!fullName) {
     redirect("/admin/transport/drivers?error=Enter%20the%20driver%20name.");
+  }
+
+  // Two real people can share a name, so this warns rather than forbids: the
+  // operator re-submits with "create anyway" ticked if it really is a second
+  // person. Without the check, re-adding an existing driver silently splits
+  // their hours and their documents across two files.
+  if (!boolValue(formData, "allowDuplicateName")) {
+    const { data: existingDrivers } = await supabase
+      .from("transport_driver")
+      .select("id, full_name")
+      .eq("tenant_id", context.appUser.tenant_id)
+      .is("deleted_at", null)
+      .returns<PersonDuplicateRow[]>();
+
+    const duplicate = findPersonNameDuplicate({ fullName }, existingDrivers ?? []);
+
+    if (duplicate) {
+      redirect(
+        `/admin/transport/drivers?error=${encodeURIComponent(
+          `A driver named "${duplicate.label}" is already on file. Open that driver instead, or tick "create anyway" if this is a different person.`,
+        )}`,
+      );
+    }
   }
 
   const { data: driver, error } = await supabase
@@ -7394,6 +7426,25 @@ async function uploadEquipmentPhotoFiles(input: {
   return paths;
 }
 
+/**
+ * Read the tenant's units for a duplicate check. Includes retired and sold units
+ * on purpose: they are hidden from the default list, which is exactly how the
+ * same truck gets entered a second time.
+ */
+async function readEquipmentForDuplicateCheck(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  tenantId: string,
+) {
+  const { data } = await supabase
+    .from("equipment")
+    .select("id, unit_number, vin_or_serial, license_plate, status")
+    .eq("tenant_id", tenantId)
+    .is("deleted_at", null)
+    .returns<EquipmentDuplicateRow[]>();
+
+  return data ?? [];
+}
+
 export async function createEquipment(formData: FormData) {
   const context = await requireEquipmentManager();
   const supabase = await createSupabaseServerClient();
@@ -7412,6 +7463,19 @@ export async function createEquipment(formData: FormData) {
 
   if (!unitNumber) {
     redirect("/admin/equipment?error=Enter%20a%20unit%20number.");
+  }
+
+  // Nothing in the database stops a second copy of a unit, so check here. A
+  // repeated unit number, VIN or plate is never a legitimate second unit; it
+  // means the truck is already on file, possibly retired and so not visible in
+  // the default list.
+  const duplicate = findEquipmentDuplicate(
+    { unitNumber, vin: stringValue(formData, "vinOrSerial") || null, plate: stringValue(formData, "licensePlate") || null },
+    await readEquipmentForDuplicateCheck(supabase, context.appUser.tenant_id),
+  );
+
+  if (duplicate) {
+    redirect(`/admin/equipment?error=${encodeURIComponent(duplicateMessage(duplicate, "unit"))}`);
   }
 
   const { data: equipment, error } = await supabase
@@ -7538,6 +7602,22 @@ export async function updateEquipment(formData: FormData) {
 
   if (!equipment) {
     redirect("/admin/equipment?error=Choose%20valid%20equipment.");
+  }
+
+  // Renaming one unit onto another is the same duplicate, arrived at sideways.
+  // excludeId lets this unit keep its own identifiers.
+  const duplicate = findEquipmentDuplicate(
+    {
+      unitNumber,
+      vin: stringValue(formData, "vinOrSerial") || null,
+      plate: stringValue(formData, "licensePlate") || null,
+      excludeId: equipmentId,
+    },
+    await readEquipmentForDuplicateCheck(supabase, context.appUser.tenant_id),
+  );
+
+  if (duplicate) {
+    redirect(`/admin/equipment/${equipmentId}?error=${encodeURIComponent(duplicateMessage(duplicate, "unit"))}`);
   }
 
   const { error } = await supabase
@@ -8814,6 +8894,25 @@ export async function createWorker(formData: FormData) {
 
   if (!syncDayValues.has(offlineSyncDays)) {
     redirect("/admin/workers?error=Choose%20a%20valid%20offline%20sync%20duration.");
+  }
+
+  // Email is the login, so a repeat is conclusive rather than a judgement call.
+  // Catch it here with a message that names the existing worker, instead of
+  // letting the invite fail with an auth error nobody can act on.
+  const { data: existingWorkers } = await adminSupabase
+    .from("users")
+    .select("id, email, full_name")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .returns<EmailDuplicateRow[]>();
+
+  const emailDuplicate = findEmailDuplicate({ email }, existingWorkers ?? []);
+
+  if (emailDuplicate) {
+    redirect(
+      `/admin/workers?error=${encodeURIComponent(
+        `${emailDuplicate.label} already uses that email. Open that worker instead of creating a second account.`,
+      )}`,
+    );
   }
 
   const invite = await inviteWorkerByEmail(adminSupabase, {
