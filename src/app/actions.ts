@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { canAccessLocationByReach } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { sanitizeStorageFilename } from "@/lib/document-control";
+import { normalizeIdentifier } from "@/lib/duplicate-check";
 import { createFollowUpReadyForSignOffNotification } from "@/lib/follow-ups";
 import { locationIsActive } from "@/lib/locations";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -1263,6 +1264,29 @@ export async function uploadWorkerCertificationTicket(formData: FormData) {
     redirect("/web?error=Worker%20profile%20was%20not%20created.");
   }
 
+  // Uploading a second "H2S Alive" instead of renewing the first one leaves the
+  // old row expired forever, so the worker reads as deficient on a ticket they
+  // actually hold. Point them at Renew, which updates the record they already
+  // have. Matching strips punctuation and spacing, because "First Aid" and
+  // "first-aid" are one ticket to everybody except a string comparison.
+  const { data: existingTickets } = await supabase
+    .from("certifications")
+    .select("id, name")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("worker_profile_id", workerProfileId)
+    .returns<{ id: string; name: string }[]>();
+
+  const nameKey = normalizeIdentifier(name);
+  const alreadyHeld = (existingTickets ?? []).find((ticket) => normalizeIdentifier(ticket.name) === nameKey);
+
+  if (alreadyHeld) {
+    redirect(
+      `/web?error=${encodeURIComponent(
+        `You already have a ${alreadyHeld.name} ticket. Use Renew on that ticket to add the new card, so you do not end up with two.`,
+      )}`,
+    );
+  }
+
   const attachmentPath = [
     context.appUser.tenant_id,
     "certifications",
@@ -1320,4 +1344,146 @@ export async function uploadWorkerCertificationTicket(formData: FormData) {
   revalidatePath(`/admin/workers/${context.appUser.id}`);
   revalidatePath("/admin/worker-tickets");
   redirect("/web?notice=Ticket%20uploaded.");
+}
+
+/**
+ * A worker replaces the card on one of their OWN tickets, from their phone.
+ *
+ * This is the half of the compliance library that makes it self-maintaining. A
+ * ticket lapses and goes red, the worker photographs the new card in the yard,
+ * and the record turns green without an administrator touching it. It is also
+ * how the amber "No document" records get cleared: an admin bulk-loads the dates
+ * from a spreadsheet, and each worker supplies the proof for their own.
+ *
+ * It UPDATES the existing row rather than inserting a new one. A renewal is the
+ * same ticket with a later date, and filing it as a second record would leave the
+ * old one expired on the worker's file forever, reporting a deficiency on a
+ * qualification they actually hold.
+ *
+ * Dates are optional and default to what is already recorded, which is what makes
+ * one action serve both jobs: a real renewal supplies a new expiry, while
+ * supplying proof for an already-correct date changes only the photo.
+ */
+export async function renewWorkerCertification(formData: FormData) {
+  const context = await requireAppUser();
+  const certificationId = stringValue(formData, "certificationId");
+  const issuedOn = dateOnlyValue(formData, "issuedOn");
+  const expiresOn = dateOnlyValue(formData, "expiresOn");
+  const attachment = getUploadFile(formData, "attachment");
+
+  if (!certificationId) {
+    redirect("/web?error=Choose%20a%20ticket%20to%20renew.");
+  }
+
+  if (!attachment) {
+    redirect("/web?error=Take%20a%20photo%20of%20the%20new%20card.");
+  }
+
+  if (!workerTicketMimeTypes.has(attachment.type)) {
+    redirect("/web?error=Choose%20a%20PDF,%20PNG,%20JPEG,%20HEIC,%20or%20WebP%20ticket.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const storageSupabase = createSupabaseAdminClient() ?? supabase;
+
+  // Ownership is enforced twice on purpose. The policies added in
+  // 20260814000000 stop a worker updating a colleague's ticket at the database,
+  // and this check stops the request before it gets that far so the worker sees
+  // a sentence rather than a silent no-op: an UPDATE that matches no row under
+  // RLS returns success with zero rows changed.
+  const { data: workerProfile } = await supabase
+    .from("worker_profiles")
+    .select("id")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("user_id", context.appUser.id)
+    .maybeSingle<{ id: string }>();
+
+  if (!workerProfile?.id) {
+    redirect("/web?error=No%20worker%20profile%20on%20file%20to%20renew%20a%20ticket%20against.");
+  }
+
+  const { data: certification } = await supabase
+    .from("certifications")
+    .select("id, name, issued_on, expires_on, attachment_path, worker_profile_id")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("id", certificationId)
+    .maybeSingle<{
+      id: string;
+      name: string;
+      issued_on: string | null;
+      expires_on: string | null;
+      attachment_path: string | null;
+      worker_profile_id: string;
+    }>();
+
+  if (!certification || certification.worker_profile_id !== workerProfile.id) {
+    // Deliberately the same message either way. Telling someone that a ticket
+    // exists but is not theirs confirms a colleague holds it.
+    redirect("/web?error=That%20ticket%20is%20not%20on%20your%20file.");
+  }
+
+  const attachmentPath = [
+    context.appUser.tenant_id,
+    "certifications",
+    context.appUser.id,
+    `${Date.now()}-${sanitizeStorageFilename(attachment.name)}`,
+  ].join("/");
+
+  const { error: uploadError } = await storageSupabase.storage.from("tenant-documents").upload(attachmentPath, attachment, {
+    contentType: attachment.type || "application/octet-stream",
+    upsert: false,
+  });
+
+  if (uploadError) {
+    redirect(`/web?error=${encodeURIComponent(uploadError.message)}`);
+  }
+
+  const { data: updated, error } = await supabase
+    .from("certifications")
+    .update({
+      attachment_path: attachmentPath,
+      expires_on: expiresOn ?? certification.expires_on,
+      issued_on: issuedOn ?? certification.issued_on,
+    })
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("id", certification.id)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  // No row back means RLS declined the write, which arrives as success with
+  // nothing changed. Undo the upload rather than leaving an orphan behind and a
+  // worker believing their ticket is current.
+  if (error || !updated?.id) {
+    await storageSupabase.storage.from("tenant-documents").remove([attachmentPath]);
+    redirect(`/web?error=${encodeURIComponent(error?.message ?? "Ticket was not renewed.")}`);
+  }
+
+  await recordTenantAuditEvent({
+    action: "certification.worker_renewal",
+    actorRole: context.appUser.power_level,
+    actorUserId: context.appUser.id,
+    entityId: certification.id,
+    entityTable: "certifications",
+    metadata: {
+      attachment_path: attachmentPath,
+      expires_on: expiresOn ?? certification.expires_on,
+      issued_on: issuedOn ?? certification.issued_on,
+      name: certification.name,
+      // The row now points at the new card, so the previous one is only
+      // reachable from here. It is left in storage rather than deleted: it is
+      // the evidence of the period that just ended, and an audit that asks what
+      // this worker held last year deserves an answer.
+      previous_attachment_path: certification.attachment_path,
+      previous_expires_on: certification.expires_on,
+      worker_profile_id: workerProfile.id,
+    },
+    tenantId: context.appUser.tenant_id,
+  });
+
+  revalidatePath("/web");
+  revalidatePath("/admin/workers");
+  revalidatePath(`/admin/workers/${context.appUser.id}`);
+  revalidatePath("/admin/worker-tickets");
+  revalidatePath("/admin/needs-document");
+  redirect(`/web?notice=${encodeURIComponent(`${certification.name} updated.`)}`);
 }

@@ -26,6 +26,7 @@ import {
   signOffFlaggedFollowUp,
   signOut,
   updateAssignedFollowUpStatus,
+  renewWorkerCertification,
   uploadWorkerCertificationTicket,
 } from "@/app/actions";
 import { AssignedFormsPanel } from "@/app/web/_components/AssignedFormsPanel";
@@ -36,6 +37,7 @@ import { InventoryFieldPanel } from "@/app/web/_components/InventoryFieldPanel";
 import { MyWorkOrdersPanel } from "@/app/web/_components/MyWorkOrdersPanel";
 import { OfflineStatus } from "@/app/web/_components/OfflineStatus";
 import { ResourceLibraryPanel } from "@/app/web/_components/ResourceLibraryPanel";
+import { WorkerCertificationRenewForm } from "@/app/web/_components/WorkerCertificationRenewForm";
 import { WorkerCertificationTicketForm } from "@/app/web/_components/WorkerCertificationTicketForm";
 import { WorkerHosPanel } from "@/app/web/_components/WorkerHosPanel";
 import {
@@ -2090,11 +2092,8 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
                 {(workerCertifications ?? []).length > 0 ? (
                   <div className="mt-4 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
                     {(workerCertifications ?? []).map((certification) => {
-                      const status = certificationStatus(
-                        certification.expires_on,
-                        undefined,
-                        hasAttachedProof(certification.attachment_path),
-                      );
+                      const hasProof = hasAttachedProof(certification.attachment_path);
+                      const status = certificationStatus(certification.expires_on, undefined, hasProof);
                       const attachmentUrl = certification.attachment_path
                         ? recordSignedUrls.get(certification.attachment_path) ?? null
                         : null;
@@ -2125,6 +2124,20 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
                           ) : (
                             <p className="mt-3 text-xs text-[var(--ink-muted)]">No ticket attachment uploaded.</p>
                           )}
+                          {/*
+                            Renewal lives on the ticket rather than in the upload
+                            form above, because the record it has to update is
+                            this one. Filing a renewal as a new ticket would leave
+                            this row expired on the worker's file forever.
+                          */}
+                          <WorkerCertificationRenewForm
+                            action={renewWorkerCertification}
+                            certificationId={certification.id}
+                            expiresOn={certification.expires_on}
+                            hasProof={hasProof}
+                            issuedOn={certification.issued_on}
+                            name={certification.name}
+                          />
                         </article>
                       );
                     })}
