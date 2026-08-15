@@ -371,35 +371,355 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
     return;
   }
 
-  // Employees are the only sheet whose write path is finished. Applying anyway
-  // would load one sheet in five while reporting success, which is exactly the
-  // half-loaded client this script exists to prevent, so it refuses instead.
-  //
-  // Two things to settle before the rest are written:
-  //   - locations has no address or type column, but the sheet asks for both.
-  //   - equipment expiry dates need to become equipment_document rows, which is
-  //     also what puts them on the needs-document chase list.
-  console.error(
-    [
-      "",
-      "--apply is not available yet. Only the Employees write path is finished,",
-      "and loading one sheet of five while reporting success is the half-loaded",
-      "client this script exists to prevent.",
-      "",
-      "The preview above is complete and accurate for all five sheets, so it can",
-      "still be used to check the pack with the client.",
-    ].join("\n"),
+  console.log("\nApplying...\n");
+
+  // Order matters. People and units first, because tickets hang off them and a
+  // ticket resolved against something created moments ago needs it to exist.
+  const failures: string[] = [];
+  const note = (line: string) => console.log(`  ${line}`);
+  const fail = (what: string, message: string) => {
+    failures.push(`${what}: ${message}`);
+    console.error(`  ! ${what}: ${message}`);
+  };
+
+  const userIdByEmail = new Map(
+    snapshot.users.filter((user) => user.email).map((user) => [user.email!.toLowerCase(), user.id] as const),
   );
-  process.exit(1);
+
+  for (const item of employeePlan.items) {
+    const result = await upsertEmployee(supabase, tenant, item);
+
+    if (result.error) {
+      fail(item.row.email, result.error);
+      continue;
+    }
+
+    userIdByEmail.set(item.row.email, result.userId!);
+    note(`${item.action === "create" ? "created" : "updated"} ${item.row.fullName}`);
+  }
+
+  for (const item of locationPlan.items) {
+    const payload = {
+      code: item.row.code,
+      name: item.row.name,
+      tenant_id: tenant.id,
+      // The nearest thing the schema has to the sheet's active column.
+      visibility_rule: item.row.active ? "all_workers" : "inactive",
+    };
+
+    const { error } = item.existingId
+      ? await supabase.from("locations").update(payload).eq("id", item.existingId)
+      : await supabase.from("locations").insert(payload);
+
+    if (error) {
+      fail(item.row.name, error.message);
+      continue;
+    }
+
+    note(`${item.action === "create" ? "created" : "updated"} ${item.row.name}`);
+  }
+
+  const equipmentIdByUnit = new Map(
+    snapshot.equipment.map((unit) => [unitKey(unit.unit_number), unit.id] as const),
+  );
+
+  for (const item of equipmentPlan.items) {
+    const payload = {
+      category: item.row.category,
+      current_meter: item.row.meterReading,
+      is_commercial: item.row.isCommercial,
+      license_plate: item.row.plate,
+      make: item.row.make,
+      model: item.row.model,
+      tenant_id: tenant.id,
+      tracking_mode: item.row.trackingMode ?? "mileage",
+      unit_number: item.row.unitNumber,
+      vin_or_serial: item.row.vin,
+      year: item.row.year,
+    };
+
+    const { data, error } = item.existingId
+      ? await supabase.from("equipment").update(payload).eq("id", item.existingId).select("id").maybeSingle()
+      : await supabase.from("equipment").insert(payload).select("id").maybeSingle();
+
+    if (error || !data?.id) {
+      fail(item.row.unitNumber, error?.message ?? "no row was written");
+      continue;
+    }
+
+    equipmentIdByUnit.set(unitKey(item.row.unitNumber), data.id);
+
+    // The three fixed compliance files, written as equipment_document rows so
+    // they age, warn and reach the needs-document chase list exactly like one
+    // entered by hand. They arrive as dates with no scan, which is precisely the
+    // amber "No document" state the watcher exists to surface.
+    for (const [docType, expiry] of [
+      ["cvip", item.row.cvipExpiry],
+      ["registration", item.row.registrationExpiry],
+      ["insurance", item.row.insuranceExpiry],
+    ] as const) {
+      if (!expiry) {
+        continue;
+      }
+
+      const documentError = await upsertEquipmentDocument(supabase, {
+        tenantId: tenant.id,
+        equipmentId: data.id,
+        docType,
+        title: null,
+        expiryDate: expiry,
+      });
+
+      if (documentError) {
+        fail(`${item.row.unitNumber} ${docType}`, documentError);
+      }
+    }
+
+    note(`${item.action === "create" ? "created" : "updated"} ${item.row.unitNumber}`);
+  }
+
+  const { data: refreshedProfiles } = await supabase
+    .from("worker_profiles")
+    .select("id, user_id")
+    .eq("tenant_id", tenant.id);
+  const profileIdByUserId = new Map((refreshedProfiles ?? []).map((profile) => [profile.user_id, profile.id] as const));
+
+  for (const item of certificationPlan.items) {
+    const userId = item.row.workerId || userIdByEmail.get(item.row.workerEmail);
+    const profileId = userId ? profileIdByUserId.get(userId) : undefined;
+
+    if (!profileId) {
+      fail(item.row.certificationType, `no worker profile for ${item.row.workerEmail}`);
+      continue;
+    }
+
+    const payload = {
+      expires_on: item.row.expiresOn,
+      issued_on: item.row.issuedOn,
+      name: item.row.certificationType,
+      tenant_id: tenant.id,
+      worker_profile_id: profileId,
+    };
+
+    const { error } = item.existingId
+      ? await supabase.from("certifications").update(payload).eq("id", item.existingId)
+      : await supabase.from("certifications").insert(payload);
+
+    if (error) {
+      fail(`${item.row.workerEmail} ${item.row.certificationType}`, error.message);
+      continue;
+    }
+
+    note(`${item.action === "create" ? "created" : "updated"} ${item.row.certificationType} for ${item.row.workerEmail}`);
+  }
+
+  // Unit certificates are matched against the tenant's certification type list,
+  // never added to it. Every type on that list is expected on EVERY vehicle and
+  // trailer, so adding one because a single trailer carries it would report the
+  // whole fleet deficient for a certificate most of it will never need. Anything
+  // unmatched is filed as free text, which still shows on the unit and still ages.
+  const { data: types } = await supabase
+    .from("equipment_certification_types")
+    .select("id, name")
+    .eq("tenant_id", tenant.id);
+  const typeIdByName = new Map((types ?? []).map((type) => [unitKey(type.name), type.id] as const));
+
+  for (const item of unitCertificationPlan.items) {
+    const equipmentId = item.row.equipmentId || equipmentIdByUnit.get(unitKey(item.row.unitNumber));
+
+    if (!equipmentId) {
+      fail(item.row.certificationType, `no unit called ${item.row.unitNumber}`);
+      continue;
+    }
+
+    const documentError = await upsertEquipmentDocument(supabase, {
+      tenantId: tenant.id,
+      equipmentId,
+      docType: "certification",
+      title: item.row.certificationType,
+      expiryDate: item.row.expiresOn,
+      issuedDate: item.row.issuedOn,
+      certificationTypeId: typeIdByName.get(unitKey(item.row.certificationType)) ?? null,
+      existingId: item.existingId,
+    });
+
+    if (documentError) {
+      fail(`${item.row.unitNumber} ${item.row.certificationType}`, documentError);
+      continue;
+    }
+
+    note(`${item.action === "create" ? "created" : "updated"} ${item.row.certificationType} on ${item.row.unitNumber}`);
+  }
+
+  console.log(
+    failures.length === 0
+      ? "\nLoaded. Re-run without --apply at any time to see the pack against the tenant."
+      : `\nLoaded with ${failures.length} failure${failures.length === 1 ? "" : "s"}. Fix and run again; re-running updates rather than duplicating.`,
+  );
+
+  if (failures.length > 0) {
+    process.exitCode = 1;
+  }
 }
 
-/*
- * When the write paths are finished, employees must follow the exact sequence in
- * createWorker (src/app/admin/actions.ts): invite, read back the users row, upsert
- * it onto the right tenant, upsert worker_profiles, then DELETE the bootstrap
- * tenant the signup trigger created for that auth user. Skipping that last step
- * leaves an orphan tenant behind for every employee loaded.
+type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
+
+/** The same loose matching the duplicate check uses, so keys agree across the app. */
+function unitKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * One compliance document on a unit, matched on its type so a re-run renews it
+ * rather than stacking a second copy beside it.
  */
+async function upsertEquipmentDocument(
+  supabase: SupabaseAdmin,
+  input: {
+    tenantId: string;
+    equipmentId: string;
+    docType: "cvip" | "registration" | "insurance" | "certification";
+    title: string | null;
+    expiryDate: string | null;
+    issuedDate?: string | null;
+    certificationTypeId?: string | null;
+    existingId?: string;
+  },
+): Promise<string | null> {
+  // Titles are required, and rightly so: an untitled document renders as
+  // "Equipment document" everywhere it appears. The fixed files get the name a
+  // driver would call them by.
+  const FIXED_TITLES = {
+    cvip: "CVIP inspection",
+    registration: "Registration",
+    insurance: "Insurance",
+    certification: "Certification",
+  } as const;
+
+  // The generated insert types treat these as omit-or-value rather than
+  // nullable, so a blank cell has to become an absent key, not an explicit null.
+  const payload = {
+    doc_type: input.docType,
+    equipment_id: input.equipmentId,
+    is_active: true,
+    tenant_id: input.tenantId,
+    title: input.title ?? FIXED_TITLES[input.docType],
+    ...(input.expiryDate ? { expiry_date: input.expiryDate } : {}),
+    ...(input.issuedDate ? { issued_date: input.issuedDate } : {}),
+    ...(input.certificationTypeId ? { certification_type_id: input.certificationTypeId } : {}),
+  };
+
+  let targetId = input.existingId;
+
+  if (!targetId) {
+    // The fixed files are one per unit, so an existing row of the same type is
+    // the one being renewed rather than a second document.
+    const query = supabase
+      .from("equipment_document")
+      .select("id")
+      .eq("tenant_id", input.tenantId)
+      .eq("equipment_id", input.equipmentId)
+      .eq("doc_type", input.docType)
+      .is("deleted_at", null);
+
+    const { data } = input.title ? await query.eq("title", input.title).maybeSingle() : await query.maybeSingle();
+    targetId = data?.id;
+  }
+
+  if (targetId) {
+    const { error } = await supabase.from("equipment_document").update(payload).eq("id", targetId);
+    return error?.message ?? null;
+  }
+
+  // equipment_document.expiry_date is nullable in the schema but the generated
+  // Insert type marks it required, so an insert has to name it explicitly. Some
+  // certificates genuinely never expire, and null is the honest value for those:
+  // inventing a date would create a compliance record that lies.
+  const { error } = await supabase
+    .from("equipment_document")
+    .insert({ ...payload, expiry_date: input.expiryDate } as never);
+
+  return error?.message ?? null;
+}
+
+/**
+ * Create or update one employee.
+ *
+ * Follows the exact sequence createWorker uses in src/app/admin/actions.ts,
+ * because creating an auth user fires the signup trigger, which provisions its
+ * own bootstrap tenant for that user. That tenant has to be deleted afterwards
+ * or every employee loaded leaves an orphan behind.
+ */
+async function upsertEmployee(
+  supabase: SupabaseAdmin,
+  tenant: { id: string; name: string },
+  item: PlanItem<{
+    fullName: string;
+    email: string;
+    jobTitle: string | null;
+    phone: string | null;
+    powerLevel: Database["public"]["Enums"]["power_level"];
+  }>,
+): Promise<{ userId?: string; error?: string }> {
+  const { inviteWorkerByEmail } = await import("../src/lib/worker-invite");
+
+  let userId = item.existingId;
+
+  if (!userId) {
+    const invite = await inviteWorkerByEmail(supabase, {
+      companyName: tenant.name,
+      email: item.row.email,
+      fullName: item.row.fullName,
+      // Same landing page Add Worker uses, so an invite from a pack load and an
+      // invite from the admin panel are the same experience for the worker.
+      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
+      tenantId: tenant.id,
+    });
+
+    if (!invite.ok) {
+      return { error: invite.error };
+    }
+
+    userId = invite.user.id;
+  }
+
+  const { data: bootstrap } = await supabase
+    .from("users")
+    .select("tenant_id")
+    .eq("id", userId)
+    .maybeSingle<{ tenant_id: string }>();
+
+  const { error: userError } = await supabase.from("users").upsert(
+    {
+      app_access: item.row.powerLevel === "worker" ? "app_access" : "admin_access",
+      email: item.row.email,
+      full_name: item.row.fullName,
+      id: userId,
+      power_level: item.row.powerLevel,
+      tenant_id: tenant.id,
+    },
+    { onConflict: "id" },
+  );
+
+  if (userError) {
+    return { error: userError.message };
+  }
+
+  const { error: profileError } = await supabase.from("worker_profiles").upsert(
+    { phone: item.row.phone, tenant_id: tenant.id, title: item.row.jobTitle, user_id: userId },
+    { onConflict: "tenant_id,user_id" },
+  );
+
+  if (profileError) {
+    return { error: profileError.message };
+  }
+
+  if (bootstrap?.tenant_id && bootstrap.tenant_id !== tenant.id) {
+    await supabase.from("tenants").delete().eq("id", bootstrap.tenant_id);
+  }
+
+  return { userId };
+}
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
