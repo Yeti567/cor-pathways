@@ -74,6 +74,7 @@ const navItems = [
   { href: "/admin/visitors", label: "Visitors", icon: UserRound },
   { href: "/admin/certification-types", label: "Certification Types", icon: BadgeCheck },
   { href: "/admin/worker-tickets", label: "Employee Tickets", icon: IdCard },
+  { href: "/admin/worker-tickets/compliance", label: "Ticket Compliance", icon: BadgeCheck },
   { href: "/admin/needs-document", label: "Needs Document", icon: FileWarning },
   { href: "/admin/access", label: "Access", icon: UsersRound },
   { href: "/admin/permission-profiles", label: "Permission Profiles", icon: FileSliders },
