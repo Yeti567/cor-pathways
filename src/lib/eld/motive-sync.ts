@@ -6,6 +6,7 @@
 // IO layer that ties them to Motive's API and the database.
 
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { reconcileEldDriverLinks, reconcileEldVehicleLinks } from "@/lib/eld/links";
 import {
   buildDutyEventInserts,
   buildEldDeviceUpserts,
@@ -14,13 +15,10 @@ import {
   buildEldDriverProfileUpserts,
   buildEldMeterReadings,
   buildEldVehicleEventInserts,
-  buildVehicleLinkMatches,
   dutyEventKey,
   eldDriverEventKey,
   eldMeterKey,
   eldVehicleEventKey,
-  type EldVehicleSummary,
-  type EquipmentMatchRow,
   type EquipmentMeterInfo,
   type NormalizedDriverEvent,
   type NormalizedDutyEvent,
@@ -45,7 +43,6 @@ import {
   type MotiveCredentials,
   type MotiveTokenResponse,
 } from "@/lib/eld/motive";
-import type { Database } from "@/types/database";
 
 const MOTIVE_DRIVERS_PATH = process.env.MOTIVE_DRIVERS_PATH?.trim() || "/v1/users";
 const MOTIVE_HOS_PATH = process.env.MOTIVE_HOS_PATH?.trim() || "/v1/hos_logs";
@@ -259,7 +256,7 @@ export async function syncMotiveConnection(
     // Match the fleet's drivers to our records by name, creating links.
     const driversRaw = await motiveGet(`${MOTIVE_DRIVERS_PATH}?per_page=100`, accessToken, fetchImpl);
     const motiveDrivers = normalizeMotiveDrivers(driversRaw);
-    driverIdByExternalId = await reconcileDriverLinks({ admin, tenantId, motiveDrivers });
+    driverIdByExternalId = await reconcileEldDriverLinks({ admin, tenantId, provider: "motive", drivers: motiveDrivers });
 
     // Enrich linked drivers with contact, role, status, and manager from the same
     // users response (no extra request). HOS clocks/violations are computed on the
@@ -279,7 +276,12 @@ export async function syncMotiveConnection(
     // Match the fleet's vehicles to our equipment by VIN/plate/unit, creating links.
     const vehiclesRaw = await motiveGet(`${MOTIVE_VEHICLES_PATH}?per_page=100`, accessToken, fetchImpl);
     const motiveVehicles = normalizeMotiveVehicles(vehiclesRaw);
-    const equipmentIdByExternalVehicleId = await reconcileVehicleLinks({ admin, tenantId, motiveVehicles });
+    const equipmentIdByExternalVehicleId = await reconcileEldVehicleLinks({
+      admin,
+      tenantId,
+      provider: "motive",
+      vehicles: motiveVehicles,
+    });
     matchedVehicles = equipmentIdByExternalVehicleId.size;
 
     // Advance the linked units' odometers from their trips.
@@ -364,117 +366,6 @@ export async function syncMotiveConnection(
   };
 }
 
-type DbDriver = Pick<Database["public"]["Tables"]["transport_driver"]["Row"], "id" | "full_name">;
-
-/**
- * Ensure every Motive driver we can match by name has an eld_driver_link, and
- * return the external-id -> our-driver-id map for all current links.
- */
-async function reconcileDriverLinks(input: {
-  admin: AdminClient;
-  tenantId: string;
-  motiveDrivers: { externalId: string; fullName: string }[];
-}): Promise<Map<string, string>> {
-  const { admin, tenantId, motiveDrivers } = input;
-
-  const { data: links } = await admin
-    .from("eld_driver_link")
-    .select("external_driver_id, driver_id")
-    .eq("tenant_id", tenantId)
-    .eq("provider", "motive")
-    .returns<{ external_driver_id: string; driver_id: string }[]>();
-
-  const map = new Map<string, string>((links ?? []).map((link) => [link.external_driver_id, link.driver_id]));
-
-  const unlinked = motiveDrivers.filter((driver) => !map.has(driver.externalId));
-  if (unlinked.length === 0) {
-    return map;
-  }
-
-  const { data: drivers } = await admin
-    .from("transport_driver")
-    .select("id, full_name")
-    .eq("tenant_id", tenantId)
-    .is("deleted_at", null)
-    .returns<DbDriver[]>();
-
-  const driverIdByName = new Map<string, string>((drivers ?? []).map((driver) => [driver.full_name.trim().toLowerCase(), driver.id]));
-  const newLinks: Database["public"]["Tables"]["eld_driver_link"]["Insert"][] = [];
-
-  for (const motiveDriver of unlinked) {
-    const driverId = driverIdByName.get(motiveDriver.fullName.trim().toLowerCase());
-    if (driverId) {
-      map.set(motiveDriver.externalId, driverId);
-      newLinks.push({
-        tenant_id: tenantId,
-        provider: "motive",
-        external_driver_id: motiveDriver.externalId,
-        driver_id: driverId,
-      });
-    }
-  }
-
-  if (newLinks.length > 0) {
-    await admin.from("eld_driver_link").upsert(newLinks, { onConflict: "tenant_id,provider,external_driver_id" });
-  }
-
-  return map;
-}
-
-/**
- * Ensure every Motive vehicle we can match (by VIN, plate, or unit number) has an
- * eld_vehicle_link to our equipment, and return the external-vehicle-id -> our
- * equipment-id map for all current links.
- */
-async function reconcileVehicleLinks(input: {
-  admin: AdminClient;
-  tenantId: string;
-  motiveVehicles: EldVehicleSummary[];
-}): Promise<Map<string, string>> {
-  const { admin, tenantId, motiveVehicles } = input;
-
-  const { data: links } = await admin
-    .from("eld_vehicle_link")
-    .select("external_vehicle_id, equipment_id")
-    .eq("tenant_id", tenantId)
-    .eq("provider", "motive")
-    .returns<{ external_vehicle_id: string; equipment_id: string }[]>();
-
-  const map = new Map<string, string>((links ?? []).map((link) => [link.external_vehicle_id, link.equipment_id]));
-  const unlinked = motiveVehicles.filter((vehicle) => !map.has(vehicle.externalId));
-
-  if (unlinked.length === 0) {
-    return map;
-  }
-
-  const { data: equipment } = await admin
-    .from("equipment")
-    .select("id, unit_number, vin_or_serial, license_plate")
-    .eq("tenant_id", tenantId)
-    .is("deleted_at", null)
-    .returns<EquipmentMatchRow[]>();
-
-  const matches = buildVehicleLinkMatches({
-    vehicles: motiveVehicles,
-    equipment: equipment ?? [],
-    alreadyLinkedExternalIds: new Set(map.keys()),
-  });
-
-  if (matches.length > 0) {
-    const newLinks: Database["public"]["Tables"]["eld_vehicle_link"]["Insert"][] = matches.map((match) => ({
-      tenant_id: tenantId,
-      provider: "motive",
-      external_vehicle_id: match.externalVehicleId,
-      equipment_id: match.equipmentId,
-    }));
-    await admin.from("eld_vehicle_link").upsert(newLinks, { onConflict: "tenant_id,provider,external_vehicle_id" });
-    for (const match of matches) {
-      map.set(match.externalVehicleId, match.equipmentId);
-    }
-  }
-
-  return map;
-}
 
 /**
  * Advance each linked unit's odometer from its Motive trips. Reads the highest trip

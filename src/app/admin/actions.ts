@@ -71,6 +71,7 @@ import { inviteWorkerByEmail } from "@/lib/worker-invite";
 import { TRANSPORT_REQUIREMENTS } from "@/lib/transport-registry";
 import { isEldProvider, isEldProviderConfigured } from "@/lib/eld/providers";
 import { syncMotiveConnection } from "@/lib/eld/motive-sync";
+import { storeSamsaraToken, syncSamsaraConnection } from "@/lib/eld/samsara-sync";
 import {
   deliverEmailNotification,
   emailDeliveryConfigured,
@@ -4245,6 +4246,97 @@ export async function syncMotiveNow(_formData: FormData) {
   redirect(
     `${ELD_CONNECTIONS_PATH}?notice=${encodeURIComponent(
       `Motive synced: ${result.created} new entr${result.created === 1 ? "y" : "ies"}, ${result.skippedUnmatched} unmatched driver event${result.skippedUnmatched === 1 ? "" : "s"}.`,
+    )}`,
+  );
+}
+
+/**
+ * Save a Samsara API token against this tenant's connection and immediately try a
+ * sync, so the operator finds out here whether the token works instead of waiting
+ * for the nightly cron to fail quietly. The token is written with the service role
+ * because eld_connection_secret is deny-all to clients, and it is never echoed
+ * back to the page.
+ */
+export async function saveSamsaraToken(formData: FormData) {
+  const context = await requireTransportManager();
+  const apiToken = stringValue(formData, "apiToken").trim();
+
+  if (!apiToken) {
+    redirect(`${ELD_CONNECTIONS_PATH}?error=${encodeURIComponent("Paste the Samsara API token first.")}`);
+  }
+
+  const admin = createSupabaseAdminClient();
+
+  if (!admin) {
+    redirect(`${ELD_CONNECTIONS_PATH}?error=${encodeURIComponent("Service role key is not configured.")}`);
+  }
+
+  const tenantId = context.appUser.tenant_id;
+
+  // Make sure the connection row exists before the secret points at it.
+  const { data: connection, error: connectionError } = await admin
+    .from("eld_connection")
+    .upsert(
+      {
+        tenant_id: tenantId,
+        provider: "samsara",
+        status: "needs_setup",
+        created_by: context.appUser.id,
+      },
+      { onConflict: "tenant_id,provider" },
+    )
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (connectionError || !connection) {
+    redirect(
+      `${ELD_CONNECTIONS_PATH}?error=${encodeURIComponent(connectionError?.message ?? "Could not create the Samsara connection.")}`,
+    );
+  }
+
+  await storeSamsaraToken({ admin, connectionId: connection.id, tenantId, apiToken });
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "transport.eld.token_saved",
+    entityTable: "eld_connection",
+    metadata: { provider: "samsara" },
+  });
+
+  // Prove the token before calling it connected.
+  const result = await syncSamsaraConnection(tenantId);
+
+  revalidatePath(ELD_CONNECTIONS_PATH);
+
+  if (!result.ok) {
+    redirect(`${ELD_CONNECTIONS_PATH}?error=${encodeURIComponent(result.error)}`);
+  }
+
+  redirect(
+    `${ELD_CONNECTIONS_PATH}?notice=${encodeURIComponent(
+      `Samsara connected: ${result.matchedDrivers} driver${result.matchedDrivers === 1 ? "" : "s"} and ${result.matchedVehicles} unit${result.matchedVehicles === 1 ? "" : "s"} matched.`,
+    )}`,
+  );
+}
+
+export async function syncSamsaraNow(_formData: FormData) {
+  const context = await requireTransportManager();
+  const result = await syncSamsaraConnection(context.appUser.tenant_id);
+
+  revalidatePath(ELD_CONNECTIONS_PATH);
+
+  if (!result.ok) {
+    redirect(`${ELD_CONNECTIONS_PATH}?error=${encodeURIComponent(result.error)}`);
+  }
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "transport.eld.sync",
+    entityTable: "eld_connection",
+    metadata: { provider: "samsara", created: result.created, skipped_unmatched: result.skippedUnmatched },
+  });
+
+  redirect(
+    `${ELD_CONNECTIONS_PATH}?notice=${encodeURIComponent(
+      `Samsara synced: ${result.created} new duty entr${result.created === 1 ? "y" : "ies"}, ${result.metersUpdated} odometer update${result.metersUpdated === 1 ? "" : "s"}, ${result.safetyEvents} safety event${result.safetyEvents === 1 ? "" : "s"}.`,
     )}`,
   );
 }

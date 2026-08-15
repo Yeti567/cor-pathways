@@ -133,6 +133,8 @@ const actionGroups = [
       "connectEldProvider",
       "disconnectEldProvider",
       "syncMotiveNow",
+      "saveSamsaraToken",
+      "syncSamsaraNow",
     ],
   },
   {

@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowLeft, BadgeCheck, Link2, Plug, Trash2 } from "lucide-react";
-import { connectEldProvider, disconnectEldProvider, syncMotiveNow } from "@/app/admin/actions";
+import {
+  connectEldProvider,
+  disconnectEldProvider,
+  saveSamsaraToken,
+  syncMotiveNow,
+  syncSamsaraNow,
+} from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
@@ -154,6 +160,16 @@ export default async function TransportConnectionsPage({ searchParams }: Connect
                           </a>
                         )
                       ) : null}
+                      {connection.provider === "samsara" && connection.status === "connected" ? (
+                        <form action={syncSamsaraNow}>
+                          <button
+                            className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--surface-muted)]"
+                            type="submit"
+                          >
+                            Sync now
+                          </button>
+                        </form>
+                      ) : null}
                       <form action={disconnectEldProvider}>
                         <input name="provider" type="hidden" value={connection.provider} />
                         <button
@@ -166,6 +182,39 @@ export default async function TransportConnectionsPage({ searchParams }: Connect
                       </form>
                     </div>
                   </div>
+                  {/*
+                    Samsara authorizes with an API token from the customer's own
+                    dashboard rather than an OAuth redirect, so the token is entered
+                    here. Saving it runs a sync immediately, which is what turns the
+                    status green, so a bad token is caught now and not at 2am.
+                  */}
+                  {connection.provider === "samsara" ? (
+                    <form action={saveSamsaraToken} className="mt-1 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                      <label className="grid gap-1">
+                        <span className="text-sm font-medium text-[var(--ink)]">
+                          {connection.status === "connected" ? "Replace API token" : "Samsara API token"}
+                        </span>
+                        <input
+                          autoComplete="off"
+                          className={inputClass}
+                          name="apiToken"
+                          placeholder="samsara_api_..."
+                          type="password"
+                        />
+                      </label>
+                      <button
+                        className="inline-flex h-10 items-center justify-center rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--primary-strong)]"
+                        type="submit"
+                      >
+                        {connection.status === "connected" ? "Save and re-test" : "Save and connect"}
+                      </button>
+                      <p className="text-xs text-[var(--ink-muted)] sm:col-span-2">
+                        In Samsara: Settings, then Administration, then API Tokens. Create a token on a role with
+                        read access to Drivers, Vehicles, Hours of Service, and Safety. The token is stored
+                        encrypted and never shown again.
+                      </p>
+                    </form>
+                  ) : null}
                   {connection.last_error ? (
                     <p className="inline-flex items-center gap-2 text-xs text-[var(--danger)]">
                       <AlertTriangle className="h-4 w-4" aria-hidden="true" />

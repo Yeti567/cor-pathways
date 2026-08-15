@@ -9,6 +9,11 @@ output/playwright
 .env.test.local
 .env.production.local
 .vercel
+
+# Local-only MCP / client connection config. Machine-specific; keep out of the
+# public forkable repo.
+.mcp.json
+docs/supabase-mcp-dual-connection.md
 *.tsbuildinfo
 supabase/.branches
 supabase/.temp

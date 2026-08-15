@@ -32,9 +32,15 @@ export const ELD_PROVIDERS: EldProviderConfig[] = [
   {
     id: "samsara",
     label: "Samsara",
-    authType: "oauth",
-    description: "OAuth connection to a Samsara organization; pulls HOS logs and duty status.",
-    credentialEnvVars: ["SAMSARA_CLIENT_ID", "SAMSARA_CLIENT_SECRET"],
+    authType: "api_key",
+    // API token, not OAuth: Samsara reserves OAuth for listed Marketplace apps,
+    // while every fleet can mint a read-only API token inside its own dashboard.
+    // Each client runs their own deployment against their own Samsara org, so the
+    // token is per-connection data (eld_connection_secret.api_key), never an env
+    // var. That is why Samsara needs no app registration to go live for a client.
+    description:
+      "API-token connection to a Samsara organization; pulls HOS logs, drivers, vehicles, odometer, and safety events.",
+    credentialEnvVars: [],
   },
   {
     id: "geotab",
