@@ -114,13 +114,24 @@ function findInternalDuplicates<T>(
   return errors;
 }
 
-/** The lowest two-digit number not already in use. 01, 02, 03 and so on. */
+/**
+ * Compare location codes the way a person would.
+ *
+ * The pack asks clients to "just number them", so "1", "01" and "001" all turn
+ * up meaning the same yard. Comparing them as raw text would let an assigned
+ * "01" sit alongside a client's "1" as two different sites.
+ */
+function codeKey(code: string): string {
+  const digits = code.trim();
+
+  return /^\d+$/.test(digits) ? String(Number(digits)) : normalizeIdentifier(code);
+}
+
+/** The lowest number not already in use. */
 function nextFreeCode(used: ReadonlySet<string>): string {
   for (let candidate = 1; candidate < 1000; candidate += 1) {
-    const code = String(candidate).padStart(2, "0");
-
-    if (!used.has(normalizeIdentifier(code))) {
-      return code;
+    if (!used.has(codeKey(String(candidate)))) {
+      return String(candidate).padStart(2, "0");
     }
   }
 
@@ -178,7 +189,7 @@ export function planLocations(rows: readonly LocationRow[], snapshot: TenantSnap
     ...findInternalDuplicates(
       "locations",
       rows.filter((row) => row.code),
-      (row) => normalizeIdentifier(row.code),
+      (row) => codeKey(row.code ?? ""),
       (row) => row.rowNumber,
       "code",
       "That location code",
@@ -197,7 +208,7 @@ export function planLocations(rows: readonly LocationRow[], snapshot: TenantSnap
   const byCode = new Map(
     snapshot.locations
       .filter((location) => location.code)
-      .map((location) => [normalizeIdentifier(location.code), location] as const),
+      .map((location) => [codeKey(location.code!), location] as const),
   );
 
   // Codes already spoken for, so an assigned number never collides with one the
@@ -208,7 +219,7 @@ export function planLocations(rows: readonly LocationRow[], snapshot: TenantSnap
       ...rows.map((row) => row.code),
     ]
       .filter((code): code is string => Boolean(code))
-      .map(normalizeIdentifier),
+      .map(codeKey),
   );
 
   const items = rows.map((row) => {
@@ -217,7 +228,7 @@ export function planLocations(rows: readonly LocationRow[], snapshot: TenantSnap
     // the next pack. The code is the half that stays put, and matching on the
     // name first would create a second copy of a site that was only renamed.
     const existing =
-      (row.code ? byCode.get(normalizeIdentifier(row.code)) : undefined) ?? byName.get(normalizeIdentifier(row.name));
+      (row.code ? byCode.get(codeKey(row.code)) : undefined) ?? byName.get(normalizeIdentifier(row.name));
 
     if (existing) {
       const renamed = normalizeIdentifier(existing.name) !== normalizeIdentifier(row.name);
@@ -237,7 +248,7 @@ export function planLocations(rows: readonly LocationRow[], snapshot: TenantSnap
     // the number exists to label the dropdown and to survive a respelled
     // nickname, and neither of those needs the client's involvement.
     const assigned = row.code ?? nextFreeCode(usedCodes);
-    usedCodes.add(normalizeIdentifier(assigned));
+    usedCodes.add(codeKey(assigned));
 
     return {
       action: "create" as const,
