@@ -11,6 +11,11 @@
 
 import { reconcileEldDriverLinks, reconcileEldVehicleLinks } from "@/lib/eld/links";
 import {
+  buildSamsaraImportPlan,
+  type ExistingDriverRow,
+  type SamsaraImportPlan,
+} from "@/lib/eld/samsara-import";
+import {
   SAMSARA_API_BASE,
   extractSamsaraDutyRecords,
   normalizeSamsaraDrivers,
@@ -32,6 +37,7 @@ import {
   eldDriverEventKey,
   eldMeterKey,
   type EldDriverEventType,
+  type EquipmentMatchRow,
   type EquipmentMeterInfo,
   type NormalizedDutyEvent,
 } from "@/lib/eld/sync";
@@ -65,6 +71,31 @@ type SamsaraSyncResult =
       skippedUnmatched: number;
     }
   | { ok: false; error: string };
+
+/** Resolve a tenant's Samsara connection and token in one step. */
+async function resolveSamsaraAccess(
+  admin: AdminClient,
+  tenantId: string,
+): Promise<{ ok: true; connectionId: string; apiToken: string } | { ok: false; error: string }> {
+  const { data: connection } = await admin
+    .from("eld_connection")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("provider", "samsara")
+    .maybeSingle<{ id: string }>();
+
+  if (!connection) {
+    return { ok: false, error: "No Samsara connection for this tenant." };
+  }
+
+  const apiToken = await getSamsaraToken(admin, connection.id);
+
+  if (!apiToken) {
+    return { ok: false, error: "Samsara is not authorized yet. Add the API token first." };
+  }
+
+  return { ok: true, connectionId: connection.id, apiToken };
+}
 
 /** Read one tenant's stored Samsara API token from the deny-all secret table. */
 export async function getSamsaraToken(admin: AdminClient, connectionId: string): Promise<string | null> {
@@ -332,6 +363,181 @@ export async function syncSamsaraConnection(
     driverProfiles,
     safetyEvents,
     skippedUnmatched,
+  };
+}
+
+/** Fetch the whole fleet list (drivers + vehicles) from Samsara. */
+async function fetchSamsaraFleet(input: { apiToken: string; fetchImpl: typeof fetch }) {
+  const driverPages = await samsaraGetAllPages({ path: SAMSARA_DRIVERS_PATH, ...input });
+  const vehiclePages = await samsaraGetAllPages({ path: SAMSARA_VEHICLES_PATH, ...input });
+
+  return {
+    drivers: driverPages.flatMap((page) => normalizeSamsaraDrivers(page)),
+    vehicles: vehiclePages.flatMap((page) => normalizeSamsaraVehicles(page)),
+  };
+}
+
+/**
+ * Read the tenant's current drivers, equipment, and existing links, then work out
+ * what a Samsara import would create. Shared by the preview page and the apply
+ * action so the operator can never approve one plan and have another one run.
+ */
+async function computeSamsaraImportPlan(input: {
+  admin: AdminClient;
+  tenantId: string;
+  apiToken: string;
+  fetchImpl: typeof fetch;
+}): Promise<SamsaraImportPlan> {
+  const { admin, tenantId } = input;
+  const fleet = await fetchSamsaraFleet({ apiToken: input.apiToken, fetchImpl: input.fetchImpl });
+
+  const [{ data: drivers }, { data: equipment }, { data: driverLinks }, { data: vehicleLinks }] = await Promise.all([
+    admin
+      .from("transport_driver")
+      .select("id, full_name")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .returns<ExistingDriverRow[]>(),
+    admin
+      .from("equipment")
+      .select("id, unit_number, vin_or_serial, license_plate")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .returns<EquipmentMatchRow[]>(),
+    admin
+      .from("eld_driver_link")
+      .select("external_driver_id")
+      .eq("tenant_id", tenantId)
+      .eq("provider", "samsara")
+      .returns<{ external_driver_id: string }[]>(),
+    admin
+      .from("eld_vehicle_link")
+      .select("external_vehicle_id")
+      .eq("tenant_id", tenantId)
+      .eq("provider", "samsara")
+      .returns<{ external_vehicle_id: string }[]>(),
+  ]);
+
+  return buildSamsaraImportPlan({
+    drivers: fleet.drivers,
+    vehicles: fleet.vehicles,
+    existingDrivers: drivers ?? [],
+    existingEquipment: equipment ?? [],
+    linkedDriverExternalIds: new Set((driverLinks ?? []).map((link) => link.external_driver_id)),
+    linkedVehicleExternalIds: new Set((vehicleLinks ?? []).map((link) => link.external_vehicle_id)),
+  });
+}
+
+/** Preview what importing this tenant's Samsara fleet would create. Writes nothing. */
+export async function planSamsaraImport(
+  tenantId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: true; plan: SamsaraImportPlan } | { ok: false; error: string }> {
+  const admin = createSupabaseAdminClient();
+
+  if (!admin) {
+    return { ok: false, error: "Service role key is not configured." };
+  }
+
+  const access = await resolveSamsaraAccess(admin, tenantId);
+
+  if (!access.ok) {
+    return access;
+  }
+
+  try {
+    const plan = await computeSamsaraImportPlan({ admin, tenantId, apiToken: access.apiToken, fetchImpl });
+    return { ok: true, plan };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Could not read the Samsara fleet." };
+  }
+}
+
+/**
+ * Create the driver files and equipment that Samsara knows about and we do not,
+ * then run a sync so the new records are linked and their data lands immediately.
+ *
+ * The plan is recomputed here rather than trusted from the form, so a stale
+ * preview (or a tampered payload) can never create something the operator did not
+ * see. Re-running is safe: anything that now exists is treated as already present.
+ */
+export async function applySamsaraImport(
+  tenantId: string,
+  now: Date = new Date(),
+  fetchImpl: typeof fetch = fetch,
+): Promise<
+  { ok: true; driversCreated: number; vehiclesCreated: number; synced: boolean } | { ok: false; error: string }
+> {
+  const admin = createSupabaseAdminClient();
+
+  if (!admin) {
+    return { ok: false, error: "Service role key is not configured." };
+  }
+
+  const access = await resolveSamsaraAccess(admin, tenantId);
+
+  if (!access.ok) {
+    return access;
+  }
+
+  let plan: SamsaraImportPlan;
+
+  try {
+    plan = await computeSamsaraImportPlan({ admin, tenantId, apiToken: access.apiToken, fetchImpl });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Could not read the Samsara fleet." };
+  }
+
+  if (plan.driversToCreate.length > 0) {
+    const { error } = await admin.from("transport_driver").insert(
+      plan.driversToCreate.map((driver) => ({
+        tenant_id: tenantId,
+        full_name: driver.fullName,
+      })),
+    );
+
+    if (error) {
+      return { ok: false, error: `Could not create drivers: ${error.message}` };
+    }
+  }
+
+  if (plan.vehiclesToCreate.length > 0) {
+    const { error } = await admin.from("equipment").insert(
+      plan.vehiclesToCreate.map((vehicle) => ({
+        tenant_id: tenantId,
+        unit_number: vehicle.unitNumber,
+        vin_or_serial: vehicle.vin,
+        license_plate: vehicle.plate,
+        make: vehicle.make,
+        model: vehicle.model,
+        year: vehicle.year,
+        // Samsara's /fleet/vehicles is powered units, and they report an odometer,
+        // so mileage tracking is the right meter for them. Trailers live on a
+        // separate Samsara endpoint we do not import.
+        category: "vehicle",
+        tracking_mode: "mileage",
+        // A vehicle carrying an ELD is a commercial motor vehicle subject to hours
+        // of service, so it belongs in the NSC vehicle files. Marking it false
+        // would hide a real truck from compliance views, which is the more
+        // dangerous mistake; an over-marked pickup is visible and easy to correct.
+        is_commercial: true,
+      })),
+    );
+
+    if (error) {
+      return { ok: false, error: `Could not create units: ${error.message}` };
+    }
+  }
+
+  // Link the new records and pull their data in the same breath, so the operator
+  // sees hours and odometer immediately rather than waiting for the cron.
+  const sync = await syncSamsaraConnection(tenantId, now, fetchImpl);
+
+  return {
+    ok: true,
+    driversCreated: plan.driversToCreate.length,
+    vehiclesCreated: plan.vehiclesToCreate.length,
+    synced: sync.ok,
   };
 }
 

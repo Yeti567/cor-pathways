@@ -71,7 +71,7 @@ import { inviteWorkerByEmail } from "@/lib/worker-invite";
 import { TRANSPORT_REQUIREMENTS } from "@/lib/transport-registry";
 import { isEldProvider, isEldProviderConfigured } from "@/lib/eld/providers";
 import { syncMotiveConnection } from "@/lib/eld/motive-sync";
-import { storeSamsaraToken, syncSamsaraConnection } from "@/lib/eld/samsara-sync";
+import { applySamsaraImport, storeSamsaraToken, syncSamsaraConnection } from "@/lib/eld/samsara-sync";
 import {
   deliverEmailNotification,
   emailDeliveryConfigured,
@@ -4337,6 +4337,40 @@ export async function syncSamsaraNow(_formData: FormData) {
   redirect(
     `${ELD_CONNECTIONS_PATH}?notice=${encodeURIComponent(
       `Samsara synced: ${result.created} new duty entr${result.created === 1 ? "y" : "ies"}, ${result.metersUpdated} odometer update${result.metersUpdated === 1 ? "" : "s"}, ${result.safetyEvents} safety event${result.safetyEvents === 1 ? "" : "s"}.`,
+    )}`,
+  );
+}
+
+/**
+ * Create the driver files and units Samsara knows about and we do not. The plan is
+ * recomputed inside applySamsaraImport rather than taken from the form, so what
+ * runs is a fresh read and never a stale or tampered preview.
+ */
+export async function importSamsaraFleet(_formData: FormData) {
+  const context = await requireTransportManager();
+  const result = await applySamsaraImport(context.appUser.tenant_id);
+
+  revalidatePath(ELD_CONNECTIONS_PATH);
+  revalidatePath("/admin/transport/drivers");
+  revalidatePath("/admin/equipment");
+
+  if (!result.ok) {
+    redirect(`${ELD_CONNECTIONS_PATH}/samsara-import?error=${encodeURIComponent(result.error)}`);
+  }
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "transport.eld.import",
+    entityTable: "eld_connection",
+    metadata: {
+      provider: "samsara",
+      drivers_created: result.driversCreated,
+      vehicles_created: result.vehiclesCreated,
+    },
+  });
+
+  redirect(
+    `${ELD_CONNECTIONS_PATH}?notice=${encodeURIComponent(
+      `Imported from Samsara: ${result.driversCreated} driver file${result.driversCreated === 1 ? "" : "s"} and ${result.vehiclesCreated} unit${result.vehiclesCreated === 1 ? "" : "s"} created.`,
     )}`,
   );
 }

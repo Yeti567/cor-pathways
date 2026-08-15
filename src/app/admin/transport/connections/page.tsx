@@ -161,14 +161,22 @@ export default async function TransportConnectionsPage({ searchParams }: Connect
                         )
                       ) : null}
                       {connection.provider === "samsara" && connection.status === "connected" ? (
-                        <form action={syncSamsaraNow}>
-                          <button
+                        <>
+                          <Link
                             className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--surface-muted)]"
-                            type="submit"
+                            href="/admin/transport/connections/samsara-import"
                           >
-                            Sync now
-                          </button>
-                        </form>
+                            Import fleet
+                          </Link>
+                          <form action={syncSamsaraNow}>
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--surface-muted)]"
+                              type="submit"
+                            >
+                              Sync now
+                            </button>
+                          </form>
+                        </>
                       ) : null}
                       <form action={disconnectEldProvider}>
                         <input name="provider" type="hidden" value={connection.provider} />

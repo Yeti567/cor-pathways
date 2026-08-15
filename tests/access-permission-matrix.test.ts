@@ -135,6 +135,7 @@ const actionGroups = [
       "syncMotiveNow",
       "saveSamsaraToken",
       "syncSamsaraNow",
+      "importSamsaraFleet",
     ],
   },
   {
