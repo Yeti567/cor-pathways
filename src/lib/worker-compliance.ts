@@ -20,6 +20,17 @@
 // The list is per tenant and starts empty. Assuming a requirement nobody stated
 // would light a compliance screen red on the day of an upgrade, and a screen
 // that cries wolf once gets ignored forever after.
+//
+// THE LIST ALSO SCOPES THE WHOLE DASHBOARD, not just the missing count. Once a
+// company has said which tickets it tracks, every number here is about those
+// tickets and nothing else. An oilfield outfit tracks H2S Alive and First Aid; a
+// construction client tracks WHMIS and fall protection. Counting a ticket the
+// company never asked about would put something in their 7-day window that they
+// have no intention of booking, and a window full of things nobody plans to act
+// on is a window people stop reading.
+//
+// Tickets outside the list are still held, still visible on the worker's own
+// file, and still renewable. They are simply not what this page is counting.
 
 export type WorkerTicketInput = {
   /** Null expiry means a ticket that does not lapse, which some genuinely do not. */
@@ -110,6 +121,7 @@ export function buildWorkerComplianceSummary(
   mandatory: MandatoryTickets = [],
 ): WorkerComplianceSummary {
   const requiredKeys = mandatory.map((name) => [ticketKey(name), name] as const);
+  const trackedKeys = new Set(requiredKeys.map(([key]) => key));
   const expiring: TicketWindow = { within7: 0, within21: 0, within45: 0, within60: 0 };
   let expiredTickets = 0;
   let unprovenTickets = 0;
@@ -122,13 +134,20 @@ export function buildWorkerComplianceSummary(
     let soonestTicket: string | null = null;
     let expiringSoon = false;
 
-    // Only the mandatory types are counted as missing. A ticket the company
-    // never asked for cannot be absent.
+    // Only the tracked types are counted as missing. A ticket the company never
+    // asked for cannot be absent.
     const held = new Set(worker.tickets.map((ticket) => ticketKey(ticket.name)));
     const missing = requiredKeys.filter(([key]) => !held.has(key)).map(([, name]) => name);
     missingTickets += missing.length;
 
-    for (const ticket of worker.tickets) {
+    // With no list, everything counts, because the company has not told us what
+    // matters and silently counting nothing would be worse than counting all.
+    const tracked =
+      requiredKeys.length === 0
+        ? worker.tickets
+        : worker.tickets.filter((ticket) => trackedKeys.has(ticketKey(ticket.name)));
+
+    for (const ticket of tracked) {
       const days = daysUntil(ticket.expiresOn, now);
 
       // A current ticket with no photo of the card is not provable at an audit,
@@ -189,7 +208,8 @@ export function buildWorkerComplianceSummary(
           : expiringSoon || awaitingProof > 0
             ? "attention"
             : "current",
-      ticketCount: worker.tickets.length,
+      // The tracked ones, so the row's count agrees with the numbers above it.
+      ticketCount: tracked.length,
       expired,
       awaitingProof,
       daysUntilNext: soonest,

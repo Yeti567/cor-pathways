@@ -316,6 +316,17 @@ export default async function WorkerTicketCompliancePage() {
         )}
       </section>
 
+      {mandatory.length > 0 ? (
+        <p className="mt-4 text-xs text-[var(--ink-muted)]">
+          Counting {mandatory.join(", ")} only. Anything else your crew holds is still on their file and still
+          renewable, it is just not what this page is tracking. Change what is counted on{" "}
+          <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/certification-types">
+            Certification Types
+          </Link>
+          .
+        </p>
+      ) : null}
+
       {mandatory.length === 0 ? (
         <p className="mt-4 text-xs text-[var(--ink-muted)]">
           Nothing is marked required yet, so these numbers only describe tickets already on file and a ticket somebody

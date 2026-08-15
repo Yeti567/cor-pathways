@@ -161,6 +161,50 @@ describe("mandatory tickets", () => {
     expect(summary.workers_[0].missing).toEqual(["H2S Alive"]);
   });
 
+  it("keeps an untracked ticket out of the booking windows entirely", () => {
+    // A construction client tracking WHMIS and fall protection should not find
+    // somebody's Confined Space ticket in their 7-day window. A window full of
+    // things nobody plans to book is a window people stop reading.
+    const summary = buildWorkerComplianceSummary(
+      [worker("Dale Chase", [{ days: 3, name: "Confined Space" }, { days: 300, name: "WHMIS" }])],
+      NOW,
+      ["WHMIS", "Fall Protection"],
+    );
+
+    expect(summary.expiring.within7).toBe(0);
+    expect(summary.workers_[0].missing).toEqual(["Fall Protection"]);
+  });
+
+  it("does not count an untracked ticket as expired or unproven either", () => {
+    const summary = buildWorkerComplianceSummary(
+      [worker("Dale Chase", [{ days: -30, name: "Confined Space", hasProof: false }, { days: 300, name: "WHMIS" }])],
+      NOW,
+      ["WHMIS"],
+    );
+
+    expect(summary.expired).toBe(0);
+    expect(summary.awaitingProof).toBe(0);
+    expect(summary.compliance.current).toBe(1);
+  });
+
+  it("counts everything when no list has been set, rather than counting nothing", () => {
+    const summary = buildWorkerComplianceSummary(
+      [worker("Dale Chase", [{ days: 3, name: "Confined Space" }])],
+      NOW,
+    );
+
+    expect(summary.expiring.within7).toBe(1);
+  });
+
+  it("scopes different industries to their own tickets from the same data", () => {
+    const crew = [
+      worker("Oilfield Hand", [{ days: 10, name: "H2S Alive" }, { days: 400, name: "WHMIS" }]),
+    ];
+
+    expect(buildWorkerComplianceSummary(crew, NOW, ["H2S Alive", "Standard First Aid"]).expiring.within21).toBe(1);
+    expect(buildWorkerComplianceSummary(crew, NOW, ["WHMIS", "Fall Protection"]).expiring.within21).toBe(0);
+  });
+
   it("still surfaces the no-ticket count for a company that set no requirements", () => {
     const summary = buildWorkerComplianceSummary(
       [worker("Dale Chase", [{ days: 100 }]), worker("New Hire"), worker("Also New")],
