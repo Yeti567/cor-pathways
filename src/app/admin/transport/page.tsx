@@ -26,9 +26,12 @@ import {
   vehicleFileGaps,
 } from "@/lib/equipment";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
+import { hasAttachedProof } from "@/lib/proof-status";
 import {
   companyDeficiencies,
+  companyProofGaps,
   driverDeficiencies,
+  driverProofGaps,
   summarizeDeficiencies,
   type TransportDocumentRecord,
 } from "@/lib/transport-registry";
@@ -52,7 +55,7 @@ type HosEventRow = Pick<
 >;
 type TransportDocRow = Pick<
   Database["public"]["Tables"]["transport_document"]["Row"],
-  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date"
+  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date" | "attachment_ids"
 >;
 type FleetEquipmentRow = Database["public"]["Tables"]["equipment"]["Row"];
 type FleetServiceRow = Pick<
@@ -68,6 +71,7 @@ type FleetDocumentRow = Pick<
   | "is_active"
   | "reminder_lead_days"
   | "title"
+  | "attachment_ids"
 >;
 
 type TransportPageProps = {
@@ -180,14 +184,14 @@ export default async function TransportPage({ searchParams }: TransportPageProps
       supabase.from("transport_driver").select("id, hos_cycle, hos_regime").eq("tenant_id", tenantId).is("deleted_at", null).returns<DriverRow[]>(),
       supabase
         .from("transport_document")
-        .select("registry_key, slot_key, scope, subject_id, status, expiry_date")
+        .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
         .eq("tenant_id", tenantId)
         .eq("scope", "driver")
         .is("deleted_at", null)
         .returns<TransportDocRow[]>(),
       supabase
         .from("transport_document")
-        .select("registry_key, slot_key, scope, subject_id, status, expiry_date")
+        .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
         .eq("tenant_id", tenantId)
         .eq("scope", "company")
         .is("deleted_at", null)
@@ -208,7 +212,9 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         .returns<FleetServiceRow[]>(),
       supabase
         .from("equipment_document")
-        .select("equipment_id, doc_type, certification_type_id, title, expiry_date, reminder_lead_days, is_active")
+        .select(
+          "equipment_id, doc_type, certification_type_id, title, expiry_date, reminder_lead_days, is_active, attachment_ids",
+        )
         .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .is("deleted_at", null)
@@ -251,6 +257,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         subjectId: document.subject_id,
         status: document.status,
         expiryDate: document.expiry_date,
+        hasProof: hasAttachedProof(document.attachment_ids),
       },
     ]);
   }
@@ -276,8 +283,15 @@ export default async function TransportPage({ searchParams }: TransportPageProps
     subjectId: document.subject_id,
     status: document.status,
     expiryDate: document.expiry_date,
+    hasProof: hasAttachedProof(document.attachment_ids),
   }));
   const companyDeficiencyTotal = companyDeficiencies(companyRecords).length;
+
+  // Files that pass the deficiency check and could not be produced at an audit,
+  // counted apart from the deficiency totals above. See src/lib/proof-status.ts.
+  const proofGapTotal =
+    (drivers ?? []).reduce((total, driver) => total + driverProofGaps(docsByDriver.get(driver.id) ?? []).length, 0) +
+    companyProofGaps(companyRecords).length;
 
   // Fleet maintenance attention (vehicles + trailers) from the equipment helper.
   const fleetRows = buildEquipmentInventoryRows({
@@ -324,6 +338,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         expiryDate: document.expiry_date,
         isActive: document.is_active,
         reminderLeadDays: document.reminder_lead_days,
+        hasProof: hasAttachedProof(document.attachment_ids),
       })),
     });
 
@@ -348,6 +363,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         isActive: document.is_active,
         reminderLeadDays: document.reminder_lead_days,
         title: document.title,
+        hasProof: hasAttachedProof(document.attachment_ids),
       })),
     });
 
@@ -368,6 +384,15 @@ export default async function TransportPage({ searchParams }: TransportPageProps
       detail: `${driverDeficiencyTotals.missing} missing, ${driverDeficiencyTotals.expired} expired`,
       href: "/admin/transport/drivers",
       alert: driverDeficiencyTotals.total > 0,
+    },
+    {
+      // Amber rather than red on purpose: these files pass the deficiency check
+      // and would still fail at an audit, because there is no document to show.
+      label: "Files waiting on a document",
+      value: String(proofGapTotal),
+      detail: "Dates entered, nothing scanned in",
+      href: "/admin/needs-document",
+      alert: false,
     },
     {
       label: "Drivers in HOS violation",

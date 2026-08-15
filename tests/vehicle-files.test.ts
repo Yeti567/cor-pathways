@@ -8,12 +8,19 @@ import {
 
 const NOW = new Date("2026-08-05T12:00:00.000Z");
 
-function doc(docType: string, expiryDate: string | null, overrides: { isActive?: boolean; reminderLeadDays?: number | null } = {}) {
+// Defaults to a scanned document, so the expiry tests below stay about expiry.
+// The proof-gating tests pass hasProof explicitly.
+function doc(
+  docType: string,
+  expiryDate: string | null,
+  overrides: { isActive?: boolean; reminderLeadDays?: number | null; hasProof?: boolean } = {},
+) {
   return {
     docType,
     expiryDate,
     isActive: overrides.isActive ?? true,
     reminderLeadDays: overrides.reminderLeadDays ?? 30,
+    hasProof: overrides.hasProof ?? true,
   };
 }
 

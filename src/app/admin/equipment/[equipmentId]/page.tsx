@@ -54,6 +54,7 @@ import {
   getEquipmentComplianceStatus,
   getEquipmentDocumentStatus,
   getEquipmentScheduleStatus,
+  statusesAwaitingProof,
   unitCertificationGaps,
   unitExpectsCertifications,
   vehicleFileStateClass,
@@ -61,6 +62,7 @@ import {
   type EquipmentDueStatus,
   type EquipmentTab,
 } from "@/lib/equipment";
+import { AWAITING_PROOF_DESCRIPTION, hasAttachedProof } from "@/lib/proof-status";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -487,9 +489,11 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
       isActive: document.is_active,
       reminderLeadDays: document.reminder_lead_days,
       title: document.title,
+      hasProof: hasAttachedProof(document.attachment_ids),
     })),
   });
   const certificationGapCount = unitCertificationGaps(certificationStatuses).length;
+  const certificationProofCount = statusesAwaitingProof(certificationStatuses).length;
 
   return (
     <AdminShell
@@ -1305,6 +1309,17 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                       {certificationGapCount} missing or expired
                     </span>
                   ) : null}
+                  {/*
+                    Kept separate from the gap count above. A certificate waiting on
+                    its scan is unfinished filing, not a deficiency, and merging the
+                    two numbers would make a unit mid-onboarding read as a unit in
+                    trouble.
+                  */}
+                  {certificationProofCount > 0 ? (
+                    <span className="ml-2 font-semibold text-[var(--warning)]">
+                      {certificationProofCount} without a document
+                    </span>
+                  ) : null}
                 </h3>
                 <Link
                   className="text-xs font-semibold text-[var(--primary)] hover:underline"
@@ -1338,12 +1353,22 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                     <p className="mt-1 text-xs text-[var(--ink-muted)]">
                       {certification.state === "missing"
                         ? "Nothing on file. Add it with the form below, choosing document type Certification."
-                        : certification.daysUntilExpiry === null
-                          ? "No expiry recorded"
-                          : certification.daysUntilExpiry < 0
-                            ? `Expired ${Math.abs(certification.daysUntilExpiry)} days ago`
-                            : `${formatDate(certification.expiryDate)} (${certification.daysUntilExpiry} days)`}
+                        : certification.state === "awaiting_proof"
+                          ? AWAITING_PROOF_DESCRIPTION
+                          : certification.daysUntilExpiry === null
+                            ? "No expiry recorded"
+                            : certification.daysUntilExpiry < 0
+                              ? `Expired ${Math.abs(certification.daysUntilExpiry)} days ago`
+                              : `${formatDate(certification.expiryDate)} (${certification.daysUntilExpiry} days)`}
                     </p>
+                    {/*
+                      A certificate that is renewing soon AND has no scan can only
+                      show one badge, and the deadline is the more urgent of the two,
+                      so the missing document says so here instead of going unsaid.
+                    */}
+                    {certification.state === "due_soon" && !certification.hasProof ? (
+                      <p className="mt-1 text-xs font-semibold text-[var(--warning)]">No document uploaded yet</p>
+                    ) : null}
                   </li>
                 ))}
               </ul>

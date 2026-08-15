@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { AlertTriangle, ArrowLeft, BadgeCheck, Clock, Download, FileText, Link2, Lock, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BadgeCheck, Clock, Download, FileText, FileWarning, Link2, Lock, Trash2, Upload } from "lucide-react";
 import {
   addDailyTimeRecord,
   addDutyStatusEvent,
@@ -16,8 +16,15 @@ import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel, canManageMedicalVault, canViewMedicalVault } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import {
+  AWAITING_PROOF_CLASS,
+  AWAITING_PROOF_DESCRIPTION,
+  AWAITING_PROOF_LABEL,
+  hasAttachedProof,
+} from "@/lib/proof-status";
+import {
   TRANSPORT_REGISTRIES,
   driverDeficiencies,
+  driverProofGaps,
   requirementsForScope,
   type TransportDocumentRecord,
 } from "@/lib/transport-registry";
@@ -152,10 +159,17 @@ export default async function TransportDriverDetailPage({ params, searchParams }
     subjectId: document.subject_id,
     status: document.status,
     expiryDate: document.expiry_date,
+    hasProof: hasAttachedProof(document.attachment_ids),
   }));
   const deficiencies = driverDeficiencies(records);
   const deficiencyBySlot = new Map(
     deficiencies.map((deficiency) => [slotKeyOf(deficiency.registryKey, deficiency.slotKey), deficiency]),
+  );
+  // Slots that satisfy the requirement on paper and have no document behind them.
+  // Not deficiencies, so they never turn a slot red, but the DQ file cannot be
+  // handed to an auditor until this set is empty.
+  const proofGapSlots = new Set(
+    driverProofGaps(records).map((gap) => slotKeyOf(gap.registryKey, gap.slotKey)),
   );
 
   const driverRequirements = requirementsForScope("driver");
@@ -446,6 +460,14 @@ export default async function TransportDriverDetailPage({ params, searchParams }
                         <span className="inline-flex w-fit items-center gap-1 rounded-full border border-[var(--danger)] bg-red-50 px-2.5 py-1 text-xs font-semibold text-[var(--danger)]">
                           <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                           {deficiency.reason === "expired" ? "Expired" : "Missing"}
+                        </span>
+                      ) : proofGapSlots.has(key) ? (
+                        <span
+                          className={`inline-flex w-fit items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${AWAITING_PROOF_CLASS}`}
+                          title={AWAITING_PROOF_DESCRIPTION}
+                        >
+                          <FileWarning className="h-4 w-4" aria-hidden="true" />
+                          {AWAITING_PROOF_LABEL}
                         </span>
                       ) : ok && filed.length > 0 ? (
                         <span className="inline-flex w-fit items-center gap-1 rounded-full border border-[var(--success)] bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-[var(--success)]">

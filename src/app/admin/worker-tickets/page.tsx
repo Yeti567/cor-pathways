@@ -11,6 +11,7 @@ import { requireAppUser } from "@/lib/current-user";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { certificationStatus, certificationStatusClass } from "@/lib/workers";
+import { AWAITING_PROOF_LABEL, hasAttachedProof } from "@/lib/proof-status";
 import type { Database } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +25,13 @@ type CertificationTypeRow = Pick<Database["public"]["Tables"]["certification_typ
 type WorkerProfileRow = Pick<Database["public"]["Tables"]["worker_profiles"]["Row"], "id" | "user_id">;
 type WorkerUserRow = Pick<Database["public"]["Tables"]["users"]["Row"], "active" | "email" | "full_name" | "id">;
 
-type StatusFilter = "all" | "deficiency" | "expiring-soon" | "active" | "no-expiry";
+type StatusFilter = "all" | "deficiency" | "expiring-soon" | "no-document" | "active" | "no-expiry";
 
 const statusOptions: { label: string; value: StatusFilter }[] = [
   { label: "All statuses", value: "all" },
   { label: "Deficiency", value: "deficiency" },
   { label: "Expiring soon", value: "expiring-soon" },
+  { label: AWAITING_PROOF_LABEL, value: "no-document" },
   { label: "Active", value: "active" },
   { label: "No expiry", value: "no-expiry" },
 ];
@@ -62,7 +64,16 @@ function signedPathUrl(urls: Map<string, string | null>, path: string | null | u
   return path ? urls.get(path) ?? null : null;
 }
 
+// One bucket per row, and the bucket always matches the badge on that row. A
+// ticket that is BOTH expiring soon and unscanned files under "Expiring soon",
+// because that is what its badge says and a filter that disagreed with the badge
+// would read as a bug. Those rows still carry an inline "no document" note, and
+// /admin/needs-document is the complete cross-domain chase list.
 function statusFilterKey(status: ReturnType<typeof certificationStatus>): StatusFilter {
+  if (status.tone === "unproven") {
+    return "no-document";
+  }
+
   if (status.label === "No expiry") {
     return "no-expiry";
   }
@@ -141,7 +152,7 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
     const workerId = workerIdByProfileId.get(ticket.worker_profile_id) ?? null;
     const worker = workerId ? workerById.get(workerId) ?? null : null;
     const certificationType = ticket.certification_type_id ? certificationTypeById.get(ticket.certification_type_id) ?? null : null;
-    const status = certificationStatus(ticket.expires_on);
+    const status = certificationStatus(ticket.expires_on, undefined, hasAttachedProof(ticket.attachment_path));
 
     return {
       attachmentUrl: signedPathUrl(signedUrls, ticket.attachment_path),

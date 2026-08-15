@@ -22,6 +22,9 @@ function driverDoc(
     subjectId: "driver-1",
     status: "active",
     expiryDate: null,
+    // Scanned by default, so these tests stay about the deficiency engine. The
+    // proof-gap tests pass hasProof explicitly.
+    hasProof: true,
     ...overrides,
   };
 }

@@ -22,6 +22,9 @@ function certification(input: Partial<UnitCertificationDocumentInput> = {}): Uni
     isActive: true,
     reminderLeadDays: 30,
     title: null,
+    // Scanned by default, so these tests stay about the requirement model. The
+    // proof-gating tests pass hasProof explicitly.
+    hasProof: true,
     ...input,
   };
 }

@@ -49,6 +49,14 @@ export type TransportDocumentRecord = {
   subjectId: string | null;
   status: string;
   expiryDate: string | null;
+  /**
+   * Whether the filed row has the actual document attached.
+   *
+   * Required rather than optional so a page that forgets to select attachment_ids
+   * fails to compile instead of quietly reporting an unproven file as complete.
+   * Build it with hasAttachedProof from src/lib/proof-status.
+   */
+  hasProof: boolean;
 };
 
 export type TransportDeficiencyReason = "missing" | "expired";
@@ -272,6 +280,95 @@ export function companyDeficiencies(
   now = new Date(),
 ): TransportDeficiency[] {
   return computeDeficiencies({
+    requirements: requirementsForScope("company"),
+    documents: companyDocuments,
+    now,
+  });
+}
+
+export type TransportProofGap = {
+  registryKey: TransportRegistryKey;
+  registryLabel: string;
+  slotKey: string;
+  label: string;
+  expiryDate: string | null;
+};
+
+/**
+ * Required slots that are satisfied on paper and cannot be produced.
+ *
+ * A DQ file whose medical is a date with no certificate behind it passes
+ * computeDeficiencies, because a document is filed and it has not expired. At an
+ * audit it fails, because the auditor asks to see the certificate. This is the
+ * difference between the two, reported separately so it can be chased without
+ * inflating the deficiency count that drives the red badges.
+ *
+ * A slot counts as proven if ANY of its satisfying documents carries a file: unlike
+ * a vehicle CVIP, several of these slots (training certificates, conviction records)
+ * accumulate rather than supersede, so one attachment among them is real evidence.
+ * Expired and missing slots are left out entirely; they are deficiencies already,
+ * and what they need is a new document, not a scan of an old one.
+ */
+export function computeProofGaps(input: {
+  requirements: TransportRequirement[];
+  documents: TransportDocumentRecord[];
+  now?: Date;
+}): TransportProofGap[] {
+  const now = input.now ?? new Date();
+  const gaps: TransportProofGap[] = [];
+
+  for (const requirement of input.requirements) {
+    if (!requirement.required) {
+      continue;
+    }
+
+    const filed = input.documents.filter(
+      (document) =>
+        document.registryKey === requirement.registryKey &&
+        document.slotKey === requirement.slotKey &&
+        document.status === "active" &&
+        (!requirement.tracksExpiry || !isExpired(document.expiryDate, now)),
+    );
+
+    if (filed.length === 0 || filed.some((document) => document.hasProof)) {
+      continue;
+    }
+
+    gaps.push({
+      registryKey: requirement.registryKey,
+      registryLabel: registryLabel(requirement.registryKey),
+      slotKey: requirement.slotKey,
+      label: requirement.label,
+      expiryDate:
+        filed
+          .map((document) => document.expiryDate)
+          .filter((value): value is string => Boolean(value))
+          .sort()
+          .at(-1) ?? null,
+    });
+  }
+
+  return gaps;
+}
+
+/** Slots one driver has on file but cannot prove. */
+export function driverProofGaps(
+  documentsForDriver: TransportDocumentRecord[],
+  now = new Date(),
+): TransportProofGap[] {
+  return computeProofGaps({
+    requirements: requirementsForScope("driver"),
+    documents: documentsForDriver,
+    now,
+  });
+}
+
+/** Company-wide slots on file but unproven. */
+export function companyProofGaps(
+  companyDocuments: TransportDocumentRecord[],
+  now = new Date(),
+): TransportProofGap[] {
+  return computeProofGaps({
     requirements: requirementsForScope("company"),
     documents: companyDocuments,
     now,

@@ -1,3 +1,4 @@
+import { AWAITING_PROOF_CLASS, AWAITING_PROOF_LABEL } from "@/lib/proof-status";
 import type { Json } from "@/types/database";
 
 export const equipmentCategoryOptions = [
@@ -699,7 +700,11 @@ export const VEHICLE_FILE_REQUIREMENTS: readonly VehicleFileRequirement[] = [
   },
 ] as const;
 
-export type VehicleFileState = "on_file" | "due_soon" | "expired" | "missing";
+// "On file" is the only green here, and it is gated on the document actually being
+// attached: a unit whose CVIP is a date and nothing else reads awaiting_proof, not
+// on_file, because there is no certificate to hand an inspector. See
+// src/lib/proof-status.ts for why that is amber rather than red.
+export type VehicleFileState = "on_file" | "awaiting_proof" | "due_soon" | "expired" | "missing";
 
 export type VehicleFileStatus = {
   registryKey: VehicleFileRegistryKey;
@@ -710,10 +715,19 @@ export type VehicleFileStatus = {
   state: VehicleFileState;
   expiryDate: string | null;
   daysUntilExpiry: number | null;
+  /**
+   * Whether the document that governs this file has a scan attached.
+   *
+   * Reported alongside the state rather than folded into it, because a file can be
+   * BOTH renewing soon and unproven, and the badge can only say one thing. The
+   * badge says the deadline; this says whether the chase list should hold it.
+   */
+  hasProof: boolean;
 };
 
 export const VEHICLE_FILE_STATE_LABELS: Record<VehicleFileState, string> = {
   on_file: "On file",
+  awaiting_proof: AWAITING_PROOF_LABEL,
   due_soon: "Renew soon",
   expired: "Expired",
   missing: "Missing",
@@ -723,6 +737,8 @@ export function vehicleFileStateClass(state: VehicleFileState) {
   switch (state) {
     case "on_file":
       return "border-[var(--success)] bg-emerald-50 text-[var(--success)]";
+    case "awaiting_proof":
+      return AWAITING_PROOF_CLASS;
     case "due_soon":
       return "border-[var(--warning)] bg-amber-50 text-[var(--warning)]";
     default:
@@ -741,6 +757,13 @@ export type VehicleFileDocumentInput = {
   expiryDate: string | null;
   isActive: boolean;
   reminderLeadDays: number | null;
+  /**
+   * Whether the row has a file attached. Required, not optional, on purpose: a
+   * caller that forgets to select attachment_ids would otherwise report a whole
+   * fleet as proven when none of it is, and that failure would be silent. Making
+   * it mandatory turns that into a compile error. Build it with hasAttachedProof.
+   */
+  hasProof: boolean;
 };
 
 /**
@@ -770,6 +793,7 @@ export function buildVehicleFileStatuses(
         state: "missing",
         expiryDate: null,
         daysUntilExpiry: null,
+        hasProof: false,
       };
     }
 
@@ -792,11 +816,20 @@ export function buildVehicleFileStatuses(
  * reminder lead decides when "renew soon" starts. Shared by the fixed vehicle-file
  * registry and the per-unit certification list so both age a document identically:
  * two copies of this rule would drift the first time one of them was tuned.
+ *
+ * Proof is taken from that same freshest document, and only that one. Last year's
+ * scan does not prove this year's inspection happened, so a renewal entered as a
+ * bare date leaves the file unproven even though the unit's folder is not empty.
  */
 function freshestDocumentState(
-  documents: readonly { expiryDate: string | null; reminderLeadDays: number | null }[],
+  documents: readonly { expiryDate: string | null; reminderLeadDays: number | null; hasProof: boolean }[],
   now: Date,
-): { state: Exclude<VehicleFileState, "missing">; expiryDate: string | null; daysUntilExpiry: number | null } {
+): {
+  state: Exclude<VehicleFileState, "missing">;
+  expiryDate: string | null;
+  daysUntilExpiry: number | null;
+  hasProof: boolean;
+} {
   const ranked = [...documents].sort(
     (a, b) =>
       (daysUntil(b.expiryDate, now) ?? Number.MAX_SAFE_INTEGER) -
@@ -805,12 +838,17 @@ function freshestDocumentState(
   const best = ranked[0];
   const days = daysUntil(best.expiryDate, now);
   const lead = Number(best.reminderLeadDays ?? 30);
+  const expiryState =
+    days === null ? "on_file" : days < 0 ? "expired" : days <= (Number.isFinite(lead) ? lead : 30) ? "due_soon" : "on_file";
 
   return {
-    state:
-      days === null ? "on_file" : days < 0 ? "expired" : days <= (Number.isFinite(lead) ? lead : 30) ? "due_soon" : "on_file",
+    // Only the otherwise-green case is downgraded. An expired document is a
+    // deficiency whether or not it was ever scanned, and a renewal deadline is the
+    // more urgent thing to say on a file that is also missing its scan.
+    state: expiryState === "on_file" && !best.hasProof ? "awaiting_proof" : expiryState,
     expiryDate: best.expiryDate,
     daysUntilExpiry: days,
+    hasProof: best.hasProof,
   };
 }
 
@@ -848,6 +886,8 @@ export type UnitCertificationDocumentInput = {
   isActive: boolean;
   reminderLeadDays: number | null;
   title: string | null;
+  /** See VehicleFileDocumentInput.hasProof. Required for the same reason. */
+  hasProof: boolean;
 };
 
 export type UnitCertificationStatus = {
@@ -863,6 +903,8 @@ export type UnitCertificationStatus = {
    * missing, so they never contribute a gap.
    */
   expected: boolean;
+  /** See VehicleFileStatus.hasProof. False for a certification never filed. */
+  hasProof: boolean;
 };
 
 /**
@@ -965,6 +1007,7 @@ export function buildUnitCertificationStatuses(
         expiryDate: null,
         daysUntilExpiry: null,
         expected: true,
+        hasProof: false,
       };
     }
 
@@ -1012,6 +1055,26 @@ export function buildUnitCertificationStatuses(
 export function unitCertificationGaps(statuses: readonly UnitCertificationStatus[]): UnitCertificationStatus[] {
   return statuses.filter(
     (status) => status.expected && (status.state === "missing" || status.state === "expired"),
+  );
+}
+
+/**
+ * Files and certifications that exist, have not expired, and have no document behind them.
+ *
+ * Kept apart from the gap counts on purpose. A record awaiting its scan is not an
+ * audit deficiency yet, it is unfinished paperwork, and folding it into the same
+ * number would make a fleet mid-onboarding look like a fleet in trouble. This is
+ * the chase list instead: work it to zero and every remaining green is provable.
+ *
+ * Includes due-soon records, which the badge cannot show because it is busy
+ * carrying the deadline. Excludes missing and expired ones, which are already
+ * counted as gaps and need the renewal, not the filing cabinet.
+ */
+export function statusesAwaitingProof<T extends { state: VehicleFileState; hasProof: boolean }>(
+  statuses: readonly T[],
+): T[] {
+  return statuses.filter(
+    (status) => !status.hasProof && (status.state === "awaiting_proof" || status.state === "due_soon"),
   );
 }
 

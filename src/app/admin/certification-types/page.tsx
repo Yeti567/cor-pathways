@@ -16,6 +16,7 @@ import { requireAppUser } from "@/lib/current-user";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { certificationStatus, certificationStatusClass } from "@/lib/workers";
+import { hasAttachedProof } from "@/lib/proof-status";
 import type { Database } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -221,7 +222,7 @@ export default async function CertificationTypesPage({ searchParams }: Certifica
                 const worker = workerId ? workerById.get(workerId) : null;
                 const attachmentUrl = signedPathUrl(signedUrls, ticket.attachment_path);
                 const showImagePreview = attachmentUrl && isImageAttachmentPath(ticket.attachment_path);
-                const status = certificationStatus(ticket.expires_on);
+                const status = certificationStatus(ticket.expires_on, undefined, hasAttachedProof(ticket.attachment_path));
 
                 return (
                   <article className="rounded-md border border-[var(--border)] bg-white p-3" key={ticket.id}>

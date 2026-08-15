@@ -10,6 +10,7 @@ import {
   buildVehicleFileStatuses,
   certificationTypeNameMap,
   formatEquipmentCategory,
+  statusesAwaitingProof,
   unitCertificationGaps,
   unitExpectsCertifications,
   vehicleFileGaps,
@@ -19,6 +20,7 @@ import {
   type VehicleFileRegistryKey,
   type VehicleFileStatus,
 } from "@/lib/equipment";
+import { hasAttachedProof } from "@/lib/proof-status";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -39,6 +41,7 @@ type DocumentRow = Pick<
   | "is_active"
   | "reminder_lead_days"
   | "title"
+  | "attachment_ids"
 >;
 
 type VehicleFilesPageProps = {
@@ -102,9 +105,18 @@ function unitLabel(unit: EquipmentRow) {
   return unit.name ? `${unit.unit_number} - ${unit.name}` : unit.unit_number;
 }
 
-function expiryDetail(status: Pick<VehicleFileStatus, "state" | "expiryDate" | "daysUntilExpiry">) {
+function expiryDetail(status: Pick<VehicleFileStatus, "state" | "expiryDate" | "daysUntilExpiry" | "hasProof">) {
   if (status.state === "missing") {
     return "Nothing on file";
+  }
+  if (status.state === "awaiting_proof") {
+    return status.expiryDate
+      ? `Expires ${status.expiryDate.slice(0, 10)}, no document uploaded`
+      : "No document uploaded";
+  }
+  if (status.state === "due_soon" && !status.hasProof) {
+    // The badge is carrying the deadline, so the missing scan is said here.
+    return `${status.expiryDate?.slice(0, 10) ?? "Renewing"}, and no document uploaded`;
   }
   if (!status.expiryDate) {
     return "No expiry recorded";
@@ -166,7 +178,9 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
       .returns<EquipmentRow[]>(),
     supabase
       .from("equipment_document")
-      .select("equipment_id, doc_type, certification_type_id, expiry_date, is_active, reminder_lead_days, title")
+      .select(
+        "equipment_id, doc_type, certification_type_id, expiry_date, is_active, reminder_lead_days, title, attachment_ids",
+      )
       .eq("tenant_id", tenantId)
       .is("deleted_at", null)
       .returns<DocumentRow[]>(),
@@ -208,6 +222,7 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
               expiryDate: document.expiry_date,
               isActive: document.is_active,
               reminderLeadDays: document.reminder_lead_days,
+              hasProof: hasAttachedProof(document.attachment_ids),
             })),
           })
         : [];
@@ -228,6 +243,7 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
             isActive: document.is_active,
             reminderLeadDays: document.reminder_lead_days,
             title: document.title,
+            hasProof: hasAttachedProof(document.attachment_ids),
           })),
         })
       : [];
@@ -237,6 +253,9 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
       statuses: visibleRegistry,
       certifications,
       gaps: [...vehicleFileGaps(visibleRegistry), ...unitCertificationGaps(certifications)],
+      // Files this unit has on paper and could not produce at an audit. Counted
+      // apart from gaps: it is unfinished filing, not a deficiency.
+      awaitingProof: [...statusesAwaitingProof(visibleRegistry), ...statusesAwaitingProof(certifications)],
     };
   })
     // A non-commercial unit carries no registry files, so if it has also filed no
@@ -246,6 +265,7 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
 
   const unitsWithGaps = rows.filter((row) => row.gaps.length > 0).length;
   const totalGaps = rows.reduce((total, row) => total + row.gaps.length, 0);
+  const totalAwaitingProof = rows.reduce((total, row) => total + row.awaitingProof.length, 0);
   const expiringSoon = rows.reduce(
     (total, row) =>
       total +
@@ -307,7 +327,7 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
         ))}
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
           <p className="text-sm text-[var(--ink-muted)]">Units with a gap</p>
           <p className={`mt-2 text-2xl font-bold ${unitsWithGaps > 0 ? "text-[var(--danger)]" : "text-[var(--ink)]"}`}>
@@ -324,6 +344,20 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
           <p className="text-sm text-[var(--ink-muted)]">Renewing soon</p>
           <p className={`mt-2 text-2xl font-bold ${expiringSoon > 0 ? "text-[var(--warning)]" : "text-[var(--ink)]"}`}>
             {expiringSoon}
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
+          <p className="text-sm text-[var(--ink-muted)]">Waiting on a document</p>
+          <p
+            className={`mt-2 text-2xl font-bold ${totalAwaitingProof > 0 ? "text-[var(--warning)]" : "text-[var(--ink)]"}`}
+          >
+            {totalAwaitingProof}
+          </p>
+          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+            Dates entered with no scan behind them.{" "}
+            <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/needs-document">
+              Chase list
+            </Link>
           </p>
         </div>
       </div>

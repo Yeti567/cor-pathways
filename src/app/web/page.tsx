@@ -72,6 +72,7 @@ import {
   type VisitorRosterWorkerEntry,
 } from "@/lib/visitor-roster";
 import { certificationStatus, certificationStatusClass } from "@/lib/workers";
+import { hasAttachedProof } from "@/lib/proof-status";
 import { countWorkerSignaturesBySubmissionId, mergeWorkerDocumentSubmissions } from "@/lib/worker-records";
 import { classifyScheduledTaskStatus, classifyWorkflowRunStepStatus } from "@/lib/workflow-station";
 import { formatWorkOrderSchedule } from "@/lib/trades";
@@ -2089,7 +2090,11 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
                 {(workerCertifications ?? []).length > 0 ? (
                   <div className="mt-4 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
                     {(workerCertifications ?? []).map((certification) => {
-                      const status = certificationStatus(certification.expires_on);
+                      const status = certificationStatus(
+                        certification.expires_on,
+                        undefined,
+                        hasAttachedProof(certification.attachment_path),
+                      );
                       const attachmentUrl = certification.attachment_path
                         ? recordSignedUrls.get(certification.attachment_path) ?? null
                         : null;

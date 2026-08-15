@@ -45,6 +45,7 @@ import {
   parseEmergencyContacts,
   workerDetailTabs,
 } from "@/lib/workers";
+import { hasAttachedProof } from "@/lib/proof-status";
 import type { Database } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -577,7 +578,11 @@ export default async function WorkerDetailPage({ params, searchParams }: WorkerD
 
               <div className="grid gap-4 lg:grid-cols-3">
                 {(certifications ?? []).map((certification) => {
-                  const status = certificationStatus(certification.expires_on);
+                  const status = certificationStatus(
+                    certification.expires_on,
+                    undefined,
+                    hasAttachedProof(certification.attachment_path),
+                  );
                   const attachmentUrl = signedPathUrl(signedUrls, certification.attachment_path);
                   const showImagePreview = attachmentUrl && isImageAttachmentPath(certification.attachment_path);
 
