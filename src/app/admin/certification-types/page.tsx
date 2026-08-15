@@ -1,11 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BadgeCheck, FileUp, Paperclip, PlusCircle, Search, Trash2 } from "lucide-react";
+import { BadgeCheck, CheckSquare, FileUp, Paperclip, PlusCircle, Search, Square, Trash2 } from "lucide-react";
 import {
   createCertificationType,
   createWorkerCertification,
   deleteCertificationType,
+  setCertificationTypeMandatory,
   deleteWorkerCertification,
 } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
@@ -164,16 +165,47 @@ export default async function CertificationTypesPage({ searchParams }: Certifica
           </form>
 
           <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
-            <div className="grid grid-cols-[1fr_120px_120px_auto] gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs font-semibold uppercase text-[var(--ink-muted)] max-md:hidden">
+            <div className="grid grid-cols-[1fr_150px_100px_110px_auto] gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs font-semibold uppercase text-[var(--ink-muted)] max-md:hidden">
               <span>Name</span>
+              <span>Required of everyone</span>
               <span>Expires</span>
               <span>Used</span>
               <span>Delete</span>
             </div>
             <div className="divide-y divide-[var(--border)]">
               {visibleTypes.map((certificationType) => (
-                <div className="grid gap-3 px-4 py-4 md:grid-cols-[1fr_120px_120px_auto] md:items-center" key={certificationType.id}>
+                <div className="grid gap-3 px-4 py-4 md:grid-cols-[1fr_150px_100px_110px_auto] md:items-center" key={certificationType.id}>
                   <p className="font-semibold text-[var(--ink)]">{certificationType.name}</p>
+                  {/*
+                    Ticking this is what lets the dashboard say a worker is
+                    MISSING the ticket rather than merely not having filed it, so
+                    it submits on change instead of hiding behind a Save button
+                    somebody forgets to press.
+                  */}
+                  <form action={setCertificationTypeMandatory}>
+                    <input name="certificationTypeId" type="hidden" value={certificationType.id} />
+                    <input name="isMandatory" type="hidden" value={certificationType.is_mandatory ? "" : "true"} />
+                    <button
+                      className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 ${
+                        certificationType.is_mandatory
+                          ? "border-[var(--success)] bg-emerald-50 text-[var(--success)]"
+                          : "border-[var(--border)] bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)]"
+                      }`}
+                      title={
+                        certificationType.is_mandatory
+                          ? "Stop requiring this of every worker"
+                          : "Require this of every worker"
+                      }
+                      type="submit"
+                    >
+                      {certificationType.is_mandatory ? (
+                        <CheckSquare className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Square className="h-4 w-4" aria-hidden="true" />
+                      )}
+                      {certificationType.is_mandatory ? "Required" : "Optional"}
+                    </button>
+                  </form>
                   <span className="w-fit rounded-md bg-[var(--surface-muted)] px-2 py-1 text-xs font-semibold text-[var(--ink-muted)]">
                     {certificationType.expires ? "Yes" : "No"}
                   </span>

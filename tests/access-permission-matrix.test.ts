@@ -170,6 +170,7 @@ const actionGroups = [
       "updateWorkerProfile",
       "createCertificationType",
       "deleteCertificationType",
+      "setCertificationTypeMandatory",
       "createWorkerCertification",
       "deleteWorkerCertification",
     ],

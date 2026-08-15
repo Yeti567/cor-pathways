@@ -9538,6 +9538,62 @@ export async function createCertificationType(formData: FormData) {
   redirect("/admin/certification-types?notice=Certification%20type%20created.");
 }
 
+/**
+ * Mark a ticket as one every worker must hold, or stop requiring it.
+ *
+ * The only thing that lets the app say somebody is MISSING a ticket rather than
+ * merely not having filed one, so it changes what the compliance dashboard says
+ * about every worker at once. Kept as its own action rather than a field on an
+ * edit form, because a checkbox that quietly re-saves a name is how a rename
+ * gets lost.
+ */
+export async function setCertificationTypeMandatory(formData: FormData) {
+  const context = await requireWorkerManager();
+  const supabase = await createSupabaseServerClient();
+  const typeId = stringValue(formData, "certificationTypeId");
+  const isMandatory = boolValue(formData, "isMandatory");
+
+  if (!typeId) {
+    redirect("/admin/certification-types?error=Choose%20a%20certification%20type.");
+  }
+
+  const { data: updated, error } = await supabase
+    .from("certification_types")
+    .update({ is_mandatory: isMandatory })
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("id", typeId)
+    .select("id, name")
+    .maybeSingle<{ id: string; name: string }>();
+
+  // An update matching nothing under RLS returns success having changed nothing,
+  // so a missing row has to be checked for rather than assumed away.
+  if (error || !updated) {
+    redirect(
+      `/admin/certification-types?error=${encodeURIComponent(error?.message ?? "That certification type was not updated.")}`,
+    );
+  }
+
+  await recordTenantAuditEvent({
+    action: "certification_type.mandatory_changed",
+    actorRole: context.appUser.power_level,
+    actorUserId: context.appUser.id,
+    entityId: updated.id,
+    entityTable: "certification_types",
+    metadata: { is_mandatory: isMandatory, name: updated.name },
+    tenantId: context.appUser.tenant_id,
+  });
+
+  revalidatePath("/admin/certification-types");
+  revalidatePath("/admin/worker-tickets/compliance");
+  redirect(
+    `/admin/certification-types?notice=${encodeURIComponent(
+      isMandatory
+        ? `${updated.name} is now required for every worker.`
+        : `${updated.name} is no longer required for every worker.`,
+    )}`,
+  );
+}
+
 export async function deleteCertificationType(formData: FormData) {
   const context = await requireWorkerManager();
   const supabase = await createSupabaseServerClient();

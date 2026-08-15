@@ -90,6 +90,10 @@ function ComplianceBar({ current, attention, expired }: { current: number; atten
 
 /** The line that tells HR what to actually do about this person. */
 function action(row: WorkerCompliance): string {
+  if (row.missing.length > 0) {
+    return `Never filed: ${row.missing.join(", ")}.`;
+  }
+
   if (row.expired > 0) {
     return `${row.expired} ticket${row.expired === 1 ? "" : "s"} lapsed. Book a rebook now.`;
   }
@@ -118,7 +122,7 @@ export default async function WorkerTicketCompliancePage() {
 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
-  const [{ data: users }, { data: profiles }, { data: certifications }] = await Promise.all([
+  const [{ data: users }, { data: profiles }, { data: certifications }, { data: mandatoryTypes }] = await Promise.all([
     supabase
       .from("users")
       .select("id, full_name, email")
@@ -131,6 +135,12 @@ export default async function WorkerTicketCompliancePage() {
       .select("id, name, expires_on, attachment_path, worker_profile_id")
       .eq("tenant_id", tenantId)
       .returns<CertificationRow[]>(),
+    supabase
+      .from("certification_types")
+      .select("name")
+      .eq("tenant_id", tenantId)
+      .eq("is_mandatory", true)
+      .returns<{ name: string }[]>(),
   ]);
 
   const userIdByProfileId = new Map((profiles ?? []).map((profile) => [profile.id, profile.user_id]));
@@ -156,7 +166,8 @@ export default async function WorkerTicketCompliancePage() {
     })),
   }));
 
-  const summary = buildWorkerComplianceSummary(inputs);
+  const mandatory = (mandatoryTypes ?? []).map((type) => type.name);
+  const summary = buildWorkerComplianceSummary(inputs, new Date(), mandatory);
   const toChase = summary.workers_.filter((row) => row.state !== "current");
 
   return (
@@ -238,12 +249,16 @@ export default async function WorkerTicketCompliancePage() {
           value={summary.workers.total}
         />
         <Tile
-          detail="Nothing recorded for them yet. Worth an eyeball."
-          href="/admin/workers"
+          detail={
+            mandatory.length > 0
+              ? `Required tickets nobody has filed. Required: ${mandatory.join(", ")}.`
+              : "No tickets are marked required yet, so nothing can be counted as missing."
+          }
+          href="/admin/certification-types"
           icon={UserRound}
-          label="Nobody's tickets on file"
-          tone="warn"
-          value={summary.workers.withoutTickets}
+          label={mandatory.length > 0 ? "Missing required tickets" : "Nobody's tickets on file"}
+          tone="bad"
+          value={mandatory.length > 0 ? summary.missing : summary.workers.withoutTickets}
         />
         <Tile
           detail="A date is on file but the card was never photographed."
@@ -301,11 +316,16 @@ export default async function WorkerTicketCompliancePage() {
         )}
       </section>
 
-      <p className="mt-4 text-xs text-[var(--ink-muted)]">
-        These numbers describe the tickets on file. The app is not told which tickets each role is supposed to hold, so
-        it cannot flag one somebody never had. Use{" "}
-        <span className="font-semibold">Nobody&rsquo;s tickets on file</span> above to catch that by eye.
-      </p>
+      {mandatory.length === 0 ? (
+        <p className="mt-4 text-xs text-[var(--ink-muted)]">
+          Nothing is marked required yet, so these numbers only describe tickets already on file and a ticket somebody
+          never had cannot be flagged. Tick the ones your work requires on{" "}
+          <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/certification-types">
+            Certification Types
+          </Link>
+          . For most Alberta oilfield and trucking work that is H2S Alive, Standard First Aid, WHMIS and TDG.
+        </p>
+      ) : null}
     </AdminShell>
   );
 }

@@ -1521,6 +1521,8 @@ export type Database = {
         Row: TenantScopedRow & {
           name: string;
           expires: boolean;
+          /** Every active worker is expected to hold this one. See 20260815000000. */
+          is_mandatory: boolean;
         };
         Insert: Partial<Database["public"]["Tables"]["certification_types"]["Row"]> &
           Pick<Database["public"]["Tables"]["certification_types"]["Row"], "tenant_id" | "name">;
