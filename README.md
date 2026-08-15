@@ -84,6 +84,7 @@ npm run lint                 # eslint
 npx tsc --noEmit             # typecheck
 npm run test:e2e             # playwright
 supabase test db supabase/tests/tenant-isolation.sql   # tenant isolation, against a real database
+supabase test db supabase/tests/certification-self-service-rls.sql   # a worker can only touch their own ticket
 ```
 
 ## How it is put together

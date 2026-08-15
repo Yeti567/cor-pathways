@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:tenant": "vitest run tests/tenant-context.test.ts tests/schema-rls.test.ts",
-    "supabase:test:tenant": "supabase test db supabase/tests/tenant-isolation.sql"
+    "supabase:test:tenant": "supabase test db supabase/tests/tenant-isolation.sql",
+    "supabase:test:certifications": "supabase test db supabase/tests/certification-self-service-rls.sql"
   },
   "keywords": [
     "operations",
