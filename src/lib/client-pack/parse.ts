@@ -11,7 +11,6 @@
 
 import {
   EQUIPMENT_TYPES,
-  LOCATION_TYPES,
   METER_TYPES,
   PERMISSION_LEVELS,
   booleanValue,
@@ -35,12 +34,24 @@ export type EmployeeRow = {
   powerLevel: "super_admin" | "admin" | "manager" | "supervisor" | "worker";
 };
 
+// No address, and no type. A yard is called whatever the crew calls it, often the
+// customer plus a street ("McKinley Bayfront"), which is not an address and does
+// not want to be turned into one. Neither field has anywhere to be stored, and
+// asking a client to fill in a column we then discard is worse than not asking.
+//
+// That also makes the NAME a weak key: an arbitrary nickname comes back spelled
+// differently on the next pack. The code is the stable identifier, so matching
+// leans on it first.
 export type LocationRow = {
   rowNumber: number;
-  name: string;
+  /**
+   * Null when the client did not give the site a number, which is the normal
+   * case: the packs already in clients' hands have no code column. The planner
+   * assigns one on load rather than asking, so the dropdown every worker picks
+   * from still gets a short stable label.
+   */
   code: string | null;
-  address: string | null;
-  type: string;
+  name: string;
   active: boolean;
 };
 
@@ -112,8 +123,6 @@ const COLUMN_ALIASES: Record<PackSheet, Record<string, readonly string[]>> = {
   locations: {
     name: ["name", "location", "site name"],
     code: ["code", "short code"],
-    address: ["address"],
-    type: ["type", "location type"],
     active: ["active", "in use"],
   },
   equipment: {
@@ -298,19 +307,12 @@ export function parseEmployees(raw: RawSheet): ParseResult<EmployeeRow> {
 
 export function parseLocations(raw: RawSheet): ParseResult<LocationRow> {
   return parseSheet<LocationRow>("locations", raw, ["name"], (row, index, rowNumber, fail) => {
-    const type = textValue(cell(row, index, "type")).toLowerCase();
     const active = booleanValue(cell(row, index, "active"));
-
-    if (type && !LOCATION_TYPES.includes(type as (typeof LOCATION_TYPES)[number])) {
-      fail("type", `"${type}" is not one of ${LOCATION_TYPES.join(", ")}.`);
-    }
 
     return {
       rowNumber,
-      name: requiredText(cell(row, index, "name"), "name", fail),
       code: textValue(cell(row, index, "code")) || null,
-      address: textValue(cell(row, index, "address")) || null,
-      type: type || "other",
+      name: requiredText(cell(row, index, "name"), "name", fail),
       // Blank means in use. A client leaving the column empty is saying nothing,
       // and defaulting to inactive would quietly hide every one of their sites.
       active: active ?? true,

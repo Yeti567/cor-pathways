@@ -230,15 +230,28 @@ describe("locations", () => {
   it("treats a blank active column as in use", () => {
     // A client leaving it empty is saying nothing. Defaulting to inactive would
     // quietly hide every site they operate.
-    const result = parseLocations(sheet(["name", "code", "address", "type", "active"], [["Main Yard", "YARD", "", "yard", ""]]));
+    const result = parseLocations(sheet(["code", "name", "active"], [["01", "Main Yard", ""]]));
 
-    expect(result.rows[0].active).toBe(true);
+    expect(result.errors).toHaveLength(0);
+    expect(result.rows[0]).toMatchObject({ code: "01", name: "Main Yard", active: true });
   });
 
-  it("rejects a location type outside the list", () => {
-    const result = parseLocations(sheet(["name", "type"], [["Main Yard", "lease"]]));
+  it("accepts a site with no code, which is every pack already in the field", () => {
+    // The packs clients are holding have no code column at all. Rejecting over
+    // it would reject the file we ourselves sent them.
+    const result = parseLocations(sheet(["name"], [["McKinley Bayfront"]]));
 
-    expect(result.errors[0].column).toBe("type");
+    expect(result.errors).toHaveLength(0);
+    expect(result.rows[0]).toMatchObject({ code: null, name: "McKinley Bayfront" });
+  });
+
+  it("ignores an address column a client kept from an older pack", () => {
+    const result = parseLocations(
+      sheet(["code", "name", "address"], [["01", "McKinley Bayfront", "100 Range Road"]]),
+    );
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.rows[0].name).toBe("McKinley Bayfront");
   });
 });
 

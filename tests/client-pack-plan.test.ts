@@ -118,11 +118,60 @@ describe("equipment", () => {
 });
 
 describe("locations", () => {
-  it("matches on code when the name was reworded", () => {
-    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Main Yard", code: "YARD" }] };
-    const row: LocationRow = { rowNumber: 2, name: "Grande Prairie Yard", code: "YARD", address: null, type: "yard", active: true };
+  const site = (input: Partial<LocationRow> = {}): LocationRow => ({
+    rowNumber: 2,
+    code: "01",
+    name: "McKinley Bayfront",
+    active: true,
+    ...input,
+  });
 
-    expect(planLocations([row], snapshot).items[0]).toMatchObject({ action: "update", existingId: "l1" });
+  it("matches on the code when the crew renamed the site", () => {
+    // The whole reason a site carries a number: its name is a nickname, and it
+    // comes back different on the next pack.
+    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Bayfront Lease", code: "01" }] };
+    const item = planLocations([site()], snapshot).items[0];
+
+    expect(item).toMatchObject({ action: "update", existingId: "l1" });
+    expect(item.detail).toContain("renamed");
+  });
+
+  it("does not call a respacing a rename", () => {
+    // "Mckinley Bay Front" and "McKinley Bayfront" are the same site typed twice.
+    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Mckinley Bay Front", code: "01" }] };
+
+    expect(planLocations([site()], snapshot).items[0].detail).not.toContain("renamed");
+  });
+
+  it("still matches on the name when the code is new", () => {
+    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "McKinley Bayfront", code: null }] };
+
+    expect(planLocations([site()], snapshot).items[0]).toMatchObject({ action: "update", existingId: "l1" });
+  });
+
+  it("refuses a pack that reuses one code on two sites", () => {
+    // A reused number means every later pack updates the wrong site.
+    const { errors } = planLocations([site({ rowNumber: 2 }), site({ rowNumber: 6, name: "Shop" })], EMPTY);
+
+    expect(errors[0]).toMatchObject({ row: 6, column: "code" });
+  });
+
+  it("numbers a site the client did not number, because the pack never asked", () => {
+    const { items, errors } = planLocations([site({ code: null })], EMPTY);
+
+    expect(errors).toHaveLength(0);
+    expect(items[0].row.code).toBe("01");
+    expect(items[0].detail).toContain("numbered 01");
+  });
+
+  it("never assigns a number the tenant or the pack is already using", () => {
+    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Shop", code: "01" }] };
+    const { items } = planLocations(
+      [site({ rowNumber: 2, code: null, name: "A" }), site({ rowNumber: 3, code: "02", name: "B" }), site({ rowNumber: 4, code: null, name: "C" })],
+      snapshot,
+    );
+
+    expect(items.map((item) => item.row.code)).toEqual(["03", "02", "04"]);
   });
 });
 

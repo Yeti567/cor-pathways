@@ -114,6 +114,19 @@ function findInternalDuplicates<T>(
   return errors;
 }
 
+/** The lowest two-digit number not already in use. 01, 02, 03 and so on. */
+function nextFreeCode(used: ReadonlySet<string>): string {
+  for (let candidate = 1; candidate < 1000; candidate += 1) {
+    const code = String(candidate).padStart(2, "0");
+
+    if (!used.has(normalizeIdentifier(code))) {
+      return code;
+    }
+  }
+
+  return String(used.size + 1);
+}
+
 export function planEmployees(rows: readonly EmployeeRow[], snapshot: TenantSnapshot): {
   items: PlanItem<EmployeeRow>[];
   errors: PackRowError[];
@@ -159,14 +172,26 @@ export function planLocations(rows: readonly LocationRow[], snapshot: TenantSnap
   items: PlanItem<LocationRow>[];
   errors: PackRowError[];
 } {
-  const errors = findInternalDuplicates(
-    "locations",
-    rows,
-    (row) => normalizeIdentifier(row.name),
-    (row) => row.rowNumber,
-    "name",
-    "That location name",
-  );
+  const errors = [
+    // Only the codes a client actually supplied. A reused number means every
+    // later pack would update the wrong site.
+    ...findInternalDuplicates(
+      "locations",
+      rows.filter((row) => row.code),
+      (row) => normalizeIdentifier(row.code),
+      (row) => row.rowNumber,
+      "code",
+      "That location code",
+    ),
+    ...findInternalDuplicates(
+      "locations",
+      rows,
+      (row) => normalizeIdentifier(row.name),
+      (row) => row.rowNumber,
+      "name",
+      "That location name",
+    ),
+  ];
 
   const byName = new Map(snapshot.locations.map((location) => [normalizeIdentifier(location.name), location] as const));
   const byCode = new Map(
@@ -175,19 +200,52 @@ export function planLocations(rows: readonly LocationRow[], snapshot: TenantSnap
       .map((location) => [normalizeIdentifier(location.code), location] as const),
   );
 
+  // Codes already spoken for, so an assigned number never collides with one the
+  // tenant holds or with one assigned earlier in this same pack.
+  const usedCodes = new Set(
+    [
+      ...snapshot.locations.map((location) => location.code),
+      ...rows.map((row) => row.code),
+    ]
+      .filter((code): code is string => Boolean(code))
+      .map(normalizeIdentifier),
+  );
+
   const items = rows.map((row) => {
-    const existing = byName.get(normalizeIdentifier(row.name)) ?? (row.code ? byCode.get(normalizeIdentifier(row.code)) : undefined);
+    // Code first, name second. A yard's name is whatever the crew calls it,
+    // usually a customer and a street, so it comes back spelled differently on
+    // the next pack. The code is the half that stays put, and matching on the
+    // name first would create a second copy of a site that was only renamed.
+    const existing =
+      (row.code ? byCode.get(normalizeIdentifier(row.code)) : undefined) ?? byName.get(normalizeIdentifier(row.name));
 
     if (existing) {
+      const renamed = normalizeIdentifier(existing.name) !== normalizeIdentifier(row.name);
+
       return {
         action: "update" as const,
         row,
         existingId: existing.id,
-        detail: `${row.name} already exists. Its code, address and type will be updated.`,
+        detail: renamed
+          ? `${existing.name} will be renamed to ${row.name}, matched on its code.`
+          : `${row.name} already exists and will be updated.`,
       };
     }
 
-    return { action: "create" as const, row, detail: `${row.name} will be created.` };
+    // The client did not number their sites, because the pack never asked. Give
+    // the site the next free number rather than sending the pack back over it:
+    // the number exists to label the dropdown and to survive a respelled
+    // nickname, and neither of those needs the client's involvement.
+    const assigned = row.code ?? nextFreeCode(usedCodes);
+    usedCodes.add(normalizeIdentifier(assigned));
+
+    return {
+      action: "create" as const,
+      row: { ...row, code: assigned },
+      detail: row.code
+        ? `${row.name} will be created as ${assigned}.`
+        : `${row.name} will be created and numbered ${assigned}.`,
+    };
   });
 
   return { items, errors };
