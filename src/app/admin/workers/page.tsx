@@ -164,7 +164,7 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
       </div>
 
       <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_380px]">
-        <section className="space-y-4">
+        <section className="min-w-0 space-y-4">
           <form action="/admin/workers" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
             <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
               <label className="space-y-2">
@@ -202,8 +202,8 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
             </div>
           </form>
 
-          <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
-            <div className="grid grid-cols-[1.5fr_1fr_1fr_1.1fr_0.8fr_0.8fr_1fr_auto] gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs font-semibold uppercase text-[var(--ink-muted)] max-2xl:hidden">
+          <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+            <div className="grid min-w-[68rem] grid-cols-[1.6fr_1.1fr_0.9fr_1.4fr_0.5fr_0.85fr_1fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs font-semibold uppercase text-[var(--ink-muted)] max-2xl:hidden">
               <span>Name</span>
               <span>Title</span>
               <span>Access</span>
@@ -220,7 +220,7 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
 
                 return (
                   <div
-                    className="grid gap-4 px-4 py-4 2xl:grid-cols-[1.5fr_1fr_1fr_1.1fr_0.8fr_0.8fr_1fr_auto] 2xl:items-center"
+                    className="grid gap-4 px-4 py-4 2xl:min-w-[68rem] 2xl:grid-cols-[1.6fr_1.1fr_0.9fr_1.4fr_0.5fr_0.85fr_1fr_auto] 2xl:items-center"
                     key={user.id}
                   >
                     <div className="flex min-w-0 items-center gap-3">
@@ -228,13 +228,13 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
                         <UserRound className="h-5 w-5" aria-hidden="true" />
                       </div>
                       <div className="min-w-0">
-                        <Link className="truncate font-semibold text-[var(--ink)] hover:text-[var(--primary)]" href={`/admin/workers/${user.id}`}>
+                        <Link className="block truncate font-semibold text-[var(--ink)] hover:text-[var(--primary)]" href={`/admin/workers/${user.id}`}>
                           {user.full_name}
                         </Link>
                         <p className="truncate text-sm text-[var(--ink-muted)]">{user.email}</p>
                       </div>
                     </div>
-                    <p className="text-sm text-[var(--ink)]">{profile?.title ?? "Not set"}</p>
+                    <p className="truncate text-sm text-[var(--ink)]">{profile?.title ?? "Not set"}</p>
                     <p className="text-sm text-[var(--ink)]">{formatPowerLevel(user.power_level)}</p>
                     <p className="text-sm text-[var(--ink)]">{formatAccessLevel(user.app_access)}</p>
                     <p className="inline-flex items-center gap-2 text-sm text-[var(--ink-muted)]">
@@ -248,7 +248,7 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
                       <ShieldCheck className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
                       {certificationCount} {certificationCount === 1 ? "ticket" : "tickets"}
                     </Link>
-                    <p className="text-sm text-[var(--ink-muted)]">{profile?.phone ?? "Not set"}</p>
+                    <p className="truncate text-sm text-[var(--ink-muted)]">{profile?.phone ?? "Not set"}</p>
                     <Link
                       className="inline-flex h-9 items-center justify-center rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
                       href={`/admin/workers/${user.id}`}

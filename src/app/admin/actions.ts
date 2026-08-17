@@ -67,7 +67,7 @@ import { type CorCanonicalElement, COR_FRAMEWORKS, elementNumberForCanonical, is
 import { type Country, coerceCountry } from "@/lib/region";
 import type { WorkOrderStatus, WorkType } from "@/lib/trades";
 import { isDemoTenant } from "@/lib/demo";
-import { inviteWorkerByEmail } from "@/lib/worker-invite";
+import { inviteWorkerByEmail, resendWorkerInviteByEmail } from "@/lib/worker-invite";
 import { TRANSPORT_REQUIREMENTS } from "@/lib/transport-registry";
 import {
   duplicateMessage,
@@ -8870,6 +8870,50 @@ function validateWorkerImportReferences(
   }
 
   return errors;
+}
+
+export async function resendWorkerInvite(formData: FormData) {
+  const context = await requireWorkerManager();
+  const adminSupabase = createSupabaseAdminClient();
+  const userId = stringValue(formData, "userId");
+
+  if (!adminSupabase) {
+    redirect("/admin/workers?error=SUPABASE_SERVICE_ROLE_KEY%20is%20required%20to%20resend%20worker%20invites.");
+  }
+
+  if (!userId) {
+    redirect("/admin/workers?error=Choose%20a%20worker%20to%20resend%20the%20invite%20to.");
+  }
+
+  // Scope the lookup to the caller's own tenant. The admin client bypasses RLS,
+  // so without this filter an admin could post another tenant's user id and mail
+  // that person a working login link.
+  const { data: target } = await adminSupabase
+    .from("users")
+    .select("id, email, full_name")
+    .eq("id", userId)
+    .eq("tenant_id", context.appUser.tenant_id)
+    .maybeSingle<{ id: string; email: string; full_name: string }>();
+
+  if (!target) {
+    redirect("/admin/workers?error=That%20worker%20was%20not%20found.");
+  }
+
+  const result = await resendWorkerInviteByEmail(adminSupabase, {
+    companyName: context.tenant?.name ?? "Company profile",
+    email: target.email,
+    fullName: target.full_name,
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
+    tenantId: context.appUser.tenant_id,
+  });
+
+  if (!result.ok) {
+    redirect(`/admin/workers?error=${encodeURIComponent(`Invite email could not be resent: ${result.error}`)}`);
+  }
+
+  revalidatePath("/admin/workers");
+  revalidatePath(`/admin/workers/${target.id}`);
+  redirect(`/admin/workers?notice=${encodeURIComponent(`Invite email resent to ${target.email}.`)}`);
 }
 
 export async function createWorker(formData: FormData) {

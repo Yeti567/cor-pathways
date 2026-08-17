@@ -1,9 +1,10 @@
 // The product name shown to users.
 //
 // Client deployments are forks of this repo, and every fork used to rebrand by
-// hand-editing a dozen source files. That is slow, easy to miss (a Crude Master
-// worker opened an invite and saw "Core Pathways"), and it guarantees a merge
-// conflict in those same files every time the fork pulls upstream.
+// hand-editing a dozen source files. That is slow, easy to miss (one deployment
+// rebranded its homepage but not its invite email, so workers were greeted by
+// the wrong product name), and it guarantees a merge conflict in those same
+// files every time the fork pulls upstream.
 //
 // One env var instead. A fork sets NEXT_PUBLIC_APP_NAME once and never touches
 // source, so it can merge upstream cleanly forever.

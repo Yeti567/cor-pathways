@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { APP_NAME } from "@/lib/brand";
-import { buildWorkerInviteEmail, inviteWorkerByEmail } from "@/lib/worker-invite";
+import { buildWorkerInviteEmail, inviteWorkerByEmail, resendWorkerInviteByEmail } from "@/lib/worker-invite";
 
 const ACTION_LINK = "https://iasq.supabase.co/auth/v1/verify?token=abc&type=invite&redirect_to=https://corpathway360.com/auth/confirm";
 
@@ -161,5 +161,79 @@ describe("inviteWorkerByEmail", () => {
     expect(result).toEqual({ ok: false, error: "Inviting workers is disabled in the demo." });
     expect(generateLink).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("resendWorkerInviteByEmail", () => {
+  const params = {
+    email: "dana@acme.test",
+    fullName: "Dana Jones",
+    companyName: "Acme Freight",
+    redirectTo: "https://corpathway360.com/auth/confirm",
+    tenantId: "tenant-1",
+  };
+
+  const notDemo = async () => false;
+
+  it("uses a magic link, because type:invite refuses an existing address", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email_2" }), { status: 200 }));
+    const generateLink = vi.fn(okGenerateLink);
+    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+
+    const result = await resendWorkerInviteByEmail(client, params, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(generateLink).toHaveBeenCalledWith({
+      type: "magiclink",
+      email: "dana@acme.test",
+      options: { redirectTo: params.redirectTo },
+    });
+  });
+
+  it("reports a failed send as a failure, since nothing was provisioned to keep", async () => {
+    const fetchMock = vi.fn(async () => new Response("domain not verified", { status: 403 }));
+    const client = adminClientWithGenerateLink(okGenerateLink);
+
+    const result = await resendWorkerInviteByEmail(client, params, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain("403");
+  });
+
+  it("does not mint a link when email delivery is unconfigured", async () => {
+    const generateLink = vi.fn(okGenerateLink);
+    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+
+    const result = await resendWorkerInviteByEmail(client, params, {
+      env: { NODE_ENV: "test" },
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
+
+    expect(result.ok).toBe(false);
+    // A link generated and never sent is a live credential created for nothing.
+    expect(generateLink).not.toHaveBeenCalled();
+  });
+
+  it("refuses to resend from a demo tenant", async () => {
+    const generateLink = vi.fn(okGenerateLink);
+    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+
+    const result = await resendWorkerInviteByEmail(client, params, {
+      env: env(),
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+      isDemoTenant: async () => true,
+    });
+
+    expect(result).toEqual({ ok: false, error: "Inviting workers is disabled in the demo." });
+    expect(generateLink).not.toHaveBeenCalled();
   });
 });

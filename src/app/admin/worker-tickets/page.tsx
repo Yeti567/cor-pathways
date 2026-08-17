@@ -275,7 +275,7 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
                   </div>
                   <div className="min-w-0">
                     {row.workerId ? (
-                      <Link className="truncate font-semibold text-[var(--ink)] hover:text-[var(--primary)]" href={`/admin/workers/${row.workerId}?tab=certifications`}>
+                      <Link className="block truncate font-semibold text-[var(--ink)] hover:text-[var(--primary)]" href={`/admin/workers/${row.workerId}?tab=certifications`}>
                         {row.worker?.full_name ?? "Worker not found"}
                       </Link>
                     ) : (

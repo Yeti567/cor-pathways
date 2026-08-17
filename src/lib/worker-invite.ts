@@ -36,6 +36,8 @@ export type WorkerInviteResult =
   // The invite link itself could not be created; no user exists.
   | { ok: false; error: string };
 
+export type WorkerInviteResendResult = { ok: true } | { ok: false; error: string };
+
 export type WorkerInviteEmail = {
   subject: string;
   text: string;
@@ -175,4 +177,80 @@ export async function inviteWorkerByEmail(
   }
 
   return { ok: true, user: data.user, emailWarning: null };
+}
+
+/**
+ * Re-sends the invite email to a worker who already exists.
+ *
+ * `generateLink({ type: "invite" })` refuses an address that is already
+ * registered, so before this existed a failed first send stranded the worker:
+ * the account was created, no email arrived, and nothing in the admin UI could
+ * reach them. That is survivable for one person and not survivable for a
+ * roster import where some fraction of sends fail.
+ *
+ * A magic link is the right primitive. `/auth/confirm` verifies any OTP type
+ * through the same path and lands the worker in the same place, so the
+ * recipient experience is identical to accepting the original invite.
+ *
+ * Unlike the initial invite this returns ok:false when the email fails. No
+ * account is being provisioned here, so a send that did not happen is a plain
+ * failure with nothing to keep.
+ */
+export async function resendWorkerInviteByEmail(
+  adminSupabase: AdminClient,
+  params: WorkerInviteParams,
+  deps: InviteDeps = {},
+): Promise<WorkerInviteResendResult> {
+  const env = deps.env ?? process.env;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const checkDemoTenant = deps.isDemoTenant ?? isDemoTenant;
+
+  if (await checkDemoTenant(adminSupabase, params.tenantId)) {
+    return { ok: false, error: "Inviting workers is disabled in the demo." };
+  }
+
+  const from = env.EMAIL_DELIVERY_FROM?.trim();
+  const apiKey = env.RESEND_API_KEY?.trim();
+
+  // Check before minting a link. A link generated and never sent is a live
+  // credential sitting in the auth system for nothing.
+  if (!from || !apiKey) {
+    return {
+      ok: false,
+      error: "Email delivery is not configured (EMAIL_DELIVERY_FROM / RESEND_API_KEY), so no invite email was sent.",
+    };
+  }
+
+  const { data, error } = await adminSupabase.auth.admin.generateLink({
+    type: "magiclink",
+    email: params.email,
+    options: {
+      redirectTo: params.redirectTo,
+    },
+  });
+
+  const actionLink = data?.properties?.action_link;
+
+  if (error || !actionLink) {
+    return { ok: false, error: error?.message ?? "No invitation link was returned, so no email was sent." };
+  }
+
+  const email = buildWorkerInviteEmail({
+    actionLink,
+    companyName: params.companyName,
+    fullName: params.fullName,
+  });
+
+  const replyTo = env.EMAIL_DELIVERY_REPLY_TO?.trim() || undefined;
+  const sendResult = await sendViaResend(
+    { body: email.text, from, html: email.html, replyTo, subject: email.subject, to: params.email },
+    apiKey,
+    fetchImpl,
+  );
+
+  if (!sendResult.ok) {
+    return { ok: false, error: sendResult.error };
+  }
+
+  return { ok: true };
 }
