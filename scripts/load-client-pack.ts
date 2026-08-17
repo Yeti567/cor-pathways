@@ -376,6 +376,10 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
   // Order matters. People and units first, because tickets hang off them and a
   // ticket resolved against something created moments ago needs it to exist.
   const failures: string[] = [];
+  // Accounts that exist but were never emailed. Tracked separately from failures
+  // because the row DID load: the person is in the system and simply cannot get
+  // in, which is the quiet version of a failure and the one that embarrasses us.
+  const notEmailed: string[] = [];
   const note = (line: string) => console.log(`  ${line}`);
   const fail = (what: string, message: string) => {
     failures.push(`${what}: ${message}`);
@@ -396,6 +400,11 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
 
     userIdByEmail.set(item.row.email, result.userId!);
     note(`${item.action === "create" ? "created" : "updated"} ${item.row.fullName}`);
+
+    if (result.emailWarning) {
+      notEmailed.push(`${item.row.fullName} <${item.row.email}>: ${result.emailWarning}`);
+      console.error(`  ! NO INVITE EMAIL SENT to ${item.row.fullName}: ${result.emailWarning}`);
+    }
   }
 
   for (const item of locationPlan.items) {
@@ -557,7 +566,23 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
       : `\nLoaded with ${failures.length} failure${failures.length === 1 ? "" : "s"}. Fix and run again; re-running updates rather than duplicating.`,
   );
 
-  if (failures.length > 0) {
+  // Loudest thing in the output, and it fails the run. A worker who loaded fine
+  // but was never emailed is worse than an outright failure: the load looks
+  // successful, they are visibly in the app, and nobody finds out until the
+  // person phones to say they cannot get in.
+  if (notEmailed.length > 0) {
+    console.error(
+      `\n${notEmailed.length} worker${notEmailed.length === 1 ? " was" : "s were"} created but NEVER EMAILED. ` +
+        "They exist in the app and cannot get in until you resend. " +
+        'Open each one in Admin > Workers and press "Resend invite":',
+    );
+
+    for (const line of notEmailed) {
+      console.error(`  - ${line}`);
+    }
+  }
+
+  if (failures.length > 0 || notEmailed.length > 0) {
     process.exitCode = 1;
   }
 }
@@ -660,10 +685,11 @@ async function upsertEmployee(
     phone: string | null;
     powerLevel: Database["public"]["Enums"]["power_level"];
   }>,
-): Promise<{ userId?: string; error?: string }> {
+): Promise<{ userId?: string; error?: string; emailWarning?: string }> {
   const { inviteWorkerByEmail } = await import("../src/lib/worker-invite");
 
   let userId = item.existingId;
+  let emailWarning: string | undefined;
 
   if (!userId) {
     const invite = await inviteWorkerByEmail(supabase, {
@@ -681,6 +707,15 @@ async function upsertEmployee(
     }
 
     userId = invite.user.id;
+
+    // inviteWorkerByEmail returns ok:true when the account was created but the
+    // email did not go. Dropping that here is how a roster load ends with people
+    // in the database who never heard from us: the load says "created", nobody
+    // knows, and we find out when one of them phones. Hand it back so the caller
+    // can list them.
+    if (invite.emailWarning) {
+      emailWarning = invite.emailWarning;
+    }
   }
 
   const { data: bootstrap } = await supabase
@@ -718,7 +753,7 @@ async function upsertEmployee(
     await supabase.from("tenants").delete().eq("id", bootstrap.tenant_id);
   }
 
-  return { userId };
+  return { userId, emailWarning };
 }
 
 main().catch((error) => {

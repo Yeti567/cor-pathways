@@ -9279,9 +9279,18 @@ export async function importWorkersFromCsv(formData: FormData) {
   }
 
   const locationNotice = assignedLocationCount > 0 ? ` ${assignedLocationCount} location assignments.` : "";
+  // Name them. A bare count ("3 invite emails could not be sent") is unactionable
+  // against a 50-row import: those people are in the app, cannot get in, and the
+  // admin has no way to tell which three. Capped so the notice still fits in a
+  // redirect URL.
+  const NAMED_LIMIT = 5;
+  const unsentAddresses = emailWarnings.map((warning) => warning.split(":")[0]);
+  const namedUnsent = unsentAddresses.slice(0, NAMED_LIMIT).join(", ");
+  const remainingUnsent = unsentAddresses.length - Math.min(unsentAddresses.length, NAMED_LIMIT);
   const emailNotice =
     emailWarnings.length > 0
-      ? ` ${emailWarnings.length} invite email${emailWarnings.length === 1 ? "" : "s"} could not be sent; those workers can be re-invited.`
+      ? ` ${emailWarnings.length} invite email${emailWarnings.length === 1 ? "" : "s"} could not be sent: ${namedUnsent}` +
+        `${remainingUnsent > 0 ? ` and ${remainingUnsent} more` : ""}. Open each worker and press Resend invite.`
       : "";
   redirect(
     `/admin/workers?notice=${encodeURIComponent(
