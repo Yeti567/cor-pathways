@@ -1988,7 +1988,13 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      // Whether this deployment will still accept a self-signup, i.e. whether it has
+      // no company yet. Callable by anon on purpose: the login page has to ask
+      // before anybody has signed in. See migration 20260817000000.
+      self_signup_available: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
     };
     Enums: {
       app_access_level: "no_access" | "app_access" | "admin_access" | "super_admin_access";

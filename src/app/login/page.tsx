@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { AlertTriangle, Building2, Globe2, KeyRound, LogIn, UserPlus } from "lucide-react";
+import { AlertTriangle, Building2, Globe2, KeyRound, LogIn, MailCheck, UserPlus } from "lucide-react";
 import { APP_NAME } from "@/lib/brand";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
 import { getSupabasePublicEnv } from "@/lib/env";
+import { isSelfSignupAvailable } from "@/lib/self-signup";
 import { getSsoLoginState } from "@/lib/sso";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { login, loginWithSso, signup } from "./actions";
 
 type LoginPageProps = {
@@ -42,6 +44,13 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     provider: process.env.NEXT_PUBLIC_SSO_PROVIDER,
     supabaseConfigured: isConfigured,
   });
+
+  // Once this deployment has a company, signing yourself up is over: everybody
+  // else arrives by invitation. Ask rather than assume, and if Supabase is not
+  // configured at all do not even try, because the panel below already says so.
+  const signupAvailable = isConfigured
+    ? await isSelfSignupAvailable(await createSupabaseServerClient())
+    : false;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-10">
@@ -147,14 +156,26 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--accent)]">
-              <Building2 className="h-5 w-5" aria-hidden="true" />
+              {signupAvailable ? (
+                <Building2 className="h-5 w-5" aria-hidden="true" />
+              ) : (
+                <MailCheck className="h-5 w-5" aria-hidden="true" />
+              )}
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-[var(--ink)]">Create company account</h2>
-              <p className="text-sm text-[var(--ink-muted)]">Your account starts as the tenant Super Admin.</p>
+              <h2 className="text-xl font-semibold text-[var(--ink)]">
+                {signupAvailable ? "Create company account" : "Joining by invitation"}
+              </h2>
+              <p className="text-sm text-[var(--ink-muted)]">
+                {signupAvailable
+                  ? "Your account starts as the tenant Super Admin."
+                  : "This company is already set up here."}
+              </p>
             </div>
           </div>
 
+          {signupAvailable ? (
+            <>
           {isStandaloneSignup ? (
             <p className="mt-5 rounded-md border border-[var(--primary)]/40 bg-emerald-50 p-3 text-sm text-[var(--ink)]">
               Standalone plan, $10 per user. Pick the one module you need below; you can upgrade to a full plan anytime.
@@ -251,6 +272,20 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               Create account
             </button>
           </form>
+            </>
+          ) : (
+            <div className="mt-6 space-y-4 text-sm text-[var(--ink-muted)]">
+              <p>
+                Accounts here are created by invitation, so there is no signup form. Ask an
+                administrator at your company to send you one, and it will arrive by email with a
+                link to set your own password.
+              </p>
+              <p>
+                Already been sent an invitation? Use the link in that email rather than this page.
+                If you have set your password already, sign in on the left.
+              </p>
+            </div>
+          )}
         </div>
       </section>
     </main>

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getAuthRedirectUrl, getSafeRedirectPath } from "@/lib/auth-redirect";
 import { getDemoLoginCredentials } from "@/lib/demo";
 import { publicEnv } from "@/lib/env";
+import { isSelfSignupAvailable, SIGNUP_CLOSED_MESSAGE } from "@/lib/self-signup";
 import { getConfiguredSsoProvider } from "@/lib/sso";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordConsultantLoginAuditEventsForSession } from "@/lib/tenant-audit";
@@ -124,6 +125,13 @@ export async function signup(formData: FormData) {
 
   if (!fullName || !companyName) {
     redirectToLogin("Enter your name and company name to create an account.", nextPath);
+  }
+
+  // Courtesy, not enforcement. The trigger refuses this anyway, but it does so by
+  // aborting the insert, which reaches the browser as a raw 500 from GoTrue. Ask
+  // first so the person gets a sentence they can act on.
+  if (!(await isSelfSignupAvailable(supabase))) {
+    redirectToLogin(SIGNUP_CLOSED_MESSAGE, nextPath);
   }
 
   const metadata: Record<string, string> = {
