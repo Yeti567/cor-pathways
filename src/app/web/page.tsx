@@ -29,6 +29,7 @@ import {
   renewWorkerCertification,
   uploadWorkerCertificationTicket,
 } from "@/app/actions";
+import { APP_NAME } from "@/lib/brand";
 import { AssignedFormsPanel } from "@/app/web/_components/AssignedFormsPanel";
 import { EquipmentPanel } from "@/app/web/_components/EquipmentPanel";
 import { DailyInspectionPanel } from "@/app/web/_components/DailyInspectionPanel";
@@ -1601,7 +1602,7 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
       <header className="border-b border-[var(--border)] bg-[var(--surface)]">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-4">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-[var(--primary)]">{context.tenant?.name ?? "Core Pathways"}</p>
+            <p className="truncate text-sm font-semibold text-[var(--primary)]">{context.tenant?.name ?? APP_NAME}</p>
             <h1 className="truncate text-xl font-bold text-[var(--ink)]">Web App</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -1641,7 +1642,7 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
             fullName={context.appUser.full_name}
             offlineSyncDays={context.appUser.offline_sync_days}
             tenantId={context.appUser.tenant_id}
-            tenantName={context.tenant?.name ?? "Core Pathways"}
+            tenantName={context.tenant?.name ?? APP_NAME}
             userId={context.appUser.id}
           />
 

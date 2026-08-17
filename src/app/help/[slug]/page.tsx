@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { HelpShell } from "../HelpShell";
 import { getHelpTopic, helpTopics } from "../_data/topics";
+import { APP_NAME } from "@/lib/brand";
 
 export const dynamic = "force-static";
 
@@ -19,7 +20,7 @@ export async function generateMetadata({ params }: HelpTopicPageProps) {
   const topic = getHelpTopic(slug);
 
   if (!topic) {
-    return { title: "Help, Core Pathways Operations" };
+    return { title: `Help, ${APP_NAME}` };
   }
 
   return {

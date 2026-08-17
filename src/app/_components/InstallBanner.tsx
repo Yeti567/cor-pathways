@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { APP_NAME } from "@/lib/brand";
 
 const DISMISS_STORAGE_KEY = "core-pathways:install-banner-dismissed";
 const ALLOWED_PATH_PREFIXES = ["/admin", "/web"];
@@ -141,7 +142,7 @@ export function InstallBanner() {
           📲
         </div>
         <div className="min-w-0 flex-1 text-sm">
-          <p className="font-semibold text-[var(--ink)]">Install Core Pathways</p>
+          <p className="font-semibold text-[var(--ink)]">Install {APP_NAME}</p>
           <p className="mt-0.5 text-[var(--ink-muted)]">
             {installPrompt
               ? "Add it to your home screen for one-tap access and offline support."

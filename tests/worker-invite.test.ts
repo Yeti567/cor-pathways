@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { APP_NAME } from "@/lib/brand";
 import { buildWorkerInviteEmail, inviteWorkerByEmail } from "@/lib/worker-invite";
 
 const ACTION_LINK = "https://iasq.supabase.co/auth/v1/verify?token=abc&type=invite&redirect_to=https://corpathway360.com/auth/confirm";
@@ -24,7 +25,10 @@ function env(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
 describe("buildWorkerInviteEmail", () => {
   it("puts the company in the subject and the link in both text and html", () => {
     const email = buildWorkerInviteEmail({ fullName: "Dana Jones", companyName: "Acme Freight", actionLink: ACTION_LINK });
-    expect(email.subject).toBe("You are invited to Acme Freight on Core Pathways");
+    // Reads as "<Company> has invited you to <App>", so it works whatever a fork
+    // sets NEXT_PUBLIC_APP_NAME to, rather than the doubled-up "invited to Acme
+    // Freight on Acme Freight Safety App" the old phrasing produced.
+    expect(email.subject).toBe(`Acme Freight has invited you to ${APP_NAME}`);
     expect(email.text).toContain("Hi Dana,");
     expect(email.text).toContain(ACTION_LINK);
     // The plain link has `&` escaped to `&amp;` inside the html href.

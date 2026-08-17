@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { APP_NAME } from "@/lib/brand";
 import { InstallBanner } from "@/app/_components/InstallBanner";
 import { OfflineRuntime } from "@/app/_components/OfflineRuntime";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Core Pathways Operations",
+  title: APP_NAME,
   description: "A multi-tenant offline-first operations platform.",
   manifest: "/manifest.webmanifest",
   // The application is not a search destination. Marketing and content live on

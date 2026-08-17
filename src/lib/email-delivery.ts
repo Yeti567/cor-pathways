@@ -1,4 +1,5 @@
 import type { Database } from "@/types/database";
+import { APP_NAME } from "@/lib/brand";
 
 export type EmailNotificationRow = Pick<
   Database["public"]["Tables"]["notifications"]["Row"],
@@ -104,7 +105,7 @@ export async function deliverEmailNotification(
         recipientName: notification.recipient_name,
         recipientType: notification.recipient_type,
         submissionId: notification.submission_id,
-        subject: notification.title || "Core Pathways notification",
+        subject: notification.title || `${APP_NAME} notification`,
         tenantId: notification.tenant_id,
         to,
       }),

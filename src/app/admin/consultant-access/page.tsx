@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AlertTriangle, Lock, Search, ShieldCheck, Unlock } from "lucide-react";
+import { APP_NAME } from "@/lib/brand";
 import { requestConsultantOverride, updateConsultantRevocation } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canManageAccess, canUseAdminPanel } from "@/lib/access-control";
@@ -108,7 +109,7 @@ export default async function ConsultantAccessPage({ searchParams }: ConsultantA
       .returns<TenantOption[]>();
 
     return (
-      <AdminShell eyebrow="Consultant console" tenantName="Core Pathways" title="Consultant Override">
+      <AdminShell eyebrow="Consultant console" tenantName={APP_NAME} title="Consultant Override">
         {notice ? (
           <p className="mb-4 rounded-md border border-[var(--success)] bg-emerald-50 p-3 text-sm text-[var(--success)]">
             {notice}

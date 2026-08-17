@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { APP_NAME } from "@/lib/brand";
 import { isDemoTenant } from "@/lib/demo";
 import { sendViaResend } from "@/lib/resend-relay";
 
@@ -68,7 +69,7 @@ export function buildPasswordResetEmail(params: {
     "",
     "This link is single use and expires. If you did not ask for this, you can safely ignore this email and your password will not change.",
     "",
-    "Core Pathways",
+    APP_NAME,
   ].join("\n");
 
   const safeFirstName = escapeHtml(firstName);
@@ -82,7 +83,7 @@ export function buildPasswordResetEmail(params: {
     `<p style="margin:28px 0;"><a href="${safeLink}" style="background:#0a6b54;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 20px;border-radius:8px;display:inline-block;">Reset password</a></p>`,
     `<p style="font-size:13px;color:#64748b;line-height:1.5;">If the button does not work, paste this link into your browser:<br><a href="${safeLink}" style="color:#0a6b54;word-break:break-all;">${safeLink}</a></p>`,
     '<p style="font-size:13px;color:#64748b;line-height:1.5;">This link is single use and expires. If you did not ask for this, you can safely ignore this email and your password will not change.</p>',
-    '<p style="font-size:13px;color:#64748b;">Core Pathways</p>',
+    `<p style="font-size:13px;color:#64748b;">${escapeHtml(APP_NAME)}</p>`,
     "</div>",
   ].join("");
 

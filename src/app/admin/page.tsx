@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Activity, AlertTriangle, BadgeCheck, BarChart3, ClipboardList, FileSliders, FileText, GitBranch, ListChecks, MapPin, Settings2, Share2, ShieldCheck, Smartphone, Truck, UserRound, UsersRound, Wrench } from "lucide-react";
+import { APP_NAME } from "@/lib/brand";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel, formatAccessLevel, formatPowerLevel, formatReachType } from "@/lib/access-control";
 import { requireCurrentUser } from "@/lib/current-user";
@@ -147,7 +148,7 @@ const cards = [
   },
   {
     title: "Consultant Access",
-    detail: "Control Core Pathways consultant access and review override audit records.",
+    detail: `Control ${APP_NAME} consultant access and review override audit records.`,
     href: "/admin/consultant-access",
     icon: ShieldCheck,
   },
@@ -174,7 +175,7 @@ export default async function AdminPage() {
       .order("name");
 
     return (
-      <AdminShell eyebrow="Consultant console" tenantName="Core Pathways" title="Tenant Access">
+      <AdminShell eyebrow="Consultant console" tenantName={APP_NAME} title="Tenant Access">
         <div className="mb-4">
           <Link
             className="inline-flex h-10 items-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"

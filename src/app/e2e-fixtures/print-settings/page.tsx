@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { APP_NAME } from "@/lib/brand";
 import { PrintFooter } from "@/app/admin/_components/PrintFooter";
 import { PrintHeader } from "@/app/admin/_components/PrintHeader";
 import type { CompanySettingsRow, PrintSettingsRow } from "@/lib/company-settings";
@@ -13,7 +14,7 @@ const companySettings = {
 } as CompanySettingsRow;
 
 const basePrintSettings = {
-  footer_note: "Controlled copy when printed from Core Pathways.",
+  footer_note: `Controlled copy when printed from ${APP_NAME}.`,
   header_option: "company_info_and_logo",
   logo_placement: "right",
   prepared_by_label: "Prepared for audit by",

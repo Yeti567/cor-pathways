@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, Building2, Globe2, KeyRound, LogIn, UserPlus } from "lucide-react";
+import { APP_NAME } from "@/lib/brand";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
 import { getSupabasePublicEnv } from "@/lib/env";
 import { getSsoLoginState } from "@/lib/sso";
@@ -52,7 +53,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
             <div>
               <h1 className="text-xl font-semibold text-[var(--ink)]">Login to your account</h1>
-              <p className="text-sm text-[var(--ink-muted)]">Core Pathways Operations</p>
+              <p className="text-sm text-[var(--ink-muted)]">{APP_NAME}</p>
             </div>
           </div>
 
@@ -138,7 +139,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               disabled={!ssoLogin.enabled}
             >
               <Globe2 className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
-              Login with Core Pathways SSO
+              Login with {APP_NAME} SSO
             </button>
           </form>
         </div>
