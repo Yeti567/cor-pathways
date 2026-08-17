@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AlertTriangle, Building2, Globe2, KeyRound, LogIn, UserPlus } from "lucide-react";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
 import { getSupabasePublicEnv } from "@/lib/env";
@@ -94,9 +95,17 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-[var(--ink)]" htmlFor="login-password">
-                Password
-              </label>
+              <div className="flex items-baseline justify-between gap-3">
+                <label className="text-sm font-medium text-[var(--ink)]" htmlFor="login-password">
+                  Password
+                </label>
+                <Link
+                  className="text-xs font-semibold text-[var(--primary)] hover:underline"
+                  href="/auth/forgot-password"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <input
                 className="w-full rounded-md border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-teal-100"
                 id="login-password"

@@ -36,6 +36,8 @@ describe("SSO wiring", () => {
   const loginPage = readFileSync(join(process.cwd(), "src/app/login/page.tsx"), "utf8");
   const loginActions = readFileSync(join(process.cwd(), "src/app/login/actions.ts"), "utf8");
   const confirmRoute = readFileSync(join(process.cwd(), "src/app/auth/confirm/route.ts"), "utf8");
+  const verifyAction = readFileSync(join(process.cwd(), "src/app/auth/verify/actions.ts"), "utf8");
+  const verifyPage = readFileSync(join(process.cwd(), "src/app/auth/verify/page.tsx"), "utf8");
 
   it("wires the login button to the SSO server action and disables it when unavailable", () => {
     expect(loginPage).toContain("formAction={loginWithSso}");
@@ -51,6 +53,23 @@ describe("SSO wiring", () => {
   it("exchanges OAuth codes in the auth callback route", () => {
     expect(confirmRoute).toContain('request.nextUrl.searchParams.get("code")');
     expect(confirmRoute).toContain("exchangeCodeForSession(oauthCode)");
-    expect(confirmRoute).toContain("verifyOtp");
+  });
+
+  // Email tokens are single use, so redeeming them on GET let inbox security
+  // scanners consume them before the recipient clicked. The callback must hand
+  // email links to /auth/verify, which redeems on POST, and must not verify here.
+  it("hands email confirmation links to the POST verify page instead of redeeming them on GET", () => {
+    expect(confirmRoute).not.toContain("verifyOtp");
+    expect(confirmRoute).toContain('verifyUrl.pathname = "/auth/verify"');
+    expect(confirmRoute).toContain('verifyUrl.searchParams.set("token_hash", tokenHash)');
+    expect(verifyAction).toContain("verifyOtp");
+    expect(verifyAction).toContain('"use server"');
+  });
+
+  it("only redeems the email OTP types it expects", () => {
+    expect(verifyAction).toContain("ALLOWED_TYPES");
+    expect(verifyPage).toContain("action={confirmEmailLink}");
+    // A GET render must not consume anything; the token only moves on submit.
+    expect(verifyPage).toContain('name="token_hash"');
   });
 });
