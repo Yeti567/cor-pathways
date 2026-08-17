@@ -231,7 +231,7 @@ export const METER_TYPES: Readonly<Record<string, "mileage" | "hours">> = {
 };
 
 // No location type list, and no address. A site is called whatever the crew calls
-// it, usually a customer plus a street ("McKinley Bayfront"), which is neither an
+// it, usually a customer plus a street ("Riverbend Yard"), which is neither an
 // address nor a category. The locations table can store neither, and asking a
 // client to fill in a column we then discard is worse than not asking.
 //

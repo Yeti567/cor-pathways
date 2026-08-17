@@ -88,7 +88,7 @@ describe("samsara HOS logs", () => {
   const response = {
     data: [
       {
-        driver: { id: "4321", name: "Dale Chase" },
+        driver: { id: "4321", name: "Sam Rivera" },
         logs: [
           {
             logStartTime: "2026-08-01T14:00:00Z",
@@ -150,7 +150,7 @@ describe("samsara HOS logs", () => {
 describe("normalizeSamsaraDrivers", () => {
   const response = {
     data: [
-      { id: "111", name: "Dale Chase", email: "dale@example.com", phone: "780-555-0100", driverActivationStatus: "active" },
+      { id: "111", name: "Sam Rivera", email: "sam@example.com", phone: "780-555-0100", driverActivationStatus: "active" },
       { id: "222", username: "jdoe", driverActivationStatus: "deactivated" },
       { name: "No id, skipped" },
     ],
@@ -158,7 +158,7 @@ describe("normalizeSamsaraDrivers", () => {
 
   it("maps id and name, falling back to username", () => {
     expect(normalizeSamsaraDrivers(response)).toEqual([
-      { externalId: "111", fullName: "Dale Chase" },
+      { externalId: "111", fullName: "Sam Rivera" },
       { externalId: "222", fullName: "jdoe" },
     ]);
   });
@@ -167,7 +167,7 @@ describe("normalizeSamsaraDrivers", () => {
     const details = normalizeSamsaraDriverDetails(response);
     expect(details[0]).toEqual({
       externalDriverId: "111",
-      email: "dale@example.com",
+      email: "sam@example.com",
       phone: "780-555-0100",
       role: null,
       status: "active",

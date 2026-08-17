@@ -37,14 +37,14 @@ describe("daysUntil", () => {
 
 describe("the booking windows", () => {
   it("uses 7, 21, 45 and 60, and is cumulative", () => {
-    const summary = buildWorkerComplianceSummary([worker("Dale Chase", [{ days: 5 }])], NOW);
+    const summary = buildWorkerComplianceSummary([worker("Sam Rivera", [{ days: 5 }])], NOW);
 
     expect(summary.expiring).toEqual({ within7: 1, within21: 1, within45: 1, within60: 1 });
   });
 
   it("places each ticket in only the windows it falls inside", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 3 }, { days: 15 }, { days: 30 }, { days: 55 }, { days: 200 }])],
+      [worker("Sam Rivera", [{ days: 3 }, { days: 15 }, { days: 30 }, { days: 55 }, { days: 200 }])],
       NOW,
     );
 
@@ -52,14 +52,14 @@ describe("the booking windows", () => {
   });
 
   it("counts tickets rather than people, because a course is booked per ticket", () => {
-    const summary = buildWorkerComplianceSummary([worker("Dale Chase", [{ days: 4 }, { days: 6 }])], NOW);
+    const summary = buildWorkerComplianceSummary([worker("Sam Rivera", [{ days: 4 }, { days: 6 }])], NOW);
 
     expect(summary.expiring.within7).toBe(2);
     expect(summary.workers.total).toBe(1);
   });
 
   it("keeps an expired ticket out of the windows and in its own count", () => {
-    const summary = buildWorkerComplianceSummary([worker("Dale Chase", [{ days: -2 }])], NOW);
+    const summary = buildWorkerComplianceSummary([worker("Sam Rivera", [{ days: -2 }])], NOW);
 
     expect(summary.expiring.within7).toBe(0);
     expect(summary.expired).toBe(1);
@@ -69,7 +69,7 @@ describe("the booking windows", () => {
 describe("a person is as good as their worst ticket", () => {
   it("counts somebody with a lapsed ticket as expired, whatever else they hold", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 300, name: "First Aid" }, { days: -1, name: "H2S Alive" }])],
+      [worker("Sam Rivera", [{ days: 300, name: "First Aid" }, { days: -1, name: "H2S Alive" }])],
       NOW,
     );
 
@@ -77,14 +77,14 @@ describe("a person is as good as their worst ticket", () => {
   });
 
   it("counts somebody with a ticket inside the booking window as needing attention", () => {
-    const summary = buildWorkerComplianceSummary([worker("Dale Chase", [{ days: 50 }])], NOW);
+    const summary = buildWorkerComplianceSummary([worker("Sam Rivera", [{ days: 50 }])], NOW);
 
     expect(summary.compliance.attention).toBe(1);
   });
 
   it("counts somebody whose card was never photographed as needing attention", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 300, hasProof: false }])],
+      [worker("Sam Rivera", [{ days: 300, hasProof: false }])],
       NOW,
     );
 
@@ -95,7 +95,7 @@ describe("a person is as good as their worst ticket", () => {
   it("does not chase a photo for a ticket that already lapsed", () => {
     // That one needs renewing, not scanning.
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: -5, hasProof: false }])],
+      [worker("Sam Rivera", [{ days: -5, hasProof: false }])],
       NOW,
     );
 
@@ -104,7 +104,7 @@ describe("a person is as good as their worst ticket", () => {
   });
 
   it("leaves somebody with everything current alone", () => {
-    const summary = buildWorkerComplianceSummary([worker("Dale Chase", [{ days: 300 }])], NOW);
+    const summary = buildWorkerComplianceSummary([worker("Sam Rivera", [{ days: 300 }])], NOW);
 
     expect(summary.compliance.current).toBe(1);
   });
@@ -132,7 +132,7 @@ describe("mandatory tickets", () => {
 
   it("names exactly which ones are missing, so the row says what to book", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 300, name: "H2S Alive" }, { days: 300, name: "WHMIS" }])],
+      [worker("Sam Rivera", [{ days: 300, name: "H2S Alive" }, { days: 300, name: "WHMIS" }])],
       NOW,
       MANDATORY,
     );
@@ -142,7 +142,7 @@ describe("mandatory tickets", () => {
 
   it("matches loosely, because one course gets typed several ways", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 300, name: "h2s alive." }])],
+      [worker("Sam Rivera", [{ days: 300, name: "h2s alive." }])],
       NOW,
       ["H2S Alive"],
     );
@@ -153,7 +153,7 @@ describe("mandatory tickets", () => {
 
   it("ignores a ticket the company never asked for", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 300, name: "Confined Space" }])],
+      [worker("Sam Rivera", [{ days: 300, name: "Confined Space" }])],
       NOW,
       ["H2S Alive"],
     );
@@ -166,7 +166,7 @@ describe("mandatory tickets", () => {
     // somebody's Confined Space ticket in their 7-day window. A window full of
     // things nobody plans to book is a window people stop reading.
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 3, name: "Confined Space" }, { days: 300, name: "WHMIS" }])],
+      [worker("Sam Rivera", [{ days: 3, name: "Confined Space" }, { days: 300, name: "WHMIS" }])],
       NOW,
       ["WHMIS", "Fall Protection"],
     );
@@ -177,7 +177,7 @@ describe("mandatory tickets", () => {
 
   it("does not count an untracked ticket as expired or unproven either", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: -30, name: "Confined Space", hasProof: false }, { days: 300, name: "WHMIS" }])],
+      [worker("Sam Rivera", [{ days: -30, name: "Confined Space", hasProof: false }, { days: 300, name: "WHMIS" }])],
       NOW,
       ["WHMIS"],
     );
@@ -189,7 +189,7 @@ describe("mandatory tickets", () => {
 
   it("counts everything when no list has been set, rather than counting nothing", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 3, name: "Confined Space" }])],
+      [worker("Sam Rivera", [{ days: 3, name: "Confined Space" }])],
       NOW,
     );
 
@@ -207,7 +207,7 @@ describe("mandatory tickets", () => {
 
   it("still surfaces the no-ticket count for a company that set no requirements", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 100 }]), worker("New Hire"), worker("Also New")],
+      [worker("Sam Rivera", [{ days: 100 }]), worker("New Hire"), worker("Also New")],
       NOW,
     );
 
@@ -232,7 +232,7 @@ describe("the list HR works from", () => {
 
   it("names the ticket to book, not just the date", () => {
     const summary = buildWorkerComplianceSummary(
-      [worker("Dale Chase", [{ days: 90, name: "First Aid" }, { days: 12, name: "H2S Alive" }])],
+      [worker("Sam Rivera", [{ days: 90, name: "First Aid" }, { days: 12, name: "H2S Alive" }])],
       NOW,
     );
 

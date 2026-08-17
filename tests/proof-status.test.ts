@@ -273,7 +273,7 @@ describe("sortProofGaps", () => {
   it("puts the soonest expiry first and undated records last", () => {
     const gaps: ProofGap[] = [
       { subject: "unit", subjectName: "T-02", label: "CVIP", expiryDate: null, href: "#" },
-      { subject: "worker", subjectName: "Dale Chase", label: "H2S Alive", expiryDate: "2026-09-01", href: "#" },
+      { subject: "worker", subjectName: "Sam Rivera", label: "H2S Alive", expiryDate: "2026-09-01", href: "#" },
       { subject: "unit", subjectName: "T-01", label: "Registration", expiryDate: "2026-08-15", href: "#" },
     ];
 

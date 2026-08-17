@@ -38,18 +38,18 @@ describe("the example row every pack ships with", () => {
   });
 
   it("does not mistake a real employee for the example", () => {
-    expect(isExampleRow(["Dale Chase", "dale@crudemaster.com", "Driver", "780-555-0199", "Worker"])).toBe(false);
+    expect(isExampleRow(["Sam Rivera", "sam@northwind.test", "Driver", "780-555-0199", "Worker"])).toBe(false);
   });
 
   it("never creates a login for the sample employee", () => {
     const result = parseEmployees(
       sheet(EMPLOYEE_HEADER, [
         ["John Doe", "john.doe@yourcompany.ca", "Yard Lead", "780-555-0100", "Worker"],
-        ["Dale Chase", "dale@crudemaster.com", "Driver", "", "Worker"],
+        ["Sam Rivera", "sam@northwind.test", "Driver", "", "Worker"],
       ]),
     );
 
-    expect(result.rows.map((row) => row.email)).toEqual(["dale@crudemaster.com"]);
+    expect(result.rows.map((row) => row.email)).toEqual(["sam@northwind.test"]);
     expect(result.skipped).toBe(1);
     expect(result.errors).toHaveLength(0);
   });
@@ -63,16 +63,16 @@ describe("headers as they come back", () => {
 
   it("accepts a renamed column", () => {
     const result = parseEmployees(
-      sheet(["Name", "Email", "Position", "Cell", "Role"], [["Dale Chase", "dale@crudemaster.com", "Driver", "", "Admin"]]),
+      sheet(["Name", "Email", "Position", "Cell", "Role"], [["Sam Rivera", "sam@northwind.test", "Driver", "", "Admin"]]),
     );
 
     expect(result.errors).toHaveLength(0);
-    expect(result.rows[0]).toMatchObject({ fullName: "Dale Chase", powerLevel: "admin" });
+    expect(result.rows[0]).toMatchObject({ fullName: "Sam Rivera", powerLevel: "admin" });
   });
 
   it("ignores a column the client added", () => {
     const result = parseEmployees(
-      sheet([...EMPLOYEE_HEADER, "Notes"], [["Dale Chase", "dale@crudemaster.com", "", "", "Worker", "started 2019"]]),
+      sheet([...EMPLOYEE_HEADER, "Notes"], [["Sam Rivera", "sam@northwind.test", "", "", "Worker", "started 2019"]]),
     );
 
     expect(result.errors).toHaveLength(0);
@@ -81,7 +81,7 @@ describe("headers as they come back", () => {
 
   it("reports a missing required column once, not once per row", () => {
     const result = parseEmployees(
-      sheet(["Full Name", "Job Title"], [["Dale Chase", "Driver"], ["Tracy MacDonald", "Driver"]]),
+      sheet(["Full Name", "Job Title"], [["Sam Rivera", "Driver"], ["Jordan Ellis", "Driver"]]),
     );
 
     expect(result.rows).toHaveLength(0);
@@ -96,8 +96,8 @@ describe("employees", () => {
   it("names the sheet row so the problem can be sent back to the client", () => {
     const result = parseEmployees(
       sheet(EMPLOYEE_HEADER, [
-        ["Dale Chase", "dale@crudemaster.com", "", "", "Worker"],
-        ["Tracy MacDonald", "not-an-email", "", "", "Worker"],
+        ["Sam Rivera", "sam@northwind.test", "", "", "Worker"],
+        ["Jordan Ellis", "not-an-email", "", "", "Worker"],
       ]),
     );
 
@@ -107,7 +107,7 @@ describe("employees", () => {
 
   it("rejects a permission level that is not one of ours", () => {
     const result = parseEmployees(
-      sheet(EMPLOYEE_HEADER, [["Dale Chase", "dale@crudemaster.com", "", "", "Foreman"]]),
+      sheet(EMPLOYEE_HEADER, [["Sam Rivera", "sam@northwind.test", "", "", "Foreman"]]),
     );
 
     expect(result.rows).toHaveLength(0);
@@ -117,17 +117,17 @@ describe("employees", () => {
   it("keeps no part of a row that failed", () => {
     // A half-parsed employee with a name and no login looks fine on a list and
     // breaks the first time they try to sign in.
-    const result = parseEmployees(sheet(EMPLOYEE_HEADER, [["Dale Chase", "", "", "", "Worker"]]));
+    const result = parseEmployees(sheet(EMPLOYEE_HEADER, [["Sam Rivera", "", "", "", "Worker"]]));
 
     expect(result.rows).toHaveLength(0);
   });
 
   it("lowercases the login, because email is not case sensitive", () => {
     const result = parseEmployees(
-      sheet(EMPLOYEE_HEADER, [["Dale Chase", "Dale@CrudeMaster.com", "", "", "worker"]]),
+      sheet(EMPLOYEE_HEADER, [["Sam Rivera", "Sam@NorthWind.test", "", "", "worker"]]),
     );
 
-    expect(result.rows[0].email).toBe("dale@crudemaster.com");
+    expect(result.rows[0].email).toBe("sam@northwind.test");
   });
 });
 
@@ -239,19 +239,19 @@ describe("locations", () => {
   it("accepts a site with no code, which is every pack already in the field", () => {
     // The packs clients are holding have no code column at all. Rejecting over
     // it would reject the file we ourselves sent them.
-    const result = parseLocations(sheet(["name"], [["McKinley Bayfront"]]));
+    const result = parseLocations(sheet(["name"], [["Riverbend Yard"]]));
 
     expect(result.errors).toHaveLength(0);
-    expect(result.rows[0]).toMatchObject({ code: null, name: "McKinley Bayfront" });
+    expect(result.rows[0]).toMatchObject({ code: null, name: "Riverbend Yard" });
   });
 
   it("ignores an address column a client kept from an older pack", () => {
     const result = parseLocations(
-      sheet(["code", "name", "address"], [["01", "McKinley Bayfront", "100 Range Road"]]),
+      sheet(["code", "name", "address"], [["01", "Riverbend Yard", "100 Range Road"]]),
     );
 
     expect(result.errors).toHaveLength(0);
-    expect(result.rows[0].name).toBe("McKinley Bayfront");
+    expect(result.rows[0].name).toBe("Riverbend Yard");
   });
 });
 
@@ -260,13 +260,13 @@ describe("certifications", () => {
     const result = parseCertifications(
       sheet(
         ["worker_email", "worker_name", "certification_type", "issued_on", "expires_on"],
-        [["Dale@crudemaster.com", "Dale Chase", "H2S Alive", "2024-05-01", "2027-05-01"]],
+        [["Sam@northwind.test", "Sam Rivera", "H2S Alive", "2024-05-01", "2027-05-01"]],
       ),
     );
 
     expect(result.errors).toHaveLength(0);
     expect(result.rows[0]).toMatchObject({
-      workerEmail: "dale@crudemaster.com",
+      workerEmail: "sam@northwind.test",
       certificationType: "H2S Alive",
       expiresOn: "2027-05-01",
     });
@@ -274,7 +274,7 @@ describe("certifications", () => {
 
   it("accepts a ticket with no expiry, because some tickets do not expire", () => {
     const result = parseCertifications(
-      sheet(["worker_email", "certification_type", "expires_on"], [["dale@crudemaster.com", "Class 1 Licence", ""]]),
+      sheet(["worker_email", "certification_type", "expires_on"], [["sam@northwind.test", "Class 1 Licence", ""]]),
     );
 
     expect(result.errors).toHaveLength(0);

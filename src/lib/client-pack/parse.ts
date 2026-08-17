@@ -35,7 +35,7 @@ export type EmployeeRow = {
 };
 
 // No address, and no type. A yard is called whatever the crew calls it, often the
-// customer plus a street ("McKinley Bayfront"), which is not an address and does
+// customer plus a street ("Riverbend Yard"), which is not an address and does
 // not want to be turned into one. Neither field has anywhere to be stored, and
 // asking a client to fill in a column we then discard is worse than not asking.
 //

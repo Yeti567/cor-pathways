@@ -29,14 +29,14 @@ function plan(input: {
 
 describe("buildSamsaraImportPlan: drivers", () => {
   it("plans a driver using Samsara's exact spelling", () => {
-    const result = plan({ drivers: [{ externalId: "1", fullName: "Dale Chase" }] });
-    expect(result.driversToCreate).toEqual([{ externalId: "1", fullName: "Dale Chase" }]);
+    const result = plan({ drivers: [{ externalId: "1", fullName: "Sam Rivera" }] });
+    expect(result.driversToCreate).toEqual([{ externalId: "1", fullName: "Sam Rivera" }]);
   });
 
   it("does not re-create a driver we already have, whatever the casing or padding", () => {
     const result = plan({
-      drivers: [{ externalId: "1", fullName: "Dale Chase" }],
-      existingDrivers: [{ id: "d1", full_name: "  dale chase " }],
+      drivers: [{ externalId: "1", fullName: "Sam Rivera" }],
+      existingDrivers: [{ id: "d1", full_name: "  sam rivera " }],
     });
     expect(result.driversToCreate).toEqual([]);
     expect(result.driversAlreadyPresent).toBe(1);
@@ -45,7 +45,7 @@ describe("buildSamsaraImportPlan: drivers", () => {
   it("does not re-create a driver that is already linked, even under a different name", () => {
     const result = plan({
       drivers: [{ externalId: "1", fullName: "D. Chase" }],
-      existingDrivers: [{ id: "d1", full_name: "Dale Chase" }],
+      existingDrivers: [{ id: "d1", full_name: "Sam Rivera" }],
       linkedDriverExternalIds: new Set(["1"]),
     });
     expect(result.driversToCreate).toEqual([]);
@@ -55,8 +55,8 @@ describe("buildSamsaraImportPlan: drivers", () => {
   it("creates only one file when Samsara lists the same name twice", () => {
     const result = plan({
       drivers: [
-        { externalId: "1", fullName: "Dale Chase" },
-        { externalId: "2", fullName: "dale chase" },
+        { externalId: "1", fullName: "Sam Rivera" },
+        { externalId: "2", fullName: "sam rivera" },
       ],
     });
     expect(result.driversToCreate).toHaveLength(1);
@@ -150,9 +150,9 @@ describe("isSamsaraImportPlanEmpty", () => {
 
   it("is still empty when everything already exists, so a re-run creates nothing", () => {
     const result = plan({
-      drivers: [{ externalId: "1", fullName: "Dale Chase" }],
+      drivers: [{ externalId: "1", fullName: "Sam Rivera" }],
       vehicles: [{ externalId: "v1", vin: null, plate: null, unitNumber: "T-014", make: null, model: null, year: null }],
-      existingDrivers: [{ id: "d1", full_name: "Dale Chase" }],
+      existingDrivers: [{ id: "d1", full_name: "Sam Rivera" }],
       existingEquipment: [{ id: "e1", unit_number: "T-014", vin_or_serial: null, license_plate: null }],
     });
     expect(isSamsaraImportPlanEmpty(result)).toBe(true);

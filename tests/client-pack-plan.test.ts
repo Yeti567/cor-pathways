@@ -21,8 +21,8 @@ const EMPTY: TenantSnapshot = {
 function employee(input: Partial<EmployeeRow> = {}): EmployeeRow {
   return {
     rowNumber: 2,
-    fullName: "Dale Chase",
-    email: "dale@crudemaster.com",
+    fullName: "Sam Rivera",
+    email: "sam@northwind.test",
     jobTitle: null,
     phone: null,
     powerLevel: "worker",
@@ -56,14 +56,14 @@ describe("employees", () => {
 
     expect(errors).toHaveLength(0);
     expect(items[0].action).toBe("create");
-    expect(items[0].detail).toContain("dale@crudemaster.com");
+    expect(items[0].detail).toContain("sam@northwind.test");
   });
 
   it("updates rather than duplicating when the pack is sent back corrected", () => {
     // This is the property that makes a re-send safe. Clients correct and resend.
     const snapshot: TenantSnapshot = {
       ...EMPTY,
-      users: [{ id: "u1", email: "Dale@CrudeMaster.com", full_name: "Dale Chase" }],
+      users: [{ id: "u1", email: "Sam@NorthWind.test", full_name: "Sam Rivera" }],
     };
     const { items } = planEmployees([employee({ powerLevel: "manager" })], snapshot);
 
@@ -121,7 +121,7 @@ describe("locations", () => {
   const site = (input: Partial<LocationRow> = {}): LocationRow => ({
     rowNumber: 2,
     code: "01",
-    name: "McKinley Bayfront",
+    name: "Riverbend Yard",
     active: true,
     ...input,
   });
@@ -129,7 +129,7 @@ describe("locations", () => {
   it("matches on the code when the crew renamed the site", () => {
     // The whole reason a site carries a number: its name is a nickname, and it
     // comes back different on the next pack.
-    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Bayfront Lease", code: "01" }] };
+    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Riverbend Lease", code: "01" }] };
     const item = planLocations([site()], snapshot).items[0];
 
     expect(item).toMatchObject({ action: "update", existingId: "l1" });
@@ -137,14 +137,14 @@ describe("locations", () => {
   });
 
   it("does not call a respacing a rename", () => {
-    // "Mckinley Bay Front" and "McKinley Bayfront" are the same site typed twice.
-    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Mckinley Bay Front", code: "01" }] };
+    // "Riverbend Yard" and "Riverbend Yard" are the same site typed twice.
+    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Riverbend Yard", code: "01" }] };
 
     expect(planLocations([site()], snapshot).items[0].detail).not.toContain("renamed");
   });
 
   it("still matches on the name when the code is new", () => {
-    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "McKinley Bayfront", code: null }] };
+    const snapshot: TenantSnapshot = { ...EMPTY, locations: [{ id: "l1", name: "Riverbend Yard", code: null }] };
 
     expect(planLocations([site()], snapshot).items[0]).toMatchObject({ action: "update", existingId: "l1" });
   });
@@ -178,21 +178,21 @@ describe("locations", () => {
 describe("worker tickets", () => {
   const ticket = (input: Partial<CertificationRow> = {}): CertificationRow => ({
     rowNumber: 2,
-    workerEmail: "dale@crudemaster.com",
-    workerName: "Dale Chase",
+    workerEmail: "sam@northwind.test",
+    workerName: "Sam Rivera",
     certificationType: "H2S Alive",
     issuedOn: null,
     expiresOn: "2027-05-01",
     ...input,
   });
 
-  const withDale: TenantSnapshot = {
+  const withSam: TenantSnapshot = {
     ...EMPTY,
-    users: [{ id: "u1", email: "dale@crudemaster.com", full_name: "Dale Chase" }],
+    users: [{ id: "u1", email: "sam@northwind.test", full_name: "Sam Rivera" }],
   };
 
   it("attaches a ticket to an existing worker", () => {
-    const { items, errors } = planCertifications([ticket()], withDale, []);
+    const { items, errors } = planCertifications([ticket()], withSam, []);
 
     expect(errors).toHaveLength(0);
     expect(items[0]).toMatchObject({ action: "create" });
@@ -201,7 +201,7 @@ describe("worker tickets", () => {
 
   it("renews rather than stacking a second copy of the same ticket", () => {
     const snapshot: TenantSnapshot = {
-      ...withDale,
+      ...withSam,
       certifications: [{ id: "c1", userId: "u1", name: "H2S ALIVE" }],
     };
     const { items } = planCertifications([ticket()], snapshot, []);
@@ -218,11 +218,11 @@ describe("worker tickets", () => {
 
   it("reports a ticket whose owner is nowhere, rather than dropping it", () => {
     // A silently dropped ticket is a missing qualification nobody knows about.
-    const { items, errors } = planCertifications([ticket({ workerEmail: "ghost@crudemaster.com" })], withDale, []);
+    const { items, errors } = planCertifications([ticket({ workerEmail: "ghost@northwind.test" })], withSam, []);
 
     expect(items).toHaveLength(0);
     expect(errors[0]).toMatchObject({ sheet: "certifications", row: 2, column: "worker_email" });
-    expect(errors[0].message).toContain("ghost@crudemaster.com");
+    expect(errors[0].message).toContain("ghost@northwind.test");
   });
 });
 
@@ -270,8 +270,8 @@ describe("unit tickets", () => {
 describe("countActions", () => {
   it("summarises a plan for the preview header", () => {
     const { items } = planEmployees(
-      [employee({ rowNumber: 2 }), employee({ rowNumber: 3, email: "tracy@crudemaster.com", fullName: "Tracy MacDonald" })],
-      { ...EMPTY, users: [{ id: "u1", email: "dale@crudemaster.com", full_name: "Dale Chase" }] },
+      [employee({ rowNumber: 2 }), employee({ rowNumber: 3, email: "jordan@northwind.test", fullName: "Jordan Ellis" })],
+      { ...EMPTY, users: [{ id: "u1", email: "sam@northwind.test", full_name: "Sam Rivera" }] },
     );
 
     expect(countActions(items)).toEqual({ create: 1, update: 1, skip: 0 });

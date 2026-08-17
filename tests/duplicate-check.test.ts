@@ -24,11 +24,11 @@ describe("normalizeIdentifier", () => {
 
 describe("normalizePersonName", () => {
   it("ignores casing, padding and punctuation", () => {
-    expect(normalizePersonName("  Dale  O'Chase ")).toBe(normalizePersonName("dale o chase"));
+    expect(normalizePersonName("  Sam  O'Rivera ")).toBe(normalizePersonName("sam o rivera"));
   });
 
   it("does not collapse different people", () => {
-    expect(normalizePersonName("Dale Chase")).not.toBe(normalizePersonName("Dale Chasey"));
+    expect(normalizePersonName("Sam Rivera")).not.toBe(normalizePersonName("Sam Riveray"));
   });
 });
 
@@ -94,19 +94,19 @@ describe("findEquipmentDuplicate", () => {
 
 describe("findPersonNameDuplicate", () => {
   const drivers = [
-    { id: "d1", full_name: "Dale Chase" },
-    { id: "d2", full_name: "Tracy MacDonald" },
+    { id: "d1", full_name: "Sam Rivera" },
+    { id: "d2", full_name: "Jordan Ellis" },
   ];
 
   it("flags the same driver entered twice", () => {
-    expect(findPersonNameDuplicate({ fullName: "  dale   chase " }, drivers)).toMatchObject({
+    expect(findPersonNameDuplicate({ fullName: "  sam   rivera " }, drivers)).toMatchObject({
       id: "d1",
       field: "name",
     });
   });
 
   it("lets a person keep their own name when being edited", () => {
-    expect(findPersonNameDuplicate({ fullName: "Dale Chase", excludeId: "d1" }, drivers)).toBeNull();
+    expect(findPersonNameDuplicate({ fullName: "Sam Rivera", excludeId: "d1" }, drivers)).toBeNull();
   });
 
   it("returns null for a new name and for a blank name", () => {
@@ -116,10 +116,10 @@ describe("findPersonNameDuplicate", () => {
 });
 
 describe("findEmailDuplicate", () => {
-  const users = [{ id: "u1", email: "Dale@Example.com", full_name: "Dale Chase" }];
+  const users = [{ id: "u1", email: "Sam@Example.com", full_name: "Sam Rivera" }];
 
   it("matches regardless of casing or padding, because email is the login", () => {
-    expect(findEmailDuplicate({ email: " dale@example.com " }, users)).toMatchObject({ id: "u1", field: "email" });
+    expect(findEmailDuplicate({ email: " sam@example.com " }, users)).toMatchObject({ id: "u1", field: "email" });
   });
 
   it("returns null for a new address", () => {
