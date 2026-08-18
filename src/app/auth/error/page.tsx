@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, MailCheck } from "lucide-react";
-import { resendSignupConfirmation } from "./actions";
+import { sendReplacementLink } from "./actions";
 
 type AuthErrorPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -44,12 +44,13 @@ export default async function AuthErrorPage({ searchParams }: AuthErrorPageProps
         ) : null}
 
         {showResend ? (
-          <form action={resendSignupConfirmation} className="mt-5 grid gap-2">
+          <form action={sendReplacementLink} className="mt-5 grid gap-2">
             <label className="text-sm font-medium text-[var(--ink)]" htmlFor="email">
-              Get a new confirmation link
+              Get a new link
             </label>
             <p className="text-xs text-[var(--ink-muted)]">
-              Links can expire or get used up by an inbox security scanner. Enter your email and we will send a fresh one.
+              Links expire, and a shared inbox can use one up before you get to it. Enter your email and we will
+              send a fresh one you can use to set a new password.
             </p>
             <input
               autoComplete="email"
@@ -65,7 +66,7 @@ export default async function AuthErrorPage({ searchParams }: AuthErrorPageProps
               type="submit"
             >
               <MailCheck className="h-4 w-4" aria-hidden="true" />
-              Resend confirmation email
+              Email me a new link
             </button>
           </form>
         ) : null}

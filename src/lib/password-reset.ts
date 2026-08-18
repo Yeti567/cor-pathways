@@ -38,6 +38,19 @@ export type PasswordResetDeps = {
 // form.
 export type PasswordResetOutcome = { handled: true };
 
+// The single notice every public entry point shows after a reset is requested:
+// the forgot-password form, and the dead-link form on /auth/error. Both must say
+// exactly the same thing, because a visitor who can tell the two apart can use
+// the difference to work out whether an address has an account here.
+//
+// It stays conditional and confirms nothing, while naming the one cause a real
+// person can act on: being on another company's deployment, where their account
+// does not exist and no amount of retrying will ever produce an email.
+export const PASSWORD_RESET_NOTICE =
+  "If that email has an account here, a reset link is on its way. Check your inbox and your junk folder. " +
+  "If nothing arrives within a few minutes, check you are on your own company's web address: a reset can only " +
+  "be sent from the site where your account lives.";
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -139,17 +152,35 @@ export async function sendPasswordResetEmail(
     .eq("id", user.tenant_id)
     .maybeSingle<{ name: string }>();
 
-  const { data, error } = await adminSupabase.auth.admin.generateLink({
-    type: "recovery",
-    email: normalized,
-    options: {
-      redirectTo: `${appUrl}/auth/confirm`,
-    },
-  });
+  const redirectTo = `${appUrl}/auth/confirm`;
 
-  const actionLink = data?.properties?.action_link;
+  // Recovery is the correct link for anyone who has confirmed their address.
+  //
+  // An invited worker who never opened their invite has no confirmed address,
+  // and Supabase will not mint a recovery link for that account. Before the
+  // fallback below, such a person had no way back in at all: the reset form
+  // accepted their address, generateLink failed, and the enumeration guarantee
+  // meant they were told a link was on its way. A magic link does work for an
+  // unconfirmed account and lands on the same set-password page, so try that
+  // rather than giving up silently.
+  let actionLink: string | undefined;
 
-  if (error || !actionLink) {
+  for (const type of ["recovery", "magiclink"] as const) {
+    const { data, error } = await adminSupabase.auth.admin.generateLink({
+      type,
+      email: normalized,
+      options: { redirectTo },
+    });
+
+    const link = data?.properties?.action_link;
+
+    if (!error && link) {
+      actionLink = link;
+      break;
+    }
+  }
+
+  if (!actionLink) {
     return { handled: true };
   }
 

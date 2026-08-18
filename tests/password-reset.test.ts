@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
-import { buildPasswordResetEmail, sendPasswordResetEmail } from "@/lib/password-reset";
+import { PASSWORD_RESET_NOTICE, buildPasswordResetEmail, sendPasswordResetEmail } from "@/lib/password-reset";
 
 const ACTION_LINK = "https://iasq.supabase.co/auth/v1/verify?token=xyz&type=recovery";
 
@@ -162,5 +162,68 @@ describe("sendPasswordResetEmail", () => {
     });
 
     expect(generateLink).toHaveBeenCalledWith(expect.objectContaining({ email: "dana@acme.test" }));
+  });
+
+  // An invited worker who never opened their invite has no confirmed address, so
+  // Supabase refuses a recovery link for them. Before the magiclink fallback the
+  // reset form accepted their address, minted nothing, and told them a link was
+  // on the way, which left them permanently locked out with no way to find out.
+  it("falls back to a magic link when recovery is refused", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const generateLink = vi.fn(async ({ type }: { type: string }) =>
+      type === "recovery"
+        ? { data: null, error: { message: "User not confirmed" } }
+        : { data: { properties: { action_link: ACTION_LINK } }, error: null },
+    );
+
+    const result = await sendPasswordResetEmail(adminClient({ user: REAL_USER, generateLink }), REAL_USER.email, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
+
+    expect(result).toEqual({ handled: true });
+    expect(generateLink).toHaveBeenCalledTimes(2);
+    expect(generateLink).toHaveBeenLastCalledWith(expect.objectContaining({ type: "magiclink" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reach for a magic link when recovery already worked", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const generateLink = vi.fn(async () => ({ data: { properties: { action_link: ACTION_LINK } }, error: null }));
+
+    await sendPasswordResetEmail(adminClient({ user: REAL_USER, generateLink }), REAL_USER.email, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
+
+    expect(generateLink).toHaveBeenCalledTimes(1);
+    expect(generateLink).toHaveBeenCalledWith(expect.objectContaining({ type: "recovery" }));
+  });
+
+  it("sends nothing when neither link type can be minted", async () => {
+    const fetchMock = vi.fn();
+    const generateLink = vi.fn(async () => ({ data: null, error: { message: "nope" } }));
+
+    const result = await sendPasswordResetEmail(adminClient({ user: REAL_USER, generateLink }), REAL_USER.email, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
+
+    expect(result).toEqual({ handled: true });
+    expect(generateLink).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("PASSWORD_RESET_NOTICE", () => {
+  it("stays conditional so it confirms nothing about the address", () => {
+    expect(PASSWORD_RESET_NOTICE).toContain("If that email has an account here");
+  });
+
+  it("names the wrong-deployment dead end, the one cause a real person can act on", () => {
+    expect(PASSWORD_RESET_NOTICE).toContain("your own company's web address");
   });
 });

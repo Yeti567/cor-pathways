@@ -1,43 +1,53 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { getAuthRedirectUrl } from "@/lib/auth-redirect";
-import { publicEnv } from "@/lib/env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PASSWORD_RESET_NOTICE, sendPasswordResetEmail } from "@/lib/password-reset";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// A confirmation link that was expired or already consumed (often by a mailbox
-// security scanner) leaves the visitor with no session, so we cannot look their
-// address up. Take it from the form instead and resend a fresh signup link.
-//
-// We always return the same generic notice regardless of whether the address
-// exists or is already confirmed, so this cannot be used to enumerate accounts.
-export async function resendSignupConfirmation(formData: FormData) {
+/**
+ * Emails a replacement sign-in link to someone whose emailed link is dead.
+ *
+ * A link that expired or was already consumed leaves the visitor with no
+ * session, so we cannot look their address up from the request. Take it from the
+ * form instead and send a fresh link down the same Resend pipeline the
+ * forgot-password form uses.
+ *
+ * This used to call `supabase.auth.resend({ type: "signup" })`, which was wrong
+ * two ways over and silently sent nothing at all:
+ *
+ *  1. Wrong link type. A signup confirmation only means anything for an account
+ *     whose address is still unconfirmed. Anyone who reaches this page from a
+ *     dead invite or recovery link confirmed theirs long ago, so Supabase had
+ *     nothing to resend.
+ *  2. Wrong mailer. `auth.resend` delivers through Supabase's built-in SMTP,
+ *     which these deployments deliberately do not configure, because every
+ *     email in the app goes out through Resend. The call returned 200 and no
+ *     mail was ever queued.
+ *
+ * The visitor was then shown a cheerful "we sent a new link" notice. On
+ * 2026-08-18 a client president pressed that button twice, an hour apart, and
+ * nothing was sent either time: the auth log holds two `/resend` 200s and not a
+ * single `generate_link`.
+ *
+ * Always redirects to the same generic notice whatever happened inside, because
+ * this form is public and unauthenticated. See PASSWORD_RESET_NOTICE.
+ */
+export async function sendReplacementLink(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
 
   if (!EMAIL_PATTERN.test(email)) {
-    redirect(`/auth/error?message=${encodeURIComponent("Enter a valid email address to resend the confirmation link.")}`);
+    redirect(`/auth/error?message=${encodeURIComponent("Enter a valid email address to get a new link.")}`);
   }
 
-  try {
-    const supabase = await createSupabaseServerClient();
-    const appUrl = publicEnv.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000";
+  const adminSupabase = createSupabaseAdminClient();
 
-    // Best effort: ignore the result so a bad or already-confirmed address looks
-    // identical to a successful resend.
-    await supabase.auth.resend({
-      type: "signup",
-      email,
-      options: { emailRedirectTo: getAuthRedirectUrl(appUrl, "/") },
-    });
-  } catch {
-    // Swallow; the generic notice below still applies.
+  if (adminSupabase) {
+    // Resolves to { handled: true } no matter what happened inside, so there is
+    // deliberately nothing here to branch on.
+    await sendPasswordResetEmail(adminSupabase, email);
   }
 
-  redirect(
-    `/auth/error?notice=${encodeURIComponent(
-      "If that account still needs confirmation, we sent a new link. Check your inbox, and use a personal inbox if a shared one keeps failing.",
-    )}`,
-  );
+  redirect(`/auth/error?notice=${encodeURIComponent(PASSWORD_RESET_NOTICE)}`);
 }
