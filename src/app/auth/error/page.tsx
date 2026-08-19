@@ -14,7 +14,12 @@ function firstParam(value: string | string[] | undefined) {
 // rather than, say, an SSO error. Only then do we offer to resend a link.
 function isConfirmationError(message: string) {
   const normalized = message.toLowerCase();
-  return normalized.includes("confirmation") || normalized.includes("link is invalid") || normalized.includes("expired");
+  return (
+    normalized.includes("confirmation") ||
+    normalized.includes("link is invalid") ||
+    normalized.includes("expired") ||
+    normalized.includes("replaced")
+  );
 }
 
 export default async function AuthErrorPage({ searchParams }: AuthErrorPageProps) {
@@ -49,8 +54,8 @@ export default async function AuthErrorPage({ searchParams }: AuthErrorPageProps
               Get a new link
             </label>
             <p className="text-xs text-[var(--ink-muted)]">
-              Links expire, and a shared inbox can use one up before you get to it. Enter your email and we will
-              send a fresh one you can use to set a new password.
+              Enter your email and we will send a fresh link you can use to set a password. Requesting a new link
+              turns off every earlier email, so once it arrives, use that newest email and ignore the older ones.
             </p>
             <input
               autoComplete="email"

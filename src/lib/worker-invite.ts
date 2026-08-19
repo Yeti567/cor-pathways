@@ -74,7 +74,7 @@ export function buildWorkerInviteEmail(params: {
     "",
     params.actionLink,
     "",
-    "This link is single use. If you were not expecting this invitation, you can safely ignore this email.",
+    "This link is single use and expires, and a newer invitation email replaces this one - always use the newest email from us. If you were not expecting this invitation, you can safely ignore it.",
     "",
     APP_NAME,
   ].join("\n");
@@ -89,7 +89,7 @@ export function buildWorkerInviteEmail(params: {
     `<p style="font-size:16px;line-height:1.5;"><strong>${safeCompany}</strong> has invited you to ${escapeHtml(APP_NAME)}. Accept your invitation and set up your account:</p>`,
     `<p style="margin:28px 0;"><a href="${safeLink}" style="background:#0a6b54;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 20px;border-radius:8px;display:inline-block;">Accept invitation</a></p>`,
     `<p style="font-size:13px;color:#64748b;line-height:1.5;">If the button does not work, paste this link into your browser:<br><a href="${safeLink}" style="color:#0a6b54;word-break:break-all;">${safeLink}</a></p>`,
-    '<p style="font-size:13px;color:#64748b;line-height:1.5;">This link is single use. If you were not expecting this invitation, you can safely ignore this email.</p>',
+    '<p style="font-size:13px;color:#64748b;line-height:1.5;">This link is single use and expires, and a newer invitation email replaces this one &mdash; always use the newest email from us. If you were not expecting this invitation, you can safely ignore it.</p>',
     `<p style="font-size:13px;color:#64748b;">${escapeHtml(APP_NAME)}</p>`,
     "</div>",
   ].join("");

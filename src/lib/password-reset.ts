@@ -48,7 +48,8 @@ export type PasswordResetOutcome = { handled: true };
 // person can act on: being on another company's deployment, where their account
 // does not exist and no amount of retrying will ever produce an email.
 export const PASSWORD_RESET_NOTICE =
-  "If that email has an account here, a reset link is on its way. Check your inbox and your junk folder. " +
+  "If that email has an account here, a new link is on its way. Check your inbox and your junk folder, " +
+  "and use the NEWEST email from us: each new link turns off every link sent before it. " +
   "If nothing arrives within a few minutes, check you are on your own company's web address: a reset can only " +
   "be sent from the site where your account lives.";
 
@@ -81,7 +82,7 @@ export function buildPasswordResetEmail(params: {
     "",
     params.actionLink,
     "",
-    "This link is single use and expires. If you did not ask for this, you can safely ignore this email and your password will not change.",
+    "This link is single use, expires, and replaces any earlier link emails from us - if you have more than one, only this newest one works. If you did not ask for this, you can safely ignore this email and your password will not change.",
     "",
     APP_NAME,
   ].join("\n");
@@ -96,7 +97,7 @@ export function buildPasswordResetEmail(params: {
     `<p style="font-size:16px;line-height:1.5;">Someone asked to reset the password for your <strong>${safeCompany}</strong> account. Choose a new one here:</p>`,
     `<p style="margin:28px 0;"><a href="${safeLink}" style="background:#0a6b54;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 20px;border-radius:8px;display:inline-block;">Reset password</a></p>`,
     `<p style="font-size:13px;color:#64748b;line-height:1.5;">If the button does not work, paste this link into your browser:<br><a href="${safeLink}" style="color:#0a6b54;word-break:break-all;">${safeLink}</a></p>`,
-    '<p style="font-size:13px;color:#64748b;line-height:1.5;">This link is single use and expires. If you did not ask for this, you can safely ignore this email and your password will not change.</p>',
+    '<p style="font-size:13px;color:#64748b;line-height:1.5;">This link is single use, expires, and replaces any earlier link emails from us &mdash; if you have more than one, only this newest one works. If you did not ask for this, you can safely ignore this email and your password will not change.</p>',
     `<p style="font-size:13px;color:#64748b;">${escapeHtml(APP_NAME)}</p>`,
     "</div>",
   ].join("");

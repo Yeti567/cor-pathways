@@ -44,7 +44,11 @@ export async function confirmEmailLink(formData: FormData) {
   });
 
   if (error) {
-    redirect(`/auth/error?message=${encodeURIComponent("The confirmation link is invalid or expired.")}`);
+    redirect(
+      `/auth/error?message=${encodeURIComponent(
+        "This link has expired or was replaced by a newer email. Only the most recent email we sent you works.",
+      )}`,
+    );
   }
 
   // An account reached through one of these links has no usable password:
