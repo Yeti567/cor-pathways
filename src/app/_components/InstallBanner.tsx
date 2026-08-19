@@ -1,8 +1,16 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { APP_NAME } from "@/lib/brand";
+import {
+  getDeferredPrompt,
+  getServerPrompt,
+  isIosBrowser,
+  isStandaloneDisplayMode,
+  promptInstall,
+  subscribeToInstallPrompt,
+} from "@/lib/install-prompt";
 
 const DISMISS_STORAGE_KEY = "core-pathways:install-banner-dismissed";
 
@@ -14,40 +22,9 @@ const ALLOWED_PATH_PREFIXES = ["/admin", "/web", "/choose", "/sub"];
 
 // A dismissal used to be permanent, with no menu item to get the prompt back.
 // One accidental tap and that phone could never install. Let it come back
-// after a couple of weeks instead.
+// after a couple of weeks instead. The login page carries a permanent install
+// button either way, so nobody is ever fully stuck.
 const DISMISS_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
-};
-
-function isIosBrowser() {
-  if (typeof navigator === "undefined") {
-    return false;
-  }
-
-  const ua = navigator.userAgent;
-
-  if (/iPad|iPhone|iPod/.test(ua)) {
-    return true;
-  }
-
-  // iPadOS reports itself as a Mac; the touch points give it away.
-  return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
-}
-
-function isStandaloneDisplayMode() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  if (window.matchMedia?.("(display-mode: standalone)").matches) {
-    return true;
-  }
-
-  return Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
-}
 
 function isDismissed() {
   if (typeof window === "undefined") {
@@ -76,81 +53,34 @@ function markDismissed() {
   window.localStorage.setItem(DISMISS_STORAGE_KEY, String(Date.now()));
 }
 
-// The iOS hint depends only on browser-static facts (device, display mode, the
-// dismissed flag), so we read it with useSyncExternalStore rather than setting
-// state inside an effect, which would trigger a cascading render. The snapshot is
-// re-read on every render, so a dismiss (which re-renders) re-evaluates it.
-function subscribeNoop() {
-  return () => {};
-}
-
-function iosHintSnapshot() {
-  return isIosBrowser() && !isStandaloneDisplayMode() && !isDismissed();
-}
-
-function iosHintServerSnapshot() {
-  return false;
-}
-
 export function InstallBanner() {
   const pathname = usePathname();
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const showIosHint = useSyncExternalStore(subscribeNoop, iosHintSnapshot, iosHintServerSnapshot);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+  // The install prompt now lives in a module that starts listening at import
+  // time. Registering the listener in an effect here meant the event, which
+  // fires early and only once, could arrive before this component hydrated and
+  // be lost for the rest of the visit.
+  const installPrompt = useSyncExternalStore(subscribeToInstallPrompt, getDeferredPrompt, getServerPrompt);
+  const standalone = useSyncExternalStore(subscribeToInstallPrompt, isStandaloneDisplayMode, () => false);
+  const ios = useSyncExternalStore(subscribeToInstallPrompt, isIosBrowser, () => false);
+  const alreadyDismissed = useSyncExternalStore(subscribeToInstallPrompt, isDismissed, () => false);
 
-    // Already installed or previously dismissed: register no listeners and show
-    // nothing. We deliberately do not call setState here. Doing so synchronously
-    // in an effect triggers a cascading re-render; instead we leave the banner
-    // unrendered because nothing sets installPrompt or showIosHint.
-    if (isStandaloneDisplayMode() || isDismissed()) {
-      return;
-    }
-
-    const handleBeforeInstall = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
-
-    const handleInstalled = () => {
-      setInstallPrompt(null);
-      setDismissed(true);
-    };
-
-    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
-    window.addEventListener("appinstalled", handleInstalled);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
-      window.removeEventListener("appinstalled", handleInstalled);
-    };
-  }, []);
-
+  const showIosHint = ios && !standalone;
   const onAllowedPath = ALLOWED_PATH_PREFIXES.some((prefix) => pathname?.startsWith(prefix));
-  const shouldRender = onAllowedPath && !dismissed && (installPrompt !== null || showIosHint);
+  const shouldRender =
+    onAllowedPath && !standalone && !dismissed && !alreadyDismissed && (installPrompt !== null || showIosHint);
 
   if (!shouldRender) {
     return null;
   }
 
   const handleInstall = async () => {
-    if (!installPrompt) {
-      return;
-    }
+    const outcome = await promptInstall();
 
-    try {
-      await installPrompt.prompt();
-      const result = await installPrompt.userChoice;
-      if (result.outcome === "accepted") {
-        markDismissed();
-        setDismissed(true);
-      }
-    } finally {
-      setInstallPrompt(null);
+    if (outcome === "accepted") {
+      markDismissed();
+      setDismissed(true);
     }
   };
 

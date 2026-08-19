@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, Building2, Globe2, KeyRound, LogIn, MailCheck, UserPlus } from "lucide-react";
 import { APP_NAME } from "@/lib/brand";
+import { InstallAppButton } from "@/app/_components/InstallAppButton";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
 import { getSupabasePublicEnv } from "@/lib/env";
 import { isSelfSignupAvailable } from "@/lib/self-signup";
@@ -151,6 +152,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               Login with {APP_NAME} SSO
             </button>
           </form>
+
+          <InstallAppButton />
         </div>
 
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-sm">
