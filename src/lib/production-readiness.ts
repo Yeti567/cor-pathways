@@ -175,7 +175,7 @@ export function buildProductionReadinessChecklist(input: ProductionReadinessInpu
   const pwaIconExists = input.pwaIconExists ?? existsSync(join(process.cwd(), "public/icons/icon.svg"));
   const serviceWorkerExists =
     input.serviceWorkerExists ?? existsSync(join(process.cwd(), "src/app/sw.js/route.ts"));
-  const manifestExists = input.manifestExists ?? existsSync(join(process.cwd(), "public/manifest.webmanifest"));
+  const manifestExists = input.manifestExists ?? existsSync(join(process.cwd(), "src/app/manifest.ts"));
   const tenantDocumentsStorageReady = input.tenantDocumentsStorageReady ?? hasTenantDocumentsStorageMigration();
   const repoMigrationNames = input.repoMigrationNames ?? readRepoMigrationNames();
   const certificationCronMissing = [
@@ -184,7 +184,7 @@ export function buildProductionReadinessChecklist(input: ProductionReadinessInpu
   ];
   const pwaMissing = [
     ...(serviceWorkerExists ? [] : ["src/app/sw.js/route.ts"]),
-    ...(manifestExists ? [] : ["public/manifest.webmanifest"]),
+    ...(manifestExists ? [] : ["src/app/manifest.ts"]),
     ...(pwaIconExists ? [] : ["public/icons/icon.svg"]),
   ];
 

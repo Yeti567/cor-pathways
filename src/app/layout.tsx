@@ -7,7 +7,6 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: APP_NAME,
   description: "A multi-tenant offline-first operations platform.",
-  manifest: "/manifest.webmanifest",
   // The application is not a search destination. Marketing and content live on
   // corpathway360.com, and this host serves app.corpathway360.com plus the demo.
   // Two reasons this is set here rather than in a robots.txt: it covers every

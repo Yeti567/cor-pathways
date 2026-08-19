@@ -5,23 +5,36 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { APP_NAME } from "@/lib/brand";
 
 const DISMISS_STORAGE_KEY = "core-pathways:install-banner-dismissed";
-const ALLOWED_PATH_PREFIXES = ["/admin", "/web"];
+
+// /choose and /sub are here because they are where a person lands right after
+// accepting an invite -- the one moment they are guaranteed to be looking at
+// the app in a real browser. Restricting the banner to /admin and /web meant a
+// freshly onboarded crew never saw an install prompt at all.
+const ALLOWED_PATH_PREFIXES = ["/admin", "/web", "/choose", "/sub"];
+
+// A dismissal used to be permanent, with no menu item to get the prompt back.
+// One accidental tap and that phone could never install. Let it come back
+// after a couple of weeks instead.
+const DISMISS_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
 
-function isIosSafari() {
+function isIosBrowser() {
   if (typeof navigator === "undefined") {
     return false;
   }
 
   const ua = navigator.userAgent;
-  const isIos = /iPad|iPhone|iPod/.test(ua);
-  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
 
-  return isIos && isSafari;
+  if (/iPad|iPhone|iPod/.test(ua)) {
+    return true;
+  }
+
+  // iPadOS reports itself as a Mac; the touch points give it away.
+  return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 }
 
 function isStandaloneDisplayMode() {
@@ -41,7 +54,18 @@ function isDismissed() {
     return false;
   }
 
-  return window.localStorage.getItem(DISMISS_STORAGE_KEY) === "1";
+  const stored = window.localStorage.getItem(DISMISS_STORAGE_KEY);
+
+  if (!stored) {
+    return false;
+  }
+
+  // The legacy value "1" carried no timestamp; parse it as 0 so those old
+  // permanent dismissals expire immediately rather than silencing the banner
+  // forever.
+  const dismissedAt = Number.parseInt(stored, 10) || 0;
+
+  return Date.now() - dismissedAt < DISMISS_TTL_MS;
 }
 
 function markDismissed() {
@@ -49,7 +73,7 @@ function markDismissed() {
     return;
   }
 
-  window.localStorage.setItem(DISMISS_STORAGE_KEY, "1");
+  window.localStorage.setItem(DISMISS_STORAGE_KEY, String(Date.now()));
 }
 
 // The iOS hint depends only on browser-static facts (device, display mode, the
@@ -61,7 +85,7 @@ function subscribeNoop() {
 }
 
 function iosHintSnapshot() {
-  return isIosSafari() && !isStandaloneDisplayMode() && !isDismissed();
+  return isIosBrowser() && !isStandaloneDisplayMode() && !isDismissed();
 }
 
 function iosHintServerSnapshot() {

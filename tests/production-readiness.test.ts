@@ -135,7 +135,7 @@ describe("production readiness checklist", () => {
       "GOOGLE_APPLICATION_CREDENTIALS_BASE64",
     ]);
     expect(checklist.find((item) => item.id === "pwa-assets")).toMatchObject({
-      missingEnv: ["public/manifest.webmanifest", "public/icons/icon.svg"],
+      missingEnv: ["src/app/manifest.ts", "public/icons/icon.svg"],
       status: "needs_setup",
     });
     expect(checklist.find((item) => item.id === "tenant-documents-bucket")).toMatchObject({
@@ -151,7 +151,7 @@ describe("production readiness checklist", () => {
     expect(setupPage).toContain("buildProductionReadinessChecklist");
     expect(setupPage).toContain("Production Readiness");
     expect(setupPage).toContain("Missing: {item.missingEnv.join");
-    expect(readFileSync(join(process.cwd(), "public/manifest.webmanifest"), "utf8")).toContain("/icons/icon.svg");
+    expect(readFileSync(join(process.cwd(), "src/app/manifest.ts"), "utf8")).toContain("/icons/icon.svg");
     expect(envExample).toContain("NEXT_PUBLIC_SSO_PROVIDER=");
     expect(envExample).toContain("NEXT_PUBLIC_APP_URL=");
     expect(envExample).toContain("CRON_SECRET=");
