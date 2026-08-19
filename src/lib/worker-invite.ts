@@ -13,6 +13,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { APP_NAME } from "@/lib/brand";
 import { isDemoTenant } from "@/lib/demo";
+import { buildEmailConfirmationLink } from "@/lib/auth-email-link";
 import { sendViaResend } from "@/lib/resend-relay";
 
 type AdminClient = SupabaseClient<Database>;
@@ -140,7 +141,11 @@ export async function inviteWorkerByEmail(
     return { ok: false, error: error?.message ?? "Worker invite could not be created." };
   }
 
-  const actionLink = data.properties?.action_link;
+  const actionLink = buildEmailConfirmationLink({
+    properties: data.properties,
+    redirectTo: params.redirectTo,
+    type: "invite",
+  });
 
   if (!actionLink) {
     // The user exists but we have no link to send. Treat as created-with-warning
@@ -229,7 +234,11 @@ export async function resendWorkerInviteByEmail(
     },
   });
 
-  const actionLink = data?.properties?.action_link;
+  const actionLink = buildEmailConfirmationLink({
+    properties: data?.properties,
+    redirectTo: params.redirectTo,
+    type: "magiclink",
+  });
 
   if (error || !actionLink) {
     return { ok: false, error: error?.message ?? "No invitation link was returned, so no email was sent." };

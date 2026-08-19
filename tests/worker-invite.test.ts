@@ -5,6 +5,9 @@ import { APP_NAME } from "@/lib/brand";
 import { buildWorkerInviteEmail, inviteWorkerByEmail, resendWorkerInviteByEmail } from "@/lib/worker-invite";
 
 const ACTION_LINK = "https://iasq.supabase.co/auth/v1/verify?token=abc&type=invite&redirect_to=https://corpathway360.com/auth/confirm";
+const HASHED_TOKEN = "hashed-token-abc";
+const EXPECTED_INVITE_LINK = "https://corpathway360.com/auth/confirm?token_hash=hashed-token-abc&type=invite";
+const EXPECTED_MAGIC_LINK = "https://corpathway360.com/auth/confirm?token_hash=hashed-token-abc&type=magiclink";
 
 function adminClientWithGenerateLink(impl: () => Promise<unknown>): SupabaseClient<Database> {
   return {
@@ -14,7 +17,7 @@ function adminClientWithGenerateLink(impl: () => Promise<unknown>): SupabaseClie
 
 const okGenerateLink = () =>
   Promise.resolve({
-    data: { user: { id: "user-1" }, properties: { action_link: ACTION_LINK } },
+    data: { user: { id: "user-1" }, properties: { action_link: ACTION_LINK, hashed_token: HASHED_TOKEN } },
     error: null,
   });
 
@@ -83,8 +86,11 @@ describe("inviteWorkerByEmail", () => {
     const body = JSON.parse(firstCall[1].body as string);
     expect(body.to).toEqual(["dana@acme.test"]);
     expect(body.from).toBe("no-reply@corpathway360.com");
-    expect(body.text).toContain(ACTION_LINK);
-    expect(body.html).toContain("auth/v1/verify?token=abc");
+    // Our own /auth/confirm, never Supabase's verify endpoint.
+    expect(body.text).toContain(EXPECTED_INVITE_LINK);
+    expect(body.text).not.toContain("supabase.co");
+    expect(body.html).toContain(EXPECTED_INVITE_LINK.replace(/&/g, "&amp;"));
+    expect(body.html).not.toContain("supabase.co");
   });
 
   it("passes the invite metadata to generateLink", async () => {
@@ -192,6 +198,13 @@ describe("resendWorkerInviteByEmail", () => {
       email: "dana@acme.test",
       options: { redirectTo: params.redirectTo },
     });
+
+    // The resent link must declare type=magiclink, not the invite type, or
+    // /auth/verify redeems it as the wrong flow. And like every other mailer it
+    // points at us, never at Supabase's verify endpoint.
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.text).toContain(EXPECTED_MAGIC_LINK);
+    expect(body.text).not.toContain("supabase.co");
   });
 
   it("reports a failed send as a failure, since nothing was provisioned to keep", async () => {

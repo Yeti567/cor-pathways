@@ -3,7 +3,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { PASSWORD_RESET_NOTICE, buildPasswordResetEmail, sendPasswordResetEmail } from "@/lib/password-reset";
 
-const ACTION_LINK = "https://iasq.supabase.co/auth/v1/verify?token=xyz&type=recovery";
+// What generateLink actually hands back for us to build a link from. The
+// action_link it returns alongside points at Supabase and must never be sent:
+// see the note in @/lib/auth-email-link.
+const HASHED_TOKEN = "hashed-token-xyz";
+const SUPABASE_VERIFY_URL = "https://iasq.supabase.co/auth/v1/verify?token=xyz&type=recovery";
+const EXPECTED_LINK = "https://corpathway360.com/auth/confirm?token_hash=hashed-token-xyz&type=recovery";
+// The pure email-builder tests below just need a link to render.
+const ACTION_LINK = EXPECTED_LINK;
 
 function env(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
@@ -20,7 +27,7 @@ function env(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
 function adminClient({
   user,
   tenantName = "Acme Freight",
-  generateLink = vi.fn(async () => ({ data: { properties: { action_link: ACTION_LINK } }, error: null })),
+  generateLink = vi.fn(async () => ({ data: { properties: { action_link: SUPABASE_VERIFY_URL, hashed_token: HASHED_TOKEN } }, error: null })),
 }: {
   user: { email: string; full_name: string; tenant_id: string } | null;
   tenantName?: string;
@@ -75,7 +82,7 @@ describe("buildPasswordResetEmail", () => {
 describe("sendPasswordResetEmail", () => {
   it("mints a recovery link and sends it for a real user", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email_9" }), { status: 200 }));
-    const generateLink = vi.fn(async () => ({ data: { properties: { action_link: ACTION_LINK } }, error: null }));
+    const generateLink = vi.fn(async () => ({ data: { properties: { action_link: SUPABASE_VERIFY_URL, hashed_token: HASHED_TOKEN } }, error: null }));
 
     const result = await sendPasswordResetEmail(adminClient({ user: REAL_USER, generateLink }), "dana@acme.test", {
       env: env(),
@@ -91,7 +98,13 @@ describe("sendPasswordResetEmail", () => {
     });
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body.to).toEqual(["dana@acme.test"]);
-    expect(body.text).toContain(ACTION_LINK);
+    // The link must point at our own /auth/confirm carrying the token as a query
+    // parameter. Supabase's verify URL redeems on GET and hands the session back
+    // in a fragment the server never sees, which is how a president spent four
+    // days bouncing off /auth/error with a live session in the database.
+    expect(body.text).toContain(EXPECTED_LINK);
+    expect(body.text).not.toContain("supabase.co");
+    expect(body.html).not.toContain("supabase.co");
   });
 
   // The enumeration guarantee. Each of these must be indistinguishable from a
@@ -152,7 +165,7 @@ describe("sendPasswordResetEmail", () => {
   });
 
   it("normalizes the address before looking it up", async () => {
-    const generateLink = vi.fn(async () => ({ data: { properties: { action_link: ACTION_LINK } }, error: null }));
+    const generateLink = vi.fn(async () => ({ data: { properties: { action_link: SUPABASE_VERIFY_URL, hashed_token: HASHED_TOKEN } }, error: null }));
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
 
     await sendPasswordResetEmail(adminClient({ user: REAL_USER, generateLink }), "  DANA@Acme.test  ", {
@@ -173,7 +186,7 @@ describe("sendPasswordResetEmail", () => {
     const generateLink = vi.fn(async ({ type }: { type: string }) =>
       type === "recovery"
         ? { data: null, error: { message: "User not confirmed" } }
-        : { data: { properties: { action_link: ACTION_LINK } }, error: null },
+        : { data: { properties: { action_link: SUPABASE_VERIFY_URL, hashed_token: HASHED_TOKEN } }, error: null },
     );
 
     const result = await sendPasswordResetEmail(adminClient({ user: REAL_USER, generateLink }), REAL_USER.email, {
@@ -190,7 +203,7 @@ describe("sendPasswordResetEmail", () => {
 
   it("does not reach for a magic link when recovery already worked", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
-    const generateLink = vi.fn(async () => ({ data: { properties: { action_link: ACTION_LINK } }, error: null }));
+    const generateLink = vi.fn(async () => ({ data: { properties: { action_link: SUPABASE_VERIFY_URL, hashed_token: HASHED_TOKEN } }, error: null }));
 
     await sendPasswordResetEmail(adminClient({ user: REAL_USER, generateLink }), REAL_USER.email, {
       env: env(),

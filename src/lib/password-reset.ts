@@ -8,6 +8,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { APP_NAME } from "@/lib/brand";
+import { buildEmailConfirmationLink } from "@/lib/auth-email-link";
 import { isDemoTenant } from "@/lib/demo";
 import { sendViaResend } from "@/lib/resend-relay";
 
@@ -172,7 +173,7 @@ export async function sendPasswordResetEmail(
       options: { redirectTo },
     });
 
-    const link = data?.properties?.action_link;
+    const link = buildEmailConfirmationLink({ properties: data?.properties, redirectTo, type });
 
     if (!error && link) {
       actionLink = link;

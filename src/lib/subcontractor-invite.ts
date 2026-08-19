@@ -13,6 +13,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { isDemoTenant } from "@/lib/demo";
+import { buildEmailConfirmationLink } from "@/lib/auth-email-link";
 import { sendViaResend } from "@/lib/resend-relay";
 
 type AdminClient = SupabaseClient<Database>;
@@ -154,7 +155,13 @@ export async function inviteSubcontractorContact(
     return { ok: false, error: generated.error?.message ?? "The invitation could not be created." };
   }
 
-  const actionLink = generated.data.properties?.action_link;
+  // `returning` records which of the two generateLink calls above produced this
+  // token, so the emailed link declares the matching type.
+  const actionLink = buildEmailConfirmationLink({
+    properties: generated.data.properties,
+    redirectTo: params.redirectTo,
+    type: returning ? "magiclink" : "invite",
+  });
 
   if (!actionLink) {
     return {

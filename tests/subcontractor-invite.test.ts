@@ -81,7 +81,7 @@ function adminStub(overrides: {
         generateLink:
           overrides.generateLink ??
           vi.fn(async () => ({
-            data: { user: { id: "user-1" }, properties: { action_link: LINK } },
+            data: { user: { id: "user-1" }, properties: { action_link: LINK, hashed_token: "abc" } },
             error: null,
           })),
       },
@@ -116,7 +116,7 @@ describe("inviteSubcontractorContact", () => {
       .fn()
       .mockResolvedValueOnce({ data: { user: null }, error: { message: "already registered" } })
       .mockResolvedValueOnce({
-        data: { user: { id: "user-1" }, properties: { action_link: LINK } },
+        data: { user: { id: "user-1" }, properties: { action_link: LINK, hashed_token: "abc" } },
         error: null,
       });
 
