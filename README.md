@@ -39,9 +39,30 @@ supabase link --project-ref YOUR-PROJECT-REF
 supabase db push
 ```
 
-That applies `supabase/migrations/20260716000000_initial_schema.sql`, which is the
-entire database: every table, every row level security policy, the storage buckets,
-and the trigger that builds a company's first tenant on signup.
+That applies everything in `supabase/migrations/`, which is the entire database:
+every table, every row level security policy, the storage buckets, and the trigger
+that builds a company's first tenant on signup. The first migration carries the
+bulk of the schema; the rest add modules and hardening on top, and they must run
+in order.
+
+**If `link` or `push` fails, push straight down the connection pooler instead:**
+
+```bash
+supabase db push --db-url "postgresql://postgres.YOUR-PROJECT-REF:YOUR-DB-PASSWORD@aws-0-YOUR-REGION.pooler.supabase.com:5432/postgres"
+```
+
+Your region and a ready-made connection string are under
+Project Settings > Database. That one command replaces both steps and works around
+the two common failures:
+
+- **`IPv6 is not supported on your current network`**, or
+  `getaddrinfo ENOTFOUND`. The direct host `db.<ref>.supabase.co` publishes only an
+  IPv6 address. The pooler host has IPv4.
+- **"Your account does not have the necessary privileges."** `link` calls the
+  Supabase Management API, which needs an appropriate role on the *organisation*.
+  If you are an administrator on someone else's project rather than the owner, you
+  can still deploy the schema — `--db-url` connects straight to Postgres and does
+  not use that API.
 
 **3. Configure auth.** In the Supabase dashboard, under
 Authentication > URL Configuration, set your site URL and add
