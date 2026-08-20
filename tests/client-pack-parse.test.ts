@@ -349,15 +349,29 @@ describe("tank fleet columns", () => {
     expect(rows[0].inspections).toEqual([]);
   });
 
-  it("splits an inspection list however it was punctuated", () => {
+  it("splits an inspection list on semicolons and new lines", () => {
     const { rows } = parseEquipment(
       sheet(
         ["unit_number", "inspections"],
-        [["802", "Product hose; Upper coupler (UC), Tank thickness (T)"]],
+        [["802", "Product hose; Upper coupler (UC)\nTank thickness (T)"]],
       ),
     );
 
     expect(rows[0].inspections).toEqual(["Product hose", "Upper coupler (UC)", "Tank thickness (T)"]);
+  });
+
+  // The first real fleet load came out with nothing ticked because commas split
+  // too. Half these inspections are named after the several checks they bundle,
+  // so a comma inside a name is normal and must survive.
+  it("keeps a certification name that contains commas in one piece", () => {
+    const { rows } = parseEquipment(
+      sheet(
+        ["unit_number", "inspections"],
+        [["802", "PIUC - pressure, internal, upper coupler; Product hose"]],
+      ),
+    );
+
+    expect(rows[0].inspections).toEqual(["PIUC - pressure, internal, upper coupler", "Product hose"]);
   });
 
   it("drops the empty entry a trailing separator leaves behind", () => {

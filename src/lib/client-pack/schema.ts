@@ -183,21 +183,21 @@ export function numberValue(value: unknown): number | null | undefined {
 /**
  * Split one cell holding several values into a list.
  *
- * Semicolons, commas and new lines all separate, because a person filling in a
- * column headed "inspections" reaches for whichever their keyboard offers first, and
- * rejecting a pack over the choice of punctuation helps nobody. Blank entries are
- * dropped so a trailing separator is not an empty inspection name.
+ * Semicolons and new lines separate. Commas deliberately do NOT, because the values
+ * in these cells are certification type names and real ones contain commas:
+ * "PIUC - pressure, internal, upper coupler" is one inspection, not three. Splitting
+ * on commas shattered it into fragments that matched nothing on the tenant's list,
+ * and the first fleet load came out with no inspections ticked at all.
+ *
+ * Blank entries are dropped so a trailing separator is not an empty name.
  */
 export function listValue(value: unknown): string[] {
-  const text = textValue(value);
-
-  if (!text) {
-    return [];
-  }
-
-  return text
-    .split(/[;,\r\n]+/)
-    .map((part) => part.trim())
+  // Split the raw value, not textValue's output: textValue collapses every run of
+  // whitespace into a single space, so a cell where the person pressed Alt+Enter
+  // between entries would arrive here as one line and come back as one long name.
+  return String(value ?? "")
+    .split(/[;\r\n]+/)
+    .map((part) => textValue(part))
     .filter(Boolean);
 }
 
