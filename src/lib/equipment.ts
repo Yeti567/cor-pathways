@@ -65,19 +65,21 @@ export const equipmentDocumentTypeOptions = [
 // first time its list is read, so both need the same names. The list is tenant-editable
 // after seeding, so this is a starting point, not a fixed set.
 //
-// Every type here is EXPECTED ON EVERY FLEET UNIT (see buildUnitCertificationStatuses),
-// so a name added to this list makes every unit deficient until it is filed. Keep it to
-// what a Western Canadian fleet genuinely carries and let tenants trim further.
+// Every type here is expected on a fleet unit that has no inspection list of its own
+// (see expectedCertificationTypesForUnit), so a name added here makes every such unit
+// deficient until it is filed. That is why this list is now only what genuinely does
+// sit on nearly every road unit.
+//
+// The picker, tank and pressure inspections used to live here, back when the model had
+// no way to say "this one, not that one" and the advice was to delete the types a
+// fleet did not need. That advice never worked for a mixed fleet: Crude Master runs
+// tank trailers AND tractors, so any fleet-wide answer was wrong for half the yard.
+// They are seeded as options below instead, and a unit that carries one gets it ticked.
 //
 // CVIP is deliberately absent. It has its own doc_type above and its own Transport
 // registry file, so listing it here too would report one certificate as two gaps.
 // Migration 20260810120000 removes it from tenants seeded before that was noticed.
-export const DEFAULT_EQUIPMENT_CERTIFICATION_TYPES = [
-  "Crane / picker inspection",
-  "Tank inspection (CSA B620)",
-  "Pressure test (hydrostatic / pneumatic)",
-  "Fire extinguisher inspection",
-] as const;
+export const DEFAULT_EQUIPMENT_CERTIFICATION_TYPES = ["Fire extinguisher inspection"] as const;
 
 /**
  * Specialised inspections a tenant can tick onto individual units.
@@ -93,6 +95,21 @@ export const DEFAULT_EQUIPMENT_CERTIFICATION_TYPES = [
  * person decides. An app-invented rule would be wrong for somebody, and wrong silently.
  */
 export const OPTIONAL_EQUIPMENT_CERTIFICATION_TYPES = [
+  {
+    name: "Crane / picker inspection",
+    defaultIntervalDays: 365,
+    notes: "Annual. Picker trucks and cranes.",
+  },
+  {
+    name: "Tank inspection (CSA B620)",
+    defaultIntervalDays: 365,
+    notes: "Tank units only.",
+  },
+  {
+    name: "Pressure test (hydrostatic / pneumatic)",
+    defaultIntervalDays: 1825,
+    notes: "Tank and pressure vessel units only.",
+  },
   {
     name: "PIUC - pressure, internal, upper coupler",
     defaultIntervalDays: 1825,
