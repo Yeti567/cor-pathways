@@ -270,6 +270,16 @@ export type EquipmentAttentionItem = {
 export type EquipmentDashboardCounts = {
   downUnits: number;
   expiringDocuments: number;
+  /**
+   * How many UNITS those documents belong to.
+   *
+   * A document count alone stops being readable at fleet scale: a tank trailer
+   * carries a CVIP, four B620 inspections and four hoses, so a hundred and fifty
+   * trailers renewing together reads as thirteen hundred documents and tells nobody
+   * how many trucks are involved. The unit count is the number a yard actually
+   * plans around.
+   */
+  expiringUnits: number;
   overdueService: number;
 };
 
@@ -1323,6 +1333,110 @@ export function buildEquipmentAttentionItems(input: {
     .slice(0, Math.max(0, input.limit ?? items.length));
 }
 
+/**
+ * The renewal windows a yard plans around.
+ *
+ * Fifteen days is "book it this week", sixty is "get it on the schedule". They match
+ * how a fleet actually works: a CVIP or a B620 tank inspection needs a shop booking,
+ * and a shop needs notice, so a single "expiring soon" number arriving at thirty days
+ * is both too late for some jobs and too noisy for others.
+ */
+export const FLEET_RENEWAL_WINDOWS = [15, 30, 45, 60] as const;
+
+export type FleetRenewalBucket = {
+  /** Certificates and files due in this window. */
+  documents: number;
+  /** How many units those belong to. The number a yard schedules around. */
+  units: number;
+};
+
+export type FleetRenewalWindows = {
+  /** Already past its date. Counted separately because it is not a plan, it is a stop. */
+  expired: FleetRenewalBucket;
+  within15: FleetRenewalBucket;
+  within30: FleetRenewalBucket;
+  within45: FleetRenewalBucket;
+  within60: FleetRenewalBucket;
+};
+
+/**
+ * What is coming due across the fleet, bucketed by how long there is to act.
+ *
+ * The windows are CUMULATIVE: anything inside fifteen days is also inside thirty, so
+ * "30" reads as everything due in the next month rather than as a slice between two
+ * dates. That is how someone reads it out loud - "we have nine things due in the next
+ * thirty days" - and a slice would make the numbers look smaller than the workload is.
+ *
+ * Expired is deliberately NOT folded into the windows. A lapsed CVIP is not a job to
+ * schedule, it is a unit that should not be on the road, and burying it inside a
+ * "due in 15 days" count would lose exactly the thing that has to be seen first.
+ *
+ * Documents and units are both counted because they answer different questions. One
+ * tank trailer renewing brings a CVIP, an annual visual and four hoses with it, so
+ * six documents can be one truck.
+ */
+export function buildFleetRenewalWindows(input: {
+  documents: EquipmentInventoryDocumentRow[];
+  equipment: EquipmentInventoryEquipmentRow[];
+  now?: Date;
+}): FleetRenewalWindows {
+  const now = input.now ?? new Date();
+  const liveUnitIds = new Set(
+    input.equipment.filter((equipment) => !equipment.deleted_at).map((equipment) => equipment.id),
+  );
+
+  const documentCounts = { expired: 0, within15: 0, within30: 0, within45: 0, within60: 0 };
+  const unitIds = {
+    expired: new Set<string>(),
+    within15: new Set<string>(),
+    within30: new Set<string>(),
+    within45: new Set<string>(),
+    within60: new Set<string>(),
+  };
+
+  for (const document of input.documents) {
+    // A superseded certificate is kept for history with isActive false. It has a date
+    // in the past and must never be counted, or filing a renewal would ADD an overdue
+    // item rather than clear one.
+    if (!document.isActive || !liveUnitIds.has(document.equipment_id)) {
+      continue;
+    }
+
+    const days = daysUntil(document.expiryDate, now);
+
+    if (days === null) {
+      continue;
+    }
+
+    if (days < 0) {
+      documentCounts.expired += 1;
+      unitIds.expired.add(document.equipment_id);
+      continue;
+    }
+
+    for (const window of FLEET_RENEWAL_WINDOWS) {
+      if (days <= window) {
+        const key = `within${window}` as const;
+        documentCounts[key] += 1;
+        unitIds[key].add(document.equipment_id);
+      }
+    }
+  }
+
+  const bucket = (key: keyof typeof documentCounts): FleetRenewalBucket => ({
+    documents: documentCounts[key],
+    units: unitIds[key].size,
+  });
+
+  return {
+    expired: bucket("expired"),
+    within15: bucket("within15"),
+    within30: bucket("within30"),
+    within45: bucket("within45"),
+    within60: bucket("within60"),
+  };
+}
+
 export function buildEquipmentDashboardCounts(input: {
   documents: EquipmentInventoryDocumentRow[];
   equipment: EquipmentInventoryEquipmentRow[];
@@ -1335,6 +1449,7 @@ export function buildEquipmentDashboardCounts(input: {
   const now = input.now ?? new Date();
   let overdueService = 0;
   let expiringDocuments = 0;
+  const expiringUnitIds = new Set<string>();
 
   for (const service of input.scheduledServices) {
     const equipment = equipmentById.get(service.equipment_id);
@@ -1357,12 +1472,14 @@ export function buildEquipmentDashboardCounts(input: {
 
     if (getEquipmentDocumentStatus(document, now).state !== "current") {
       expiringDocuments += 1;
+      expiringUnitIds.add(document.equipment_id);
     }
   }
 
   return {
     downUnits: Array.from(equipmentById.values()).filter((equipment) => equipment.status === "down").length,
     expiringDocuments,
+    expiringUnits: expiringUnitIds.size,
     overdueService,
   };
 }

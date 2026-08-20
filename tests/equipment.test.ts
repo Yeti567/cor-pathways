@@ -290,6 +290,7 @@ describe("equipment helpers", () => {
     expect(counts).toEqual({
       downUnits: 1,
       expiringDocuments: 2,
+      expiringUnits: 2,
       overdueService: 1,
     });
   });

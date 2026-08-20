@@ -8,6 +8,7 @@ import { requireCurrentUser } from "@/lib/current-user";
 import {
   buildEquipmentAttentionItems,
   buildEquipmentDashboardCounts,
+  buildFleetRenewalWindows,
   equipmentDueStatusClass,
   formatEquipmentCategory,
   formatEquipmentMeter,
@@ -295,6 +296,11 @@ export default async function AdminPage() {
     isActive: service.is_active,
     title: service.title,
   }));
+  const fleetRenewals = buildFleetRenewalWindows({
+    documents: equipmentDashboardDocuments,
+    equipment: equipment ?? [],
+  });
+
   const equipmentDashboardCounts = buildEquipmentDashboardCounts({
     documents: equipmentDashboardDocuments,
     equipment: equipment ?? [],
@@ -393,12 +399,62 @@ export default async function AdminPage() {
             <FileText className="h-5 w-5 text-[var(--warning)]" aria-hidden="true" />
           </div>
           <p className="mt-3 text-3xl font-bold text-[var(--ink)]">{equipmentDashboardCounts.expiringDocuments}</p>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">Registration, insurance, permits, or certifications due for renewal.</p>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">
+            {equipmentDashboardCounts.expiringUnits > 0
+              ? `Across ${equipmentDashboardCounts.expiringUnits} ${equipmentDashboardCounts.expiringUnits === 1 ? "unit" : "units"}. CVIP, registration, insurance, permits and inspections due for renewal.`
+              : "CVIP, registration, insurance, permits and inspections due for renewal."}
+          </p>
         </Link>
       </div>
 
       <section className="mt-6 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+        <div className="border-b border-[var(--border)] px-5 py-4">
+          <h2 className="text-lg font-semibold text-[var(--ink)]">Coming due across the fleet</h2>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">
+            CVIP, registration, insurance and unit inspections. Each window includes the ones before it.
+          </p>
+        </div>
+        <div className="grid gap-px bg-[var(--border)] sm:grid-cols-3 lg:grid-cols-5">
+          {[
+            { bucket: fleetRenewals.expired, label: "Already expired", tone: "expired" as const },
+            { bucket: fleetRenewals.within15, label: "Next 15 days", tone: "urgent" as const },
+            { bucket: fleetRenewals.within30, label: "Next 30 days", tone: "soon" as const },
+            { bucket: fleetRenewals.within45, label: "Next 45 days", tone: "plan" as const },
+            { bucket: fleetRenewals.within60, label: "Next 60 days", tone: "plan" as const },
+          ].map((window) => (
+            <Link
+              className="bg-[var(--surface)] px-5 py-4 transition hover:bg-[var(--surface-muted)]"
+              href="/admin/equipment/compliance"
+              key={window.label}
+            >
+              <p className="text-sm font-semibold text-[var(--ink-muted)]">{window.label}</p>
+              <p
+                className={`mt-2 text-3xl font-bold ${
+                  window.bucket.documents === 0
+                    ? "text-[var(--ink-muted)]"
+                    : window.tone === "expired" || window.tone === "urgent"
+                      ? "text-[var(--danger)]"
+                      : window.tone === "soon"
+                        ? "text-[var(--warning)]"
+                        : "text-[var(--ink)]"
+                }`}
+              >
+                {window.bucket.documents}
+              </p>
+              {/*
+                Both numbers, because they answer different questions. One tank trailer
+                renewing brings a CVIP, an annual visual and four hoses with it, so six
+                documents can be a single truck to book in.
+              */}
+              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                {window.bucket.documents === 0
+                  ? "Nothing due"
+                  : `on ${window.bucket.units} ${window.bucket.units === 1 ? "unit" : "units"}`}
+              </p>
+            </Link>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[var(--border)] px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-[var(--ink)]">Equipment Attention</h2>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">Upcoming service, expired documents, and units that need review.</p>
