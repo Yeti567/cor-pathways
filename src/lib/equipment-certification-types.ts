@@ -62,7 +62,7 @@ export async function ensureEquipmentCertificationTypes(
     })),
   ];
 
-  const { data: inserted } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from("equipment_certification_types")
     .insert(seed)
     .select("*")
@@ -70,6 +70,24 @@ export async function ensureEquipmentCertificationTypes(
 
   if (inserted && inserted.length > 0) {
     return byName(inserted);
+  }
+
+  // The deployment's database has not run the migration that added
+  // applies_by_default, so Postgres rejected the whole insert over an unknown
+  // column. Client deployments are forks that pull code and migrations on their own
+  // schedule, so code arriving before schema is a normal state here, not an
+  // emergency. Seed the names alone rather than leaving the tenant with no
+  // certification list at all, which is what a bare return would do.
+  if (insertError) {
+    const { data: namesOnly } = await supabase
+      .from("equipment_certification_types")
+      .insert(DEFAULT_EQUIPMENT_CERTIFICATION_TYPES.map((name) => ({ name, tenant_id: tenantId })))
+      .select("*")
+      .returns<EquipmentCertificationTypeRow[]>();
+
+    if (namesOnly && namesOnly.length > 0) {
+      return byName(namesOnly);
+    }
   }
 
   // No rows came back, so this render lost a race with another first render and the
