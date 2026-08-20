@@ -43,6 +43,7 @@ import {
   type PlanItem,
   type TenantSnapshot,
 } from "../src/lib/client-pack/plan";
+import { unitCertificationTitle } from "../src/lib/client-pack/schema";
 import type { PackRowError } from "../src/lib/client-pack/schema";
 import type { Database } from "../src/types/database";
 
@@ -612,12 +613,10 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
     }
 
     // A tank trailer carries four product hoses, each with its own serial and its
-    // own annual expiry. The title is what upsertEquipmentDocument matches on, so
-    // without the serial in it all four collapse into one row and three expiries
-    // are lost. With it, each hose is its own record and each ages on its own.
-    const title = item.row.componentId
-      ? `${item.row.certificationType} - ${item.row.componentId}`
-      : item.row.certificationType;
+    // own annual expiry. The title is what both the planner and upsertEquipmentDocument
+    // match on, so without the serial in it all four collapse into one row and three
+    // expiries are lost. Shared with the planner so the two cannot drift apart.
+    const title = unitCertificationTitle(item.row.certificationType, item.row.componentId);
 
     const documentError = await upsertEquipmentDocument(supabase, {
       tenantId: tenant.id,

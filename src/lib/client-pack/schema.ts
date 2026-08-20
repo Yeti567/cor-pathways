@@ -202,6 +202,25 @@ export function listValue(value: unknown): string[] {
 }
 
 /**
+ * What a filed unit certificate is titled.
+ *
+ * One unit can hold several certificates of the same type: a tank trailer carries four
+ * product hoses, each with its own serial and its own expiry, and a lead trailer can
+ * hold both the current upper coupler inspection and the one it replaced. The component
+ * is what tells them apart, so it belongs in the title.
+ *
+ * Shared because the planner matches existing certificates by this title and the loader
+ * writes it. When they disagreed, two rows of the same type resolved to the same stored
+ * certificate and the second silently overwrote the first.
+ */
+export function unitCertificationTitle(certificationType: string, componentId?: string | null): string {
+  const type = textValue(certificationType);
+  const component = textValue(componentId ?? "");
+
+  return component ? `${type} - ${component}` : type;
+}
+
+/**
  * Map an option the client picked from a dropdown onto the value the app stores.
  *
  * The dropdowns constrain what a client can choose, but a pack that has been

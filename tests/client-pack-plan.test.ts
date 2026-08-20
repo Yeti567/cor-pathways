@@ -281,3 +281,96 @@ describe("countActions", () => {
     expect(countActions(items)).toEqual({ create: 1, update: 1, skip: 0 });
   });
 });
+
+// One unit legitimately holds several certificates of the same type: four product
+// hoses on a tank trailer, or an upper coupler inspection plus the one it replaced.
+// The planner used to key only on the type, so every such row resolved to the same
+// stored certificate and each write overwrote the last. On the first real fleet load
+// that silently destroyed a coupler record; on a 150-trailer sheet it would have
+// thrown away three hose expiries per trailer.
+describe("several certificates of one type on one unit", () => {
+  const UNIT: TenantSnapshot = {
+    ...EMPTY,
+    equipment: [{ id: "e1", unit_number: "802A", vin_or_serial: null, license_plate: null }],
+  };
+
+  const hose = (serial: string, expires: string): UnitCertificationRow => ({
+    rowNumber: 2,
+    unitNumber: "802A",
+    certificationType: "Product hose",
+    componentId: serial,
+    issuedOn: null,
+    expiresOn: expires,
+  });
+
+  it("plans one certificate per component, not one for the lot", () => {
+    const { items, errors } = planUnitCertifications(
+      [hose("2868451-1", "2026-08-31"), hose("2868451-2", "2027-01-15")],
+      UNIT,
+      [],
+    );
+
+    expect(errors).toHaveLength(0);
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => item.action === "create")).toBe(true);
+    // Distinct rows, so neither can overwrite the other on the way in.
+    expect(new Set(items.map((item) => item.row.componentId)).size).toBe(2);
+  });
+
+  it("updates the matching component and leaves its siblings alone", () => {
+    const snapshot: TenantSnapshot = {
+      ...UNIT,
+      unitCertifications: [
+        { id: "d1", equipmentId: "e1", label: "Product hose - 2868451-1" },
+        { id: "d2", equipmentId: "e1", label: "Product hose - 2868451-2" },
+      ],
+    };
+
+    const { items } = planUnitCertifications(
+      [hose("2868451-1", "2027-08-31"), hose("2868451-2", "2027-01-15")],
+      snapshot,
+      [],
+    );
+
+    expect(items.map((item) => [item.action, item.existingId])).toEqual([
+      ["update", "d1"],
+      ["update", "d2"],
+    ]);
+  });
+
+  it("keeps a replaced inspection beside the one that replaced it", () => {
+    const snapshot: TenantSnapshot = {
+      ...UNIT,
+      unitCertifications: [{ id: "d1", equipmentId: "e1", label: "Upper coupler (UC)" }],
+    };
+
+    const { items } = planUnitCertifications(
+      [
+        {
+          rowNumber: 2,
+          unitNumber: "802A",
+          certificationType: "Upper coupler (UC)",
+          componentId: null,
+          issuedOn: "2021-02-20",
+          expiresOn: "2026-02-19",
+        },
+        {
+          rowNumber: 3,
+          unitNumber: "802A",
+          certificationType: "Upper coupler (UC)",
+          componentId: "2022-03-11",
+          issuedOn: "2022-03-11",
+          expiresOn: "2027-03-10",
+        },
+      ],
+      snapshot,
+      [],
+    );
+
+    // The bare one updates the stored record; the componented one is its own record
+    // rather than a second write to the same row.
+    expect(items.map((item) => item.action)).toEqual(["update", "create"]);
+    expect(items[0].existingId).toBe("d1");
+    expect(items[1].existingId).toBeUndefined();
+  });
+});

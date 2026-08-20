@@ -32,6 +32,7 @@ import type {
   LocationRow,
   UnitCertificationRow,
 } from "./parse";
+import { unitCertificationTitle } from "./schema";
 import type { PackRowError, PackSheet } from "./schema";
 
 export type PlanAction = "create" | "update" | "skip";
@@ -420,7 +421,7 @@ export function planUnitCertifications(
         items.push({
           action: "create",
           row: { ...row, equipmentId: "" },
-          detail: `${row.certificationType} will be added to ${row.unitNumber}, which is being created by this pack.`,
+          detail: `${unitCertificationTitle(row.certificationType, row.componentId)} will be added to ${row.unitNumber}, which is being created by this pack.`,
         });
         continue;
       }
@@ -436,14 +437,17 @@ export function planUnitCertifications(
       continue;
     }
 
-    const existing = existingByUnitAndLabel.get(`${equipmentId}|${normalizeIdentifier(row.certificationType)}`);
+    // Keyed on the stored title, not the bare type, so two hoses on one trailer are two
+    // certificates rather than one row written twice.
+    const label = unitCertificationTitle(row.certificationType, row.componentId);
+    const existing = existingByUnitAndLabel.get(`${equipmentId}|${normalizeIdentifier(label)}`);
 
     if (existing) {
       items.push({
         action: "update",
         row: { ...row, equipmentId },
         existingId: existing.id,
-        detail: `${row.certificationType} is already on ${row.unitNumber}. Its dates will be updated.`,
+        detail: `${unitCertificationTitle(row.certificationType, row.componentId)} is already on ${row.unitNumber}. Its dates will be updated.`,
       });
       continue;
     }
@@ -451,7 +455,7 @@ export function planUnitCertifications(
     items.push({
       action: "create",
       row: { ...row, equipmentId },
-      detail: `${row.certificationType} will be added to ${row.unitNumber}.`,
+      detail: `${unitCertificationTitle(row.certificationType, row.componentId)} will be added to ${row.unitNumber}.`,
     });
   }
 
