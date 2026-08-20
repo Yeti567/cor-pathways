@@ -32,6 +32,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { signOut } from "@/app/actions";
+import { InstallAppButton } from "@/app/_components/InstallAppButton";
 import { getCurrentUserContext } from "@/lib/current-user";
 import { coerceCountry } from "@/lib/region";
 
@@ -171,6 +172,7 @@ export async function AdminShell({
             >
               Switch Surface
             </Link>
+            <InstallAppButton variant="compact" />
             <form action={signOut}>
               <button
                 className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[var(--border)] bg-white text-[var(--ink-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"

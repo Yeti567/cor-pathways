@@ -30,6 +30,7 @@ import {
   uploadWorkerCertificationTicket,
 } from "@/app/actions";
 import { APP_NAME } from "@/lib/brand";
+import { InstallAppButton } from "@/app/_components/InstallAppButton";
 import { AssignedFormsPanel } from "@/app/web/_components/AssignedFormsPanel";
 import { EquipmentPanel } from "@/app/web/_components/EquipmentPanel";
 import { DailyInspectionPanel } from "@/app/web/_components/DailyInspectionPanel";
@@ -1612,6 +1613,13 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
             >
               Switch
             </Link>
+            {/*
+              Always here, never dismissible. Somebody who was busy the first time had
+              no way back to the install offer: the bottom banner can be dismissed, and
+              the sign-in page is out of reach once you are signed in and stay signed in.
+              It hides itself once the app is actually installed.
+            */}
+            <InstallAppButton variant="compact" />
             <form action={signOut}>
               <button
                 className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[var(--border)] bg-white text-[var(--ink-muted)]"
