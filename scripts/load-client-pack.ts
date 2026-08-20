@@ -47,7 +47,7 @@ import { unitCertificationTitle } from "../src/lib/client-pack/schema";
 import type { PackRowError } from "../src/lib/client-pack/schema";
 import type { Database } from "../src/types/database";
 
-type Args = { pack: string; tenant: string; apply: boolean };
+type Args = { pack: string; tenant: string; apply: boolean; includeExpired: boolean };
 
 function parseArgs(argv: string[]): Args {
   const get = (name: string) => {
@@ -59,11 +59,16 @@ function parseArgs(argv: string[]): Args {
   const tenant = get("tenant");
 
   if (!pack || !tenant) {
-    console.error("Usage: --pack <folder> --tenant <slug|uuid> [--apply]");
+    console.error("Usage: --pack <folder> --tenant <slug|uuid> [--apply] [--include-expired]");
     process.exit(1);
   }
 
-  return { pack, tenant, apply: argv.includes("--apply") };
+  return {
+    pack,
+    tenant,
+    apply: argv.includes("--apply"),
+    includeExpired: argv.includes("--include-expired"),
+  };
 }
 
 /**
@@ -336,6 +341,47 @@ Not supplied, so skipped: ${notSupplied.join(", ")}`);
       ? parseUnitCertifications(unitCertificationSheet)
       : { ...none, rows: [] as ReturnType<typeof parseUnitCertifications>["rows"] },
   };
+
+  // Certificates that have already lapsed stay on paper.
+  //
+  // The rollout draws a line: everything up to the cutover lives in the client's
+  // filing cabinet, everything after it lives here, and a COR auditor is told exactly
+  // that. Loading a dead certificate blurs the line and buys nothing -- it cannot
+  // prove compliance, and it lands on the dashboard as an overdue item for a renewal
+  // that was very likely done on paper months ago.
+  //
+  // Dropped loudly rather than silently: a row the client typed and we ignored has to
+  // be visible, or the next question is why the app is missing an inspection.
+  const today = new Date().toISOString().slice(0, 10);
+  const expiredRows = parsed.unitCertifications.rows.filter(
+    (row) => row.expiresOn !== null && row.expiresOn < today,
+  );
+  const expiredTickets = parsed.certifications.rows.filter(
+    (row) => row.expiresOn !== null && row.expiresOn < today,
+  );
+
+  if (!args.includeExpired && (expiredRows.length > 0 || expiredTickets.length > 0)) {
+    console.log(
+      `
+Already expired, so NOT loaded (${expiredRows.length + expiredTickets.length}). ` +
+        "These stay in the paper file. Re-run with --include-expired to load them anyway:",
+    );
+
+    for (const row of expiredRows) {
+      console.log(`  - row ${row.rowNumber}: ${row.unitNumber} ${row.certificationType}, expired ${row.expiresOn}`);
+    }
+
+    for (const row of expiredTickets) {
+      console.log(`  - row ${row.rowNumber}: ${row.workerEmail} ${row.certificationType}, expired ${row.expiresOn}`);
+    }
+
+    parsed.unitCertifications.rows = parsed.unitCertifications.rows.filter(
+      (row) => !(row.expiresOn !== null && row.expiresOn < today),
+    );
+    parsed.certifications.rows = parsed.certifications.rows.filter(
+      (row) => !(row.expiresOn !== null && row.expiresOn < today),
+    );
+  }
 
   const parseErrors = Object.values(parsed).flatMap((result) => result.errors);
 
