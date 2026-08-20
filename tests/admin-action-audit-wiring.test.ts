@@ -173,11 +173,13 @@ describe("admin action audit wiring", () => {
     expect(adminActions).toContain("expires: certificationType.expires");
   });
 
-  it("records tenant audit events for worker invite and CSV import actions", () => {
+  it("records tenant audit events for worker create, invite, and CSV import actions", () => {
+    expect(adminActions).toContain('action: "worker.create"');
     expect(adminActions).toContain('action: "worker.invite"');
     expect(adminActions).toContain('action: "worker.import"');
     expect(adminActions).toContain('entityTable: "users"');
-    expect(adminActions).toContain("invited_count: invitedCount");
+    expect(adminActions).toContain("created_count: createdCount");
+    expect(adminActions).toContain("sent_count: sent.length");
     expect(adminActions).toContain("updated_count: updatedCount");
     expect(adminActions).toContain("failure_count: failures.length");
     expect(adminActions).toContain('status: failures.length > 0 ? "partial" : "completed"');

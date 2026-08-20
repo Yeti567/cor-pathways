@@ -1,7 +1,10 @@
 /**
  * Re-sends invite links to every worker in a tenant whose email address is
- * still unconfirmed. One-off recovery for links that expired before the
- * Supabase OTP expiry was raised to 24 hours.
+ * still unconfirmed.
+ *
+ * The admin panel now does this properly -- tick the workers and press Send
+ * invitations -- so prefer that. This stays for the case the panel cannot serve:
+ * an operator with database access and no admin login for the tenant.
  *
  * Usage: npx tsx scripts/resend-stale-invites.ts --tenant <uuid> [--apply]
  */
@@ -9,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
-import { resendWorkerInviteByEmail } from "../src/lib/worker-invite";
+import { sendWorkerInviteByEmail } from "../src/lib/worker-invite";
 
 function loadEnv(): void {
   const path = join(process.cwd(), ".env.local");
@@ -60,12 +63,12 @@ async function main() {
     process.exit(1);
   }
 
-  const stale: { email: string; fullName: string }[] = [];
+  const stale: { id: string; email: string; fullName: string }[] = [];
 
   for (const worker of workers) {
     const { data: authUser } = await supabase.auth.admin.getUserById(worker.id);
     if (authUser?.user && !authUser.user.email_confirmed_at) {
-      stale.push({ email: worker.email, fullName: worker.full_name });
+      stale.push({ email: worker.email, fullName: worker.full_name, id: worker.id });
     }
   }
 
@@ -82,16 +85,24 @@ async function main() {
   let failed = 0;
 
   for (const s of stale) {
-    const result = await resendWorkerInviteByEmail(supabase, {
+    const result = await sendWorkerInviteByEmail(supabase, {
       companyName: tenant.name,
       email: s.email,
       fullName: s.fullName,
       redirectTo: `${appUrl}/auth/confirm`,
+      // Everyone on this list is unconfirmed, so nobody here has a password yet
+      // and the password step must not be skippable for any of them.
+      requireSetup: true,
       tenantId,
     });
 
     if (result.ok) {
       sent += 1;
+      await supabase
+        .from("users")
+        .update({ invite_sent_at: new Date().toISOString() })
+        .eq("id", s.id)
+        .eq("tenant_id", tenantId);
       console.log(`SENT      ${s.fullName} <${s.email}>`);
     } else {
       failed += 1;

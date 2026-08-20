@@ -167,7 +167,8 @@ const actionGroups = [
     guard: "requireWorkerManager",
     actions: [
       "createWorker",
-      "resendWorkerInvite",
+      "sendWorkerInvite",
+      "sendWorkerInvites",
       "importWorkersFromCsv",
       "updateWorkerProfile",
       "createCertificationType",

@@ -1,5 +1,6 @@
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
+import { ACCOUNT_SETUP_PARAM } from "@/lib/auth-email-link";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordConsultantLoginAuditEventsForSession } from "@/lib/tenant-audit";
@@ -72,6 +73,12 @@ export async function GET(request: NextRequest) {
   verifyUrl.searchParams.set("token_hash", tokenHash);
   verifyUrl.searchParams.set("type", type);
   verifyUrl.searchParams.set("next", nextPath);
+
+  // Carried through from the invitation email. Marks somebody who has never set a
+  // password, so the verify step can insist on one instead of offering to skip.
+  if (request.nextUrl.searchParams.get(ACCOUNT_SETUP_PARAM) === "1") {
+    verifyUrl.searchParams.set(ACCOUNT_SETUP_PARAM, "1");
+  }
 
   return NextResponse.redirect(verifyUrl);
 }

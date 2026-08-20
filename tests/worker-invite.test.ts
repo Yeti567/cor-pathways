@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { APP_NAME } from "@/lib/brand";
-import { buildWorkerInviteEmail, inviteWorkerByEmail, resendWorkerInviteByEmail } from "@/lib/worker-invite";
+import { buildWorkerInviteEmail, createWorkerAccount, sendWorkerInviteByEmail } from "@/lib/worker-invite";
 
 const ACTION_LINK = "https://iasq.supabase.co/auth/v1/verify?token=abc&type=invite&redirect_to=https://corpathway360.com/auth/confirm";
 const HASHED_TOKEN = "hashed-token-abc";
@@ -57,120 +57,83 @@ describe("buildWorkerInviteEmail", () => {
   });
 });
 
-describe("inviteWorkerByEmail", () => {
+describe("createWorkerAccount", () => {
   const params = {
     email: "dana@acme.test",
     fullName: "Dana Jones",
     companyName: "Acme Freight",
-    redirectTo: "https://corpathway360.com/auth/confirm",
     tenantId: "tenant-1",
   };
 
-  // Every real invite path runs after the demo check; default it to "not a demo"
-  // so these tests exercise the send behaviour. The demo case is tested on its own.
   const notDemo = async () => false;
 
-  it("generates a link and sends a branded email via Resend", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email_1" }), { status: 200 }));
+  it("creates the account and sends nothing at all", async () => {
+    const fetchMock = vi.fn();
     const client = adminClientWithGenerateLink(okGenerateLink);
 
-    const result = await inviteWorkerByEmail(client, params, {
+    const result = await createWorkerAccount(client, params, {
       env: env(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       isDemoTenant: notDemo,
     });
 
-    expect(result).toEqual({ ok: true, user: { id: "user-1" }, emailWarning: null });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    const body = JSON.parse(firstCall[1].body as string);
-    expect(body.to).toEqual(["dana@acme.test"]);
-    expect(body.from).toBe("no-reply@corpathway360.com");
-    // Our own /auth/confirm, never Supabase's verify endpoint.
-    expect(body.text).toContain(EXPECTED_INVITE_LINK);
-    expect(body.text).not.toContain("supabase.co");
-    expect(body.html).toContain(EXPECTED_INVITE_LINK.replace(/&/g, "&amp;"));
-    expect(body.html).not.toContain("supabase.co");
+    expect(result).toEqual({ ok: true, user: { id: "user-1" } });
+    // The whole point of the change: entering a worker puts nothing in an inbox.
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("passes the invite metadata to generateLink", async () => {
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+  it("provisions through generateLink, because createUser is refused by the signup trigger", async () => {
     const generateLink = vi.fn(okGenerateLink);
-    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+    const createUser = vi.fn();
+    const client = { auth: { admin: { createUser, generateLink } } } as unknown as SupabaseClient<Database>;
 
-    await inviteWorkerByEmail(client, params, { env: env(), fetchImpl: fetchMock as unknown as typeof fetch, isDemoTenant: notDemo });
+    await createWorkerAccount(client, params, { env: env(), isDemoTenant: notDemo });
 
+    // Measured against a local stack: admin createUser writes a password hash even
+    // when no password is passed, the signup trigger reads that as somebody signing
+    // themselves up, and refuses once a company exists. An invite link leaves the
+    // password column genuinely empty, which is the branch the trigger allows.
+    expect(createUser).not.toHaveBeenCalled();
     expect(generateLink).toHaveBeenCalledWith({
       type: "invite",
       email: "dana@acme.test",
-      options: { data: { company_name: "Acme Freight", full_name: "Dana Jones" }, redirectTo: params.redirectTo },
+      options: { data: { company_name: "Acme Freight", full_name: "Dana Jones" } },
     });
   });
 
-  it("returns ok:false when the link cannot be created (no user)", async () => {
-    const client = adminClientWithGenerateLink(() =>
-      Promise.resolve({ data: { user: null, properties: null }, error: { message: "already registered" } }),
-    );
-    const result = await inviteWorkerByEmail(client, params, {
-      env: env(),
-      fetchImpl: vi.fn() as unknown as typeof fetch,
-      isDemoTenant: notDemo,
-    });
-    expect(result).toEqual({ ok: false, error: "already registered" });
-  });
-
-  it("returns ok:true with a warning when the email fails but the user was created", async () => {
-    const fetchMock = vi.fn(async () => new Response("domain not verified", { status: 403 }));
-    const client = adminClientWithGenerateLink(okGenerateLink);
-
-    const result = await inviteWorkerByEmail(client, params, {
-      env: env(),
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      isDemoTenant: notDemo,
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.user).toEqual({ id: "user-1" });
-      expect(result.emailWarning).toContain("HTTP 403");
-    }
-  });
-
-  it("does not attempt to send when email env is missing, but still provisions the user", async () => {
-    const fetchMock = vi.fn();
-    const client = adminClientWithGenerateLink(okGenerateLink);
-
-    const result = await inviteWorkerByEmail(client, params, {
-      env: { NODE_ENV: "test" },
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      isDemoTenant: notDemo,
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.emailWarning).toContain("Email delivery is not configured");
-    }
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("blocks the invite for a demo tenant without creating a user or sending", async () => {
-    const fetchMock = vi.fn();
+  it("asks for no redirect, since the link it mints is thrown away unsent", async () => {
     const generateLink = vi.fn(okGenerateLink);
     const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
 
-    const result = await inviteWorkerByEmail(client, params, {
-      env: env(),
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      isDemoTenant: async () => true,
-    });
+    await createWorkerAccount(client, params, { env: env(), isDemoTenant: notDemo });
 
-    expect(result).toEqual({ ok: false, error: "Inviting workers is disabled in the demo." });
+    const options = (generateLink.mock.calls as unknown as Record<string, Record<string, unknown>>[][])[0][0]
+      .options as Record<string, unknown>;
+    expect(options).not.toHaveProperty("redirectTo");
+  });
+
+  it("returns ok:false when the account cannot be created", async () => {
+    const client = adminClientWithGenerateLink(() =>
+      Promise.resolve({ data: { user: null, properties: null }, error: { message: "already registered" } }),
+    );
+
+    const result = await createWorkerAccount(client, params, { env: env(), isDemoTenant: notDemo });
+
+    expect(result).toEqual({ ok: false, error: "already registered" });
+  });
+
+  it("blocks a demo tenant without creating anything", async () => {
+    const generateLink = vi.fn(okGenerateLink);
+    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+
+    const result = await createWorkerAccount(client, params, { env: env(), isDemoTenant: async () => true });
+
+    expect(result).toEqual({ ok: false, error: "Adding workers is disabled in the demo." });
     expect(generateLink).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
-describe("resendWorkerInviteByEmail", () => {
+describe("sendWorkerInviteByEmail", () => {
   const params = {
     email: "dana@acme.test",
     fullName: "Dana Jones",
@@ -186,7 +149,7 @@ describe("resendWorkerInviteByEmail", () => {
     const generateLink = vi.fn(okGenerateLink);
     const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
 
-    const result = await resendWorkerInviteByEmail(client, params, {
+    const result = await sendWorkerInviteByEmail(client, params, {
       env: env(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       isDemoTenant: notDemo,
@@ -199,19 +162,57 @@ describe("resendWorkerInviteByEmail", () => {
       options: { redirectTo: params.redirectTo },
     });
 
-    // The resent link must declare type=magiclink, not the invite type, or
-    // /auth/verify redeems it as the wrong flow. And like every other mailer it
-    // points at us, never at Supabase's verify endpoint.
+    // The link must declare type=magiclink, not the invite type, or /auth/verify
+    // redeems it as the wrong flow. And like every other mailer it points at us,
+    // never at Supabase's verify endpoint.
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body.text).toContain(EXPECTED_MAGIC_LINK);
     expect(body.text).not.toContain("supabase.co");
+  });
+
+  it("marks a first-time invitation so the password step cannot be skipped", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const generateLink = vi.fn(okGenerateLink);
+    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+
+    await sendWorkerInviteByEmail(
+      client,
+      { ...params, requireSetup: true },
+      { env: env(), fetchImpl: fetchMock as unknown as typeof fetch, isDemoTenant: notDemo },
+    );
+
+    // Without this the worker lands on a skippable page, skips it, and is left
+    // with a session-only account that cannot sign in from a second device.
+    expect(generateLink).toHaveBeenCalledWith({
+      type: "magiclink",
+      email: "dana@acme.test",
+      options: { redirectTo: "https://corpathway360.com/auth/confirm?setup=1" },
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.text).toContain("setup=1");
+  });
+
+  it("leaves the marker off for somebody who already has a password", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const generateLink = vi.fn(okGenerateLink);
+    const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
+
+    await sendWorkerInviteByEmail(client, params, {
+      env: env(),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      isDemoTenant: notDemo,
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.text).not.toContain("setup=1");
   });
 
   it("reports a failed send as a failure, since nothing was provisioned to keep", async () => {
     const fetchMock = vi.fn(async () => new Response("domain not verified", { status: 403 }));
     const client = adminClientWithGenerateLink(okGenerateLink);
 
-    const result = await resendWorkerInviteByEmail(client, params, {
+    const result = await sendWorkerInviteByEmail(client, params, {
       env: env(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       isDemoTenant: notDemo,
@@ -225,7 +226,7 @@ describe("resendWorkerInviteByEmail", () => {
     const generateLink = vi.fn(okGenerateLink);
     const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
 
-    const result = await resendWorkerInviteByEmail(client, params, {
+    const result = await sendWorkerInviteByEmail(client, params, {
       env: { NODE_ENV: "test" },
       fetchImpl: vi.fn() as unknown as typeof fetch,
       isDemoTenant: notDemo,
@@ -236,11 +237,11 @@ describe("resendWorkerInviteByEmail", () => {
     expect(generateLink).not.toHaveBeenCalled();
   });
 
-  it("refuses to resend from a demo tenant", async () => {
+  it("refuses to send from a demo tenant", async () => {
     const generateLink = vi.fn(okGenerateLink);
     const client = { auth: { admin: { generateLink } } } as unknown as SupabaseClient<Database>;
 
-    const result = await resendWorkerInviteByEmail(client, params, {
+    const result = await sendWorkerInviteByEmail(client, params, {
       env: env(),
       fetchImpl: vi.fn() as unknown as typeof fetch,
       isDemoTenant: async () => true,

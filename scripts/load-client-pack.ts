@@ -478,7 +478,7 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
   // Accounts that exist but were never emailed. Tracked separately from failures
   // because the row DID load: the person is in the system and simply cannot get
   // in, which is the quiet version of a failure and the one that embarrasses us.
-  const notEmailed: string[] = [];
+
   const note = (line: string) => console.log(`  ${line}`);
   const fail = (what: string, message: string) => {
     failures.push(`${what}: ${message}`);
@@ -499,11 +499,6 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
 
     userIdByEmail.set(item.row.email, result.userId!);
     note(`${item.action === "create" ? "created" : "updated"} ${item.row.fullName}`);
-
-    if (result.emailWarning) {
-      notEmailed.push(`${item.row.fullName} <${item.row.email}>: ${result.emailWarning}`);
-      console.error(`  ! NO INVITE EMAIL SENT to ${item.row.fullName}: ${result.emailWarning}`);
-    }
   }
 
   for (const item of locationPlan.items) {
@@ -689,23 +684,17 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
       : `\nLoaded with ${failures.length} failure${failures.length === 1 ? "" : "s"}. Fix and run again; re-running updates rather than duplicating.`,
   );
 
-  // Loudest thing in the output, and it fails the run. A worker who loaded fine
-  // but was never emailed is worse than an outright failure: the load looks
-  // successful, they are visibly in the app, and nobody finds out until the
-  // person phones to say they cannot get in.
-  if (notEmailed.length > 0) {
-    console.error(
-      `\n${notEmailed.length} worker${notEmailed.length === 1 ? " was" : "s were"} created but NEVER EMAILED. ` +
-        "They exist in the app and cannot get in until you resend. " +
-        'Open each one in Admin > Workers and press "Resend invite":',
+  // Said every run, because it is the difference between this load and the ones
+  // before it. Nobody has been emailed and nobody can sign in yet, and that is
+  // now the intended end state rather than a fault to chase.
+  if (employeePlan.items.length > 0) {
+    console.log(
+      "\nNo invitations were sent. Everyone loaded here has an account and cannot sign in yet. " +
+        'When the company is ready for them, tick the workers in Admin > Workers and press "Send invitations".',
     );
-
-    for (const line of notEmailed) {
-      console.error(`  - ${line}`);
-    }
   }
 
-  if (failures.length > 0 || notEmailed.length > 0) {
+  if (failures.length > 0) {
     process.exitCode = 1;
   }
 }
@@ -876,37 +865,28 @@ async function upsertEmployee(
     phone: string | null;
     powerLevel: Database["public"]["Enums"]["power_level"];
   }>,
-): Promise<{ userId?: string; error?: string; emailWarning?: string }> {
-  const { inviteWorkerByEmail } = await import("../src/lib/worker-invite");
+): Promise<{ userId?: string; error?: string }> {
+  const { createWorkerAccount } = await import("../src/lib/worker-invite");
 
   let userId = item.existingId;
-  let emailWarning: string | undefined;
 
   if (!userId) {
-    const invite = await inviteWorkerByEmail(supabase, {
+    // Accounts only, no email. A pack load creates more people at once, and
+    // further ahead of anyone being ready to use the app, than anything else in
+    // this system, so it is the last place that should be putting invitations in
+    // inboxes. The company sends them from the workers list when the time comes.
+    const account = await createWorkerAccount(supabase, {
       companyName: tenant.name,
       email: item.row.email,
       fullName: item.row.fullName,
-      // Same landing page Add Worker uses, so an invite from a pack load and an
-      // invite from the admin panel are the same experience for the worker.
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
       tenantId: tenant.id,
     });
 
-    if (!invite.ok) {
-      return { error: invite.error };
+    if (!account.ok) {
+      return { error: account.error };
     }
 
-    userId = invite.user.id;
-
-    // inviteWorkerByEmail returns ok:true when the account was created but the
-    // email did not go. Dropping that here is how a roster load ends with people
-    // in the database who never heard from us: the load says "created", nobody
-    // knows, and we find out when one of them phones. Hand it back so the caller
-    // can list them.
-    if (invite.emailWarning) {
-      emailWarning = invite.emailWarning;
-    }
+    userId = account.user.id;
   }
 
   const { data: bootstrap } = await supabase
@@ -944,7 +924,7 @@ async function upsertEmployee(
     await supabase.from("tenants").delete().eq("id", bootstrap.tenant_id);
   }
 
-  return { userId, emailWarning };
+  return { userId };
 }
 
 main().catch((error) => {

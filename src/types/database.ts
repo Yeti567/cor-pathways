@@ -1040,6 +1040,11 @@ export type Database = {
           app_access: Database["public"]["Enums"]["app_access_level"];
           offline_sync_days: number;
           active: boolean;
+          // Null means entered but never invited. Entering a worker sends nothing;
+          // the company sends invitations when the people are ready for them.
+          invite_sent_at: string | null;
+          // Stamped by trigger from auth.users.email_confirmed_at.
+          invite_accepted_at: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["users"]["Row"]> & Pick<Database["public"]["Tables"]["users"]["Row"], "id" | "tenant_id" | "email" | "full_name" | "power_level">;
         Update: Partial<Database["public"]["Tables"]["users"]["Row"]>;

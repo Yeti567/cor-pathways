@@ -67,7 +67,7 @@ import { type CorCanonicalElement, COR_FRAMEWORKS, elementNumberForCanonical, is
 import { type Country, coerceCountry } from "@/lib/region";
 import type { WorkOrderStatus, WorkType } from "@/lib/trades";
 import { isDemoTenant } from "@/lib/demo";
-import { inviteWorkerByEmail, resendWorkerInviteByEmail } from "@/lib/worker-invite";
+import { createWorkerAccount, sendWorkerInviteByEmail } from "@/lib/worker-invite";
 import { TRANSPORT_REQUIREMENTS } from "@/lib/transport-registry";
 import {
   duplicateMessage,
@@ -8957,48 +8957,158 @@ function validateWorkerImportReferences(
   return errors;
 }
 
-export async function resendWorkerInvite(formData: FormData) {
+type WorkerInviteTargetRow = {
+  id: string;
+  email: string;
+  full_name: string;
+  invite_accepted_at: string | null;
+};
+
+/**
+ * Sends invitations to the named workers and records that it happened.
+ *
+ * Shared by the single-worker button and the bulk send on the workers list,
+ * because they are the same operation over a different sized list.
+ *
+ * Sends are sequential rather than concurrent. Resend rate-limits, and a roster
+ * send is the exact shape that trips it: fifty at once turns a slow success into
+ * a partial failure that the admin then has to reconcile by hand.
+ */
+async function sendInvitesToWorkers(
+  adminSupabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  context: Awaited<ReturnType<typeof requireWorkerManager>>,
+  userIds: string[],
+): Promise<{ sent: string[]; failures: string[] }> {
+  // Scope the lookup to the caller's own tenant. The admin client bypasses RLS,
+  // so without this filter an admin could post another tenant's user id and mail
+  // that person a working login link.
+  const { data: targets } = await adminSupabase
+    .from("users")
+    .select("id, email, full_name, invite_accepted_at")
+    .in("id", userIds)
+    .eq("tenant_id", context.appUser.tenant_id)
+    .returns<WorkerInviteTargetRow[]>();
+
+  const sent: string[] = [];
+  const failures: string[] = [];
+
+  for (const target of targets ?? []) {
+    const result = await sendWorkerInviteByEmail(adminSupabase, {
+      companyName: context.tenant?.name ?? "Company profile",
+      email: target.email,
+      fullName: target.full_name,
+      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
+      // Anybody who has never accepted has never set a password, so the password
+      // step has to be mandatory for them rather than skippable.
+      requireSetup: target.invite_accepted_at === null,
+      tenantId: context.appUser.tenant_id,
+    });
+
+    if (!result.ok) {
+      failures.push(`${target.email}: ${result.error}`);
+      continue;
+    }
+
+    // Stamped only after a send that actually succeeded. A failed send that still
+    // moved this column would leave the worker showing as invited, which is the
+    // one state nobody would think to look at again.
+    await adminSupabase
+      .from("users")
+      .update({ invite_sent_at: new Date().toISOString() })
+      .eq("id", target.id)
+      .eq("tenant_id", context.appUser.tenant_id);
+
+    sent.push(target.email);
+  }
+
+  return { failures, sent };
+}
+
+function summarizeInviteSend(sent: string[], failures: string[]): string {
+  if (failures.length === 0) {
+    return sent.length === 1 ? `Invitation sent to ${sent[0]}.` : `${sent.length} invitations sent.`;
+  }
+
+  const failed = failures.length === 1 ? failures[0] : `${failures.length} failed: ${failures.join("; ")}`;
+  return sent.length > 0 ? `${sent.length} sent. ${failed}` : failed;
+}
+
+export async function sendWorkerInvite(formData: FormData) {
   const context = await requireWorkerManager();
   const adminSupabase = createSupabaseAdminClient();
   const userId = stringValue(formData, "userId");
 
   if (!adminSupabase) {
-    redirect("/admin/workers?error=SUPABASE_SERVICE_ROLE_KEY%20is%20required%20to%20resend%20worker%20invites.");
+    redirect("/admin/workers?error=SUPABASE_SERVICE_ROLE_KEY%20is%20required%20to%20send%20worker%20invitations.");
   }
 
   if (!userId) {
-    redirect("/admin/workers?error=Choose%20a%20worker%20to%20resend%20the%20invite%20to.");
+    redirect("/admin/workers?error=Choose%20a%20worker%20to%20invite.");
   }
 
-  // Scope the lookup to the caller's own tenant. The admin client bypasses RLS,
-  // so without this filter an admin could post another tenant's user id and mail
-  // that person a working login link.
-  const { data: target } = await adminSupabase
-    .from("users")
-    .select("id, email, full_name")
-    .eq("id", userId)
-    .eq("tenant_id", context.appUser.tenant_id)
-    .maybeSingle<{ id: string; email: string; full_name: string }>();
+  const { failures, sent } = await sendInvitesToWorkers(adminSupabase, context, [userId]);
 
-  if (!target) {
+  if (sent.length === 0 && failures.length === 0) {
     redirect("/admin/workers?error=That%20worker%20was%20not%20found.");
   }
 
-  const result = await resendWorkerInviteByEmail(adminSupabase, {
-    companyName: context.tenant?.name ?? "Company profile",
-    email: target.email,
-    fullName: target.full_name,
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
-    tenantId: context.appUser.tenant_id,
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "worker.invite",
+    entityId: userId,
+    entityTable: "users",
+    metadata: {
+      failure_count: failures.length,
+      sent_count: sent.length,
+    },
   });
 
-  if (!result.ok) {
-    redirect(`/admin/workers?error=${encodeURIComponent(`Invite email could not be resent: ${result.error}`)}`);
+  revalidatePath("/admin/workers");
+  revalidatePath(`/admin/workers/${userId}`);
+
+  if (failures.length > 0) {
+    redirect(`/admin/workers?error=${encodeURIComponent(summarizeInviteSend(sent, failures))}`);
   }
 
+  redirect(`/admin/workers?notice=${encodeURIComponent(summarizeInviteSend(sent, failures))}`);
+}
+
+/**
+ * Sends invitations to a selection from the workers list, which is how a roster
+ * that was loaded weeks ago finally reaches the people in it.
+ */
+export async function sendWorkerInvites(formData: FormData) {
+  const context = await requireWorkerManager();
+  const adminSupabase = createSupabaseAdminClient();
+  const userIds = formData.getAll("userIds").map((value) => String(value)).filter(Boolean);
+
+  if (!adminSupabase) {
+    redirect("/admin/workers?error=SUPABASE_SERVICE_ROLE_KEY%20is%20required%20to%20send%20worker%20invitations.");
+  }
+
+  if (userIds.length === 0) {
+    redirect("/admin/workers?error=Tick%20the%20workers%20you%20want%20to%20invite.");
+  }
+
+  const { failures, sent } = await sendInvitesToWorkers(adminSupabase, context, userIds);
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "worker.invite",
+    entityTable: "users",
+    metadata: {
+      failure_count: failures.length,
+      requested_count: userIds.length,
+      sent_count: sent.length,
+      status: failures.length > 0 ? "partial" : "completed",
+    },
+  });
+
   revalidatePath("/admin/workers");
-  revalidatePath(`/admin/workers/${target.id}`);
-  redirect(`/admin/workers?notice=${encodeURIComponent(`Invite email resent to ${target.email}.`)}`);
+
+  if (failures.length > 0) {
+    redirect(`/admin/workers?error=${encodeURIComponent(summarizeInviteSend(sent, failures))}`);
+  }
+
+  redirect(`/admin/workers?notice=${encodeURIComponent(summarizeInviteSend(sent, failures))}`);
 }
 
 export async function createWorker(formData: FormData) {
@@ -9044,20 +9154,21 @@ export async function createWorker(formData: FormData) {
     );
   }
 
-  const invite = await inviteWorkerByEmail(adminSupabase, {
+  // Creates the account and sends nothing. The company invites this person from
+  // the workers list when they are ready to be invited, which on a roster load is
+  // long after the data entry.
+  const account = await createWorkerAccount(adminSupabase, {
     companyName: context.tenant?.name ?? "Company profile",
     email,
     fullName,
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
     tenantId: context.appUser.tenant_id,
   });
 
-  if (!invite.ok) {
-    redirect(`/admin/workers?error=${encodeURIComponent(invite.error)}`);
+  if (!account.ok) {
+    redirect(`/admin/workers?error=${encodeURIComponent(account.error)}`);
   }
 
-  const userId = invite.user.id;
-  const inviteWarning = invite.emailWarning;
+  const userId = account.user.id;
   const { data: bootstrapUser } = await adminSupabase
     .from("users")
     .select("tenant_id")
@@ -9107,7 +9218,7 @@ export async function createWorker(formData: FormData) {
   }
 
   await recordAppUserAuditEvent(context.appUser, {
-    action: "worker.invite",
+    action: "worker.create",
     entityId: userId,
     entityTable: "users",
     metadata: {
@@ -9123,10 +9234,11 @@ export async function createWorker(formData: FormData) {
 
   revalidatePath("/admin/workers");
   revalidatePath("/admin/access");
-  const successNotice = inviteWarning
-    ? `Worker added, but the invite email could not be sent: ${inviteWarning}`
-    : "Worker invited.";
-  redirect(`/admin/workers?notice=${encodeURIComponent(successNotice)}`);
+  redirect(
+    `/admin/workers?notice=${encodeURIComponent(
+      "Worker added. No invitation has been sent - use Send invitation when they are ready for it.",
+    )}`,
+  );
 }
 
 export async function importWorkersFromCsv(formData: FormData) {
@@ -9199,37 +9311,33 @@ export async function importWorkersFromCsv(formData: FormData) {
   const locationMap = buildImportLocationMap(locations ?? []);
   const existingUsersByEmail = new Map((existingUsers ?? []).map((user) => [user.email.toLowerCase(), user.id]));
   const failures: string[] = [];
-  const emailWarnings: string[] = [];
-  let invitedCount = 0;
+  let createdCount = 0;
   let updatedCount = 0;
   let assignedLocationCount = 0;
 
   for (const row of parsed.rows) {
     let userId = existingUsersByEmail.get(row.email);
-    let createdInvite = false;
+    let createdAccount = false;
     let bootstrapTenantId: string | null = null;
 
     if (!userId) {
-      const invite = await inviteWorkerByEmail(adminSupabase, {
+      // A roster import is the case this whole change exists for: the accounts
+      // are made now, and not one email goes out until the company says so.
+      const account = await createWorkerAccount(adminSupabase, {
         companyName: context.tenant?.name ?? "Company profile",
         email: row.email,
         fullName: row.fullName,
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000"}/auth/confirm`,
         tenantId: context.appUser.tenant_id,
       });
 
-      if (!invite.ok) {
-        failures.push(`Row ${row.rowNumber}: ${invite.error}`);
+      if (!account.ok) {
+        failures.push(`Row ${row.rowNumber}: ${account.error}`);
         continue;
       }
 
-      userId = invite.user.id;
-      createdInvite = true;
+      userId = account.user.id;
+      createdAccount = true;
       existingUsersByEmail.set(row.email, userId);
-
-      if (invite.emailWarning) {
-        emailWarnings.push(`${row.email}: ${invite.emailWarning}`);
-      }
 
       const { data: bootstrapUser } = await adminSupabase
         .from("users")
@@ -9331,8 +9439,8 @@ export async function importWorkersFromCsv(formData: FormData) {
 
     await cleanupBootstrapTenant();
 
-    if (createdInvite) {
-      invitedCount += 1;
+    if (createdAccount) {
+      createdCount += 1;
     } else {
       updatedCount += 1;
     }
@@ -9341,16 +9449,16 @@ export async function importWorkersFromCsv(formData: FormData) {
   revalidatePath("/admin/workers");
   revalidatePath("/admin/access");
 
-  const completedCount = invitedCount + updatedCount;
+  const completedCount = createdCount + updatedCount;
   await recordAppUserAuditEvent(context.appUser, {
     action: "worker.import",
     entityTable: "users",
     metadata: {
       assigned_location_count: assignedLocationCount,
+      created_count: createdCount,
       failure_count: failures.length,
       failure_preview: failures.slice(0, 3),
       imported_count: completedCount,
-      invited_count: invitedCount,
       row_count: parsed.rows.length,
       status: failures.length > 0 ? "partial" : "completed",
       updated_count: updatedCount,
@@ -9364,22 +9472,13 @@ export async function importWorkersFromCsv(formData: FormData) {
   }
 
   const locationNotice = assignedLocationCount > 0 ? ` ${assignedLocationCount} location assignments.` : "";
-  // Name them. A bare count ("3 invite emails could not be sent") is unactionable
-  // against a 50-row import: those people are in the app, cannot get in, and the
-  // admin has no way to tell which three. Capped so the notice still fits in a
-  // redirect URL.
-  const NAMED_LIMIT = 5;
-  const unsentAddresses = emailWarnings.map((warning) => warning.split(":")[0]);
-  const namedUnsent = unsentAddresses.slice(0, NAMED_LIMIT).join(", ");
-  const remainingUnsent = unsentAddresses.length - Math.min(unsentAddresses.length, NAMED_LIMIT);
-  const emailNotice =
-    emailWarnings.length > 0
-      ? ` ${emailWarnings.length} invite email${emailWarnings.length === 1 ? "" : "s"} could not be sent: ${namedUnsent}` +
-        `${remainingUnsent > 0 ? ` and ${remainingUnsent} more` : ""}. Open each worker and press Resend invite.`
-      : "";
+  // Say plainly that nothing was emailed. An import that used to fire off fifty
+  // invitations now fires none, and an admin who is not told that will sit waiting
+  // for people to sign in.
   redirect(
     `/admin/workers?notice=${encodeURIComponent(
-      `Imported ${invitedCount} new workers and updated ${updatedCount} existing workers.${locationNotice}${emailNotice}`,
+      `Imported ${createdCount} new workers and updated ${updatedCount} existing workers.${locationNotice}` +
+        " No invitations were sent - tick the workers on this list and press Send invitations when they are ready.",
     )}`,
   );
 }

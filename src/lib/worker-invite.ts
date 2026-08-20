@@ -1,43 +1,59 @@
-// Worker invitations, sent through our own Resend pipeline instead of Supabase's
-// built-in mailer.
+// Worker accounts and worker invitations, which are two separate acts.
 //
-// Supabase's transactional email is rate-limited to a handful of messages per
-// hour, so looping `auth.admin.inviteUserByEmail` over a roster (e.g. a 20-person
-// CSV import) trips the limit almost immediately. Instead we use
-// `auth.admin.generateLink({ type: 'invite' })`, which creates the user and
-// returns the exact same action link WITHOUT sending an email, then deliver a
-// branded invite through Resend. The downstream accept flow is unchanged because
-// the link is identical to what Supabase would have emailed.
+// ENTERING A WORKER SENDS NOTHING. `createWorkerAccount` makes the auth account
+// and stops there. The company sends invitations from the admin panel when the
+// people are actually ready for them, which on a roster load is days or weeks
+// after the names go in. Sending at entry time meant sixty drivers got a 24-hour
+// link on the Tuesday the office did the data entry, and every one of those links
+// was dead before anybody thought to tell the drivers to watch for it.
+//
+// SENDING GOES THROUGH RESEND, NOT SUPABASE. Supabase's transactional email is
+// rate-limited to a handful of messages an hour, so looping the built-in mailer
+// over a roster trips the limit almost immediately. `generateLink` mints the token
+// without sending anything and we deliver a branded email ourselves.
+//
+// THE LINK IS A MAGIC LINK, AND THAT IS FORCED ON US. `generateLink({ type:
+// 'invite' })` refuses an address that is already registered, and by the time an
+// invitation is sent the account has existed since the day it was entered. A magic
+// link is the one primitive that works for somebody who already exists. It carries
+// a cost: `/auth/verify` treats the set-password step as optional for magic links,
+// because a magic link can belong to somebody who already has a password. A worker
+// who has never set one must not be allowed to skip it -- skipping leaves a
+// one-session account that cannot sign in from any other phone -- so a first-time
+// send marks the link `setup=1` and the verify flow makes the step mandatory. See
+// `sendWorkerInviteByEmail`.
 
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { APP_NAME } from "@/lib/brand";
 import { isDemoTenant } from "@/lib/demo";
-import { buildEmailConfirmationLink } from "@/lib/auth-email-link";
+import { buildEmailConfirmationLink, withAccountSetupMarker } from "@/lib/auth-email-link";
 import { sendViaResend } from "@/lib/resend-relay";
 
 type AdminClient = SupabaseClient<Database>;
 
-export type WorkerInviteParams = {
+export type WorkerAccountParams = {
   email: string;
   fullName: string;
   companyName: string;
-  redirectTo: string;
-  // The inviting admin's tenant. A demo tenant cannot invite: it would create an
-  // auth user for an arbitrary email and send it a Resend email on the
-  // deployment's account, which is exactly what the demo must not do.
+  // The creating admin's tenant. A demo tenant cannot create worker accounts: it
+  // would mint an auth user for an arbitrary email address inside the shared demo
+  // deployment, which is exactly what the demo must not do.
   tenantId: string;
 };
 
-export type WorkerInviteResult =
-  // The auth user exists (created and link generated). `emailWarning` is set when
-  // the user was created but the invite email could not be delivered, so the
-  // caller can still finish setting up the worker and surface a resend hint.
-  | { ok: true; user: User; emailWarning: string | null }
-  // The invite link itself could not be created; no user exists.
+export type WorkerInviteParams = WorkerAccountParams & {
+  redirectTo: string;
+  // True when this worker has never completed setup, which makes the password
+  // step mandatory on the other end instead of skippable. See the file header.
+  requireSetup?: boolean;
+};
+
+export type WorkerAccountResult =
+  | { ok: true; user: User }
   | { ok: false; error: string };
 
-export type WorkerInviteResendResult = { ok: true } | { ok: false; error: string };
+export type WorkerInviteResult = { ok: true } | { ok: false; error: string };
 
 export type WorkerInviteEmail = {
   subject: string;
@@ -106,23 +122,37 @@ type InviteDeps = {
 };
 
 /**
- * Creates a worker invite (auth user + action link) and emails it via Resend.
- * Returns ok:true once the user exists, even if the email could not be sent, so
- * the caller can still provision the worker and tell the admin to resend.
+ * Creates the auth account for a worker and sends NOTHING.
+ *
+ * WHY generateLink AND NOT createUser, which is the obvious choice and does not
+ * work. `auth.admin.createUser` writes a password hash even when no password is
+ * given, and the signup trigger (20260817000000) reads exactly that column to
+ * decide what it is looking at: an account carrying a password is somebody
+ * signing themselves up, and is refused outright once a company exists. Measured
+ * against a local stack rather than reasoned about -- every `createUser` call
+ * came back "Database error creating new user" and the auth row was rolled back,
+ * so a whole roster load would have failed on the first name.
+ *
+ * `generateLink({ type: 'invite' })` provisions the account with the password
+ * column genuinely empty, which is the branch the trigger lets through: no
+ * tenant, no user row, and the calling action provisions the person into the
+ * right company. Confirmed on the same local stack.
+ *
+ * The link it returns is deliberately discarded. That is the one cost of this
+ * route -- a token minted and never used -- and it is a small one: nothing is
+ * transmitted anywhere, and it expires on its own. The alternative is a trigger
+ * change to the rule that closed self-service signup, which is not a thing to
+ * loosen for the sake of tidiness here.
  */
-export async function inviteWorkerByEmail(
+export async function createWorkerAccount(
   adminSupabase: AdminClient,
-  params: WorkerInviteParams,
+  params: WorkerAccountParams,
   deps: InviteDeps = {},
-): Promise<WorkerInviteResult> {
-  const env = deps.env ?? process.env;
-  const fetchImpl = deps.fetchImpl ?? fetch;
+): Promise<WorkerAccountResult> {
   const checkDemoTenant = deps.isDemoTenant ?? isDemoTenant;
 
-  // A demo tenant must not create auth users or send email. Block before
-  // generateLink so no user is created and nothing is sent.
   if (await checkDemoTenant(adminSupabase, params.tenantId)) {
-    return { ok: false, error: "Inviting workers is disabled in the demo." };
+    return { ok: false, error: "Adding workers is disabled in the demo." };
   }
 
   const { data, error } = await adminSupabase.auth.admin.generateLink({
@@ -133,79 +163,40 @@ export async function inviteWorkerByEmail(
         company_name: params.companyName,
         full_name: params.fullName,
       },
-      redirectTo: params.redirectTo,
     },
   });
 
   if (error || !data.user) {
-    return { ok: false, error: error?.message ?? "Worker invite could not be created." };
+    return { ok: false, error: error?.message ?? "Worker account could not be created." };
   }
 
-  const actionLink = buildEmailConfirmationLink({
-    properties: data.properties,
-    redirectTo: params.redirectTo,
-    type: "invite",
-  });
-
-  if (!actionLink) {
-    // The user exists but we have no link to send. Treat as created-with-warning
-    // so the worker is still provisioned and the admin can resend.
-    return { ok: true, user: data.user, emailWarning: "No invitation link was returned, so no email was sent." };
-  }
-
-  const from = env.EMAIL_DELIVERY_FROM?.trim();
-  const apiKey = env.RESEND_API_KEY?.trim();
-
-  if (!from || !apiKey) {
-    return {
-      ok: true,
-      user: data.user,
-      emailWarning: "Email delivery is not configured (EMAIL_DELIVERY_FROM / RESEND_API_KEY), so no invite email was sent.",
-    };
-  }
-
-  const email = buildWorkerInviteEmail({
-    actionLink,
-    companyName: params.companyName,
-    fullName: params.fullName,
-  });
-
-  const replyTo = env.EMAIL_DELIVERY_REPLY_TO?.trim() || undefined;
-  const sendResult = await sendViaResend(
-    { body: email.text, from, html: email.html, replyTo, subject: email.subject, to: params.email },
-    apiKey,
-    fetchImpl,
-  );
-
-  if (!sendResult.ok) {
-    return { ok: true, user: data.user, emailWarning: sendResult.error };
-  }
-
-  return { ok: true, user: data.user, emailWarning: null };
+  return { ok: true, user: data.user };
 }
 
 /**
- * Re-sends the invite email to a worker who already exists.
+ * Emails a worker their invitation. Used for the first send and every resend
+ * alike -- they are the same operation, because the account already exists in
+ * both cases.
  *
- * `generateLink({ type: "invite" })` refuses an address that is already
- * registered, so before this existed a failed first send stranded the worker:
- * the account was created, no email arrived, and nothing in the admin UI could
- * reach them. That is survivable for one person and not survivable for a
- * roster import where some fraction of sends fail.
+ * A magic link is the primitive, since `generateLink({ type: "invite" })` refuses
+ * an address that is already registered. `/auth/confirm` verifies any OTP type
+ * through the same path and lands the worker in the same place, so the recipient
+ * experience is identical to accepting a Supabase invitation.
  *
- * A magic link is the right primitive. `/auth/confirm` verifies any OTP type
- * through the same path and lands the worker in the same place, so the
- * recipient experience is identical to accepting the original invite.
+ * `requireSetup` marks the link for somebody who has never set a password, which
+ * makes the password step mandatory rather than skippable on the other end. Get
+ * this wrong in the safe direction and a worker who already has a password is
+ * asked to confirm one; get it wrong in the other and they end up with a
+ * session-only account that cannot sign in from a second device.
  *
- * Unlike the initial invite this returns ok:false when the email fails. No
- * account is being provisioned here, so a send that did not happen is a plain
- * failure with nothing to keep.
+ * Returns ok:false when the email fails. No account is being provisioned here, so
+ * a send that did not happen is a plain failure with nothing to keep.
  */
-export async function resendWorkerInviteByEmail(
+export async function sendWorkerInviteByEmail(
   adminSupabase: AdminClient,
   params: WorkerInviteParams,
   deps: InviteDeps = {},
-): Promise<WorkerInviteResendResult> {
+): Promise<WorkerInviteResult> {
   const env = deps.env ?? process.env;
   const fetchImpl = deps.fetchImpl ?? fetch;
   const checkDemoTenant = deps.isDemoTenant ?? isDemoTenant;
@@ -226,17 +217,23 @@ export async function resendWorkerInviteByEmail(
     };
   }
 
+  // The marker rides on redirectTo rather than being decided at verify time,
+  // because by the time the link is redeemed the evidence is gone: verifyOtp has
+  // already stamped email_confirmed_at, so "has this person ever completed setup"
+  // reads as yes for everybody. Here, before the send, it is still knowable.
+  const redirectTo = withAccountSetupMarker(params.redirectTo, params.requireSetup === true);
+
   const { data, error } = await adminSupabase.auth.admin.generateLink({
     type: "magiclink",
     email: params.email,
     options: {
-      redirectTo: params.redirectTo,
+      redirectTo,
     },
   });
 
   const actionLink = buildEmailConfirmationLink({
     properties: data?.properties,
-    redirectTo: params.redirectTo,
+    redirectTo,
     type: "magiclink",
   });
 

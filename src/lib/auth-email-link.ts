@@ -35,6 +35,39 @@ export type GeneratedLinkProperties = {
 } | null | undefined;
 
 /**
+ * Marks a link as belonging to somebody who has never set a password, so the
+ * verify flow makes the password step mandatory instead of skippable.
+ *
+ * It has to travel in the URL because it cannot be worked out at the other end:
+ * by the time the link is redeemed, verifyOtp has stamped `email_confirmed_at`
+ * and an account that has just completed setup is indistinguishable from one that
+ * did so months ago.
+ *
+ * A recipient can add or remove it by hand. Adding it only forces a password step
+ * on somebody who did not need one; removing it only gets them the skippable page
+ * they would otherwise have had. Neither direction reaches anything they do not
+ * already hold, which is why a marker in the URL is good enough here and is
+ * deliberately not relied on for anything but choosing a page.
+ */
+export const ACCOUNT_SETUP_PARAM = "setup";
+
+export function withAccountSetupMarker(redirectTo: string, required: boolean): string {
+  if (!required) {
+    return redirectTo;
+  }
+
+  try {
+    const url = new URL(redirectTo);
+    url.searchParams.set(ACCOUNT_SETUP_PARAM, "1");
+    return url.toString();
+  } catch {
+    // Same failure mode as buildEmailConfirmationLink: an unparseable redirect is
+    // the caller's problem, and losing the marker is better than losing the link.
+    return redirectTo;
+  }
+}
+
+/**
  * The link to email, built from the token `generateLink` minted.
  *
  * `redirectTo` is the same value handed to generateLink, which every caller

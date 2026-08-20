@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { KeyRound, LogIn } from "lucide-react";
+import { ACCOUNT_SETUP_PARAM } from "@/lib/auth-email-link";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
 import { confirmEmailLink } from "./actions";
 
@@ -19,6 +20,7 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
   const tokenHash = firstParam(params.token_hash) ?? "";
   const type = firstParam(params.type) ?? "";
   const nextPath = getSafeRedirectPath(firstParam(params.next));
+  const setupRequired = firstParam(params[ACCOUNT_SETUP_PARAM]) === "1";
 
   const ready = Boolean(tokenHash && type);
 
@@ -40,6 +42,7 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
             <input type="hidden" name="token_hash" value={tokenHash} />
             <input type="hidden" name="type" value={type} />
             <input type="hidden" name="next" value={nextPath} />
+            {setupRequired ? <input type="hidden" name={ACCOUNT_SETUP_PARAM} value="1" /> : null}
             <button
               className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--primary-dark)]"
               type="submit"

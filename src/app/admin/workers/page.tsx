@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, BriefcaseBusiness, Download, FileSpreadsheet, MapPin, PlusCircle, Search, ShieldCheck, Upload, UserRound } from "lucide-react";
-import { createWorker, importWorkersFromCsv } from "@/app/admin/actions";
+import { AlertTriangle, BriefcaseBusiness, Download, FileSpreadsheet, MapPin, PlusCircle, Search, Send, ShieldCheck, Upload, UserRound } from "lucide-react";
+import { createWorker, importWorkersFromCsv, sendWorkerInvites } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import {
   appAccessOptions,
@@ -25,8 +25,46 @@ type WorkersPageProps = {
 
 type WorkerUserRow = Pick<
   Database["public"]["Tables"]["users"]["Row"],
-  "active" | "app_access" | "email" | "full_name" | "id" | "permission_profile_id" | "power_level"
+  | "active"
+  | "app_access"
+  | "email"
+  | "full_name"
+  | "id"
+  | "invite_accepted_at"
+  | "invite_sent_at"
+  | "permission_profile_id"
+  | "power_level"
 >;
+
+type InviteState = "accepted" | "not_invited" | "pending";
+
+/**
+ * How far this worker has got with their invitation.
+ *
+ * Both columns sit on `public.users` precisely so this page can answer the
+ * question under ordinary RLS. `auth.users` cannot answer it at all: somebody
+ * entered and never emailed, and somebody emailed who ignored it, are the same
+ * unconfirmed account there.
+ */
+function inviteState(user: Pick<WorkerUserRow, "invite_accepted_at" | "invite_sent_at">): InviteState {
+  if (user.invite_accepted_at) {
+    return "accepted";
+  }
+
+  return user.invite_sent_at ? "pending" : "not_invited";
+}
+
+const inviteStateLabels: Record<InviteState, string> = {
+  accepted: "Signed up",
+  not_invited: "Not invited",
+  pending: "Invited, waiting",
+};
+
+const inviteStateStyles: Record<InviteState, string> = {
+  accepted: "bg-emerald-50 text-emerald-700",
+  not_invited: "bg-[var(--surface-muted)] text-[var(--ink-muted)]",
+  pending: "bg-amber-50 text-amber-700",
+};
 type WorkerProfileRow = Pick<
   Database["public"]["Tables"]["worker_profiles"]["Row"],
   "id" | "phone" | "title" | "user_id"
@@ -69,7 +107,7 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
     await Promise.all([
       supabase
         .from("users")
-        .select("id, email, full_name, power_level, app_access, permission_profile_id, active")
+        .select("id, email, full_name, power_level, app_access, permission_profile_id, active, invite_sent_at, invite_accepted_at")
         .eq("tenant_id", context.appUser.tenant_id)
         .order("full_name")
         .returns<WorkerUserRow[]>(),
@@ -126,6 +164,9 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
     users: users ?? [],
   });
   const visibleCertificationDeficiencies = certificationDeficiencies.slice(0, 5);
+  // Counted across the whole roster rather than the filtered view, because it is
+  // the number the office is chasing, not a property of the current search.
+  const notInvitedCount = (users ?? []).filter((user) => inviteState(user) === "not_invited").length;
 
   return (
     <AdminShell
@@ -202,8 +243,41 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
             </div>
           </form>
 
-          <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
-            <div className="grid min-w-[68rem] grid-cols-[1.6fr_1.1fr_0.9fr_1.4fr_0.5fr_0.85fr_1fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs font-semibold uppercase text-[var(--ink-muted)] max-2xl:hidden">
+          {/* One form around the whole table, so ticking rows and pressing send is
+              a single post. The filter form above is a sibling rather than a
+              parent: nested forms are not valid html and the browser drops the
+              inner one, which would silently break the send. */}
+          <form action={sendWorkerInvites}>
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-sm">
+              <Send className="h-4 w-4 shrink-0 text-[var(--primary)]" aria-hidden="true" />
+              <p className="min-w-0 flex-1 text-sm text-[var(--ink-muted)]">
+                Adding a worker does not email them. Tick the people who are ready to be invited and send when it
+                suits you.
+                {notInvitedCount > 0 ? (
+                  <span className="font-semibold text-[var(--ink)]">
+                    {" "}
+                    {notInvitedCount} {notInvitedCount === 1 ? "worker has" : "workers have"} never been invited.
+                  </span>
+                ) : null}
+              </p>
+              <button
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-[var(--primary)] px-3 text-sm font-semibold text-white transition hover:bg-[var(--primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canInviteWorkers}
+                title={
+                  canInviteWorkers
+                    ? "Emails an invitation to every worker ticked below."
+                    : "Set SUPABASE_SERVICE_ROLE_KEY to send invitations."
+                }
+                type="submit"
+              >
+                <Send className="h-4 w-4" aria-hidden="true" />
+                Send invitations
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+            <div className="grid min-w-[76rem] grid-cols-[auto_1.6fr_1.1fr_0.9fr_1.4fr_0.5fr_0.85fr_1fr_1fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs font-semibold uppercase text-[var(--ink-muted)] max-2xl:hidden">
+              <span className="sr-only">Invite</span>
               <span>Name</span>
               <span>Title</span>
               <span>Access</span>
@@ -211,18 +285,30 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
               <span>Locations</span>
               <span>Tickets</span>
               <span>Mobile</span>
+              <span>Invitation</span>
               <span>Profile</span>
             </div>
             <div className="divide-y divide-[var(--border)]">
               {visibleUsers.map((user) => {
                 const profile = profileByUserId.get(user.id);
                 const certificationCount = profile ? certificationCountByProfileId.get(profile.id) ?? 0 : 0;
+                const state = inviteState(user);
 
                 return (
                   <div
-                    className="grid gap-4 px-4 py-4 2xl:min-w-[68rem] 2xl:grid-cols-[1.6fr_1.1fr_0.9fr_1.4fr_0.5fr_0.85fr_1fr_auto] 2xl:items-center"
+                    className="grid gap-4 px-4 py-4 2xl:min-w-[76rem] 2xl:grid-cols-[auto_1.6fr_1.1fr_0.9fr_1.4fr_0.5fr_0.85fr_1fr_1fr_auto] 2xl:items-center"
                     key={user.id}
                   >
+                    <label className="flex items-center gap-2 text-sm text-[var(--ink-muted)]">
+                      <input
+                        className="h-4 w-4 rounded border-[var(--border)]"
+                        disabled={!canInviteWorkers}
+                        name="userIds"
+                        type="checkbox"
+                        value={user.id}
+                      />
+                      <span className="2xl:sr-only">Invite {user.full_name}</span>
+                    </label>
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
                         <UserRound className="h-5 w-5" aria-hidden="true" />
@@ -249,6 +335,11 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
                       {certificationCount} {certificationCount === 1 ? "ticket" : "tickets"}
                     </Link>
                     <p className="truncate text-sm text-[var(--ink-muted)]">{profile?.phone ?? "Not set"}</p>
+                    <span
+                      className={`inline-flex w-fit items-center rounded-md px-2 py-1 text-xs font-semibold ${inviteStateStyles[state]}`}
+                    >
+                      {inviteStateLabels[state]}
+                    </span>
                     <Link
                       className="inline-flex h-9 items-center justify-center rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
                       href={`/admin/workers/${user.id}`}
@@ -262,7 +353,8 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
                 <div className="px-4 py-10 text-center text-sm text-[var(--ink-muted)]">No workers match the current filters.</div>
               ) : null}
             </div>
-          </div>
+            </div>
+          </form>
         </section>
 
         <aside className="space-y-4">

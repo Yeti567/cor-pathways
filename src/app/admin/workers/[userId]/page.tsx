@@ -19,7 +19,7 @@ import {
 import {
   createWorkerCertification,
   deleteWorkerCertification,
-  resendWorkerInvite,
+  sendWorkerInvite,
   updateWorkerAccess,
   updateWorkerLocations,
   updateWorkerProfile,
@@ -276,15 +276,30 @@ export default async function WorkerDetailPage({ params, searchParams }: WorkerD
         <span className="rounded-md bg-[var(--surface-muted)] px-2 py-1 text-xs font-semibold text-[var(--ink-muted)]">
           {formatReachType(worker.reach_type)}
         </span>
-        <form action={resendWorkerInvite} className="ml-auto">
+        <span
+          className={`rounded-md px-2 py-1 text-xs font-semibold ${
+            worker.invite_accepted_at
+              ? "bg-emerald-50 text-emerald-700"
+              : worker.invite_sent_at
+                ? "bg-amber-50 text-amber-700"
+                : "bg-[var(--surface-muted)] text-[var(--ink-muted)]"
+          }`}
+        >
+          {worker.invite_accepted_at ? "Signed up" : worker.invite_sent_at ? "Invited, waiting" : "Not invited"}
+        </span>
+        <form action={sendWorkerInvite} className="ml-auto">
           <input type="hidden" name="userId" value={userId} />
           <button
             className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--primary)]"
-            title="Emails this worker a fresh sign-in link. Use it when the first invite never arrived."
+            title={
+              worker.invite_sent_at
+                ? "Emails this worker a fresh sign-in link, replacing any earlier one."
+                : "Emails this worker their invitation. Nothing has been sent to them yet."
+            }
             type="submit"
           >
             <Send className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
-            Resend invite
+            {worker.invite_sent_at ? "Resend invitation" : "Send invitation"}
           </button>
         </form>
       </div>

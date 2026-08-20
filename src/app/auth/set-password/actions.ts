@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // Matches the minLength on the sign-in and sign-up forms. Kept in one place here
@@ -60,5 +61,36 @@ export async function setPassword(formData: FormData) {
     backToForm(nextPath, error.message);
   }
 
+  await markInviteAccepted(userData.user.id);
+
   redirect(nextPath);
+}
+
+/**
+ * Records that this worker finished setting their account up, so the admin panel
+ * stops showing them as an invitation nobody answered.
+ *
+ * A trigger on `auth.users.email_confirmed_at` records the same thing, and this
+ * is deliberately the second of the two. The trigger is exact for anybody who
+ * arrives through GoTrue's own confirmation, and this covers the case where the
+ * account was already confirmed before a password existed, where that column
+ * never changes and the trigger therefore never fires. Both are guarded on the
+ * column still being null, so whichever runs first wins and the other is a no-op.
+ *
+ * Failure here is deliberately swallowed. The worker has a password and a session
+ * and is about to land in the app; refusing to let them in because an admin
+ * screen would show a stale label would be the wrong trade.
+ */
+async function markInviteAccepted(userId: string) {
+  const adminSupabase = createSupabaseAdminClient();
+
+  if (!adminSupabase) {
+    return;
+  }
+
+  await adminSupabase
+    .from("users")
+    .update({ invite_accepted_at: new Date().toISOString() })
+    .eq("id", userId)
+    .is("invite_accepted_at", null);
 }

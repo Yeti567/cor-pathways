@@ -2,6 +2,7 @@
 
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { ACCOUNT_SETUP_PARAM } from "@/lib/auth-email-link";
 import { getSafeRedirectPath } from "@/lib/auth-redirect";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -25,6 +26,7 @@ export async function confirmEmailLink(formData: FormData) {
   const tokenHash = String(formData.get("token_hash") ?? "").trim();
   const rawType = String(formData.get("type") ?? "").trim();
   const nextPath = getSafeRedirectPath(String(formData.get("next") ?? ""));
+  const setupRequired = String(formData.get(ACCOUNT_SETUP_PARAM) ?? "") === "1";
 
   if (!tokenHash || !isAllowedType(rawType)) {
     redirect(`/auth/error?message=${encodeURIComponent("The confirmation link is missing required auth details.")}`);
@@ -64,7 +66,16 @@ export async function confirmEmailLink(formData: FormData) {
     redirect(`/auth/set-password?next=${encodeURIComponent(nextPath)}`);
   }
 
+  // A magic link now carries invitations as well as ordinary sign-ins, so the type
+  // on its own no longer tells us whether this person has a password. The sender
+  // knew and said so on the link: a worker being invited for the first time gets
+  // the same mandatory page an `invite` link used to give them, and everyone else
+  // keeps the skippable one.
   if (rawType === "magiclink") {
+    if (setupRequired) {
+      redirect(`/auth/set-password?next=${encodeURIComponent(nextPath)}`);
+    }
+
     redirect(`/auth/set-password?next=${encodeURIComponent(nextPath)}&optional=1`);
   }
 
