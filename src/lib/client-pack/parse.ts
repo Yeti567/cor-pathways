@@ -13,10 +13,12 @@ import {
   EQUIPMENT_TYPES,
   METER_TYPES,
   PERMISSION_LEVELS,
+  TANK_SPECS,
   booleanValue,
   dateValue,
   isBlankRow,
   isExampleRow,
+  listValue,
   normalizeHeader,
   numberValue,
   optionValue,
@@ -70,6 +72,17 @@ export type EquipmentRow = {
   registrationExpiry: string | null;
   insuranceExpiry: string | null;
   isCommercial: boolean;
+  tankSpec: "tc406" | "tc407" | null;
+  isInsulated: boolean | null;
+  /**
+   * The inspections this unit is held to, by name, as written in the sheet.
+   *
+   * Empty means the column was blank, which is not the same as "held to nothing":
+   * the loader leaves such a unit on the tenant's default list rather than clearing
+   * it, so a pack that never fills this column behaves exactly as packs did before
+   * the column existed.
+   */
+  inspections: string[];
 };
 
 export type CertificationRow = {
@@ -87,6 +100,14 @@ export type UnitCertificationRow = {
   certificationType: string;
   issuedOn: string | null;
   expiresOn: string | null;
+  /**
+   * Which physical part this certificate covers, when one unit has several.
+   *
+   * A tank trailer carries four product hoses, each with its own serial number and
+   * its own annual expiry. Without this they collide into a single "Product hose"
+   * record per unit and three of the four expiries are lost.
+   */
+  componentId: string | null;
 };
 
 export type ParseResult<T> = {
@@ -139,6 +160,9 @@ const COLUMN_ALIASES: Record<PackSheet, Record<string, readonly string[]>> = {
     registrationExpiry: ["registration_expiry", "registration"],
     insuranceExpiry: ["insurance_expiry", "insurance"],
     commercial: ["commercial", "nsc", "is commercial"],
+    tankSpec: ["tank_spec", "tank", "tank spec", "specification", "tc spec"],
+    insulated: ["insulated", "is insulated", "insulation"],
+    inspections: ["inspections", "inspection_list", "required inspections", "certifications"],
   },
   certifications: {
     workerEmail: ["worker_email", "email", "worker email"],
@@ -152,6 +176,7 @@ const COLUMN_ALIASES: Record<PackSheet, Record<string, readonly string[]>> = {
     certificationType: ["certification_type", "certification", "type"],
     issuedOn: ["issued_on", "issued", "issue date"],
     expiresOn: ["expires_on", "expires", "expiry", "expiry date"],
+    componentId: ["serial", "component", "hose_serial", "hose serial", "serial number", "component id"],
   },
 };
 
@@ -348,6 +373,13 @@ export function parseEquipment(raw: RawSheet): ParseResult<EquipmentRow> {
       fail("year", `"${textValue(cell(row, index, "year"))}" is not a year.`);
     }
 
+    const tankSpecText = textValue(cell(row, index, "tankSpec"));
+    const tankSpec = optionValue(cell(row, index, "tankSpec"), TANK_SPECS);
+
+    if (tankSpecText && !tankSpec) {
+      fail("tank_spec", `"${tankSpecText}" is not a tank specification we recognise. Use 406 or 407.`);
+    }
+
     return {
       rowNumber,
       unitNumber: requiredText(cell(row, index, "unitNumber"), "unit_number", fail),
@@ -368,6 +400,11 @@ export function parseEquipment(raw: RawSheet): ParseResult<EquipmentRow> {
       // Same reasoning as the category default. An over-marked pickup is visible
       // on a compliance screen and easy to correct; an unmarked truck is not.
       isCommercial: booleanValue(cell(row, index, "commercial")) ?? true,
+      tankSpec: tankSpec ?? null,
+      // Null, not false. False would claim we know this is a non-insulated tank,
+      // which is a different statement from "nobody said" and from "not a tank".
+      isInsulated: booleanValue(cell(row, index, "insulated")) ?? null,
+      inspections: listValue(cell(row, index, "inspections")),
     };
   });
 }
@@ -399,6 +436,7 @@ export function parseUnitCertifications(raw: RawSheet): ParseResult<UnitCertific
       certificationType: requiredText(cell(row, index, "certificationType"), "certification_type", fail),
       issuedOn: optionalDate(cell(row, index, "issuedOn"), "issued_on", fail),
       expiresOn: optionalDate(cell(row, index, "expiresOn"), "expires_on", fail),
+      componentId: textValue(cell(row, index, "componentId")) || null,
     }),
   );
 }

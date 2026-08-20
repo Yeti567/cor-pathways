@@ -8279,6 +8279,91 @@ export async function completeEquipmentScheduledService(formData: FormData) {
   redirect(`${equipmentDetailPath(equipmentId, "service")}&notice=Scheduled%20service%20completed.`);
 }
 
+/**
+ * Replaces the set of certifications one unit is held to.
+ *
+ * Written as a whole set rather than per tick, because the form posts the whole set:
+ * a checkbox that the user cleared sends nothing at all, so a per-tick diff would have
+ * no way to see the clearing. Delete-then-insert inside one action keeps the stored
+ * list identical to what was on screen when Save was pressed.
+ *
+ * Ticking nothing is a real answer and is stored as a real answer. It means this unit
+ * is held to no certifications, which is different from never having been set up, and
+ * the two must not collapse into each other: the never-set-up case falls back to the
+ * default list, and a tractor whose owner deliberately cleared every tank inspection
+ * must not have them silently reappear.
+ */
+export async function setEquipmentCertificationRequirements(formData: FormData) {
+  const context = await requireEquipmentManager();
+  const supabase = await createSupabaseServerClient();
+  const equipmentId = stringValue(formData, "equipmentId");
+
+  if (!equipmentId) {
+    redirect("/admin/equipment");
+  }
+
+  const equipment = await ensureTenantEquipment(supabase, equipmentId, context.appUser.tenant_id);
+
+  if (!equipment) {
+    redirect("/admin/equipment");
+  }
+
+  const selectedIds = formData
+    .getAll("certificationTypeIds")
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+
+  // Only ids that belong to this tenant's list. A posted id from anywhere else is
+  // dropped rather than stored, so a stale or hand-edited form cannot attach one
+  // tenant's certification type to another tenant's unit.
+  const { data: tenantTypes } = await supabase
+    .from("equipment_certification_types")
+    .select("id")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .returns<{ id: string }[]>();
+
+  const allowed = new Set((tenantTypes ?? []).map((type) => type.id));
+  const validIds = [...new Set(selectedIds)].filter((id) => allowed.has(id));
+
+  const { error: clearError } = await supabase
+    .from("equipment_certification_requirement")
+    .delete()
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("equipment_id", equipmentId);
+
+  if (clearError) {
+    redirectEquipmentError(equipmentId, "documents", clearError.message);
+  }
+
+  if (validIds.length > 0) {
+    const { error: insertError } = await supabase.from("equipment_certification_requirement").insert(
+      validIds.map((certificationTypeId) => ({
+        certification_type_id: certificationTypeId,
+        created_by: context.appUser.id,
+        equipment_id: equipmentId,
+        tenant_id: context.appUser.tenant_id,
+      })),
+    );
+
+    if (insertError) {
+      redirectEquipmentError(equipmentId, "documents", insertError.message);
+    }
+  }
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "equipment.certification_requirements.set",
+    entityId: equipmentId,
+    entityTable: "equipment",
+    metadata: {
+      certificationTypeIds: validIds,
+      count: validIds.length,
+    },
+  });
+
+  revalidateEquipmentPaths(equipmentId);
+  redirect(`${equipmentDetailPath(equipmentId, "documents")}&notice=${encodeURIComponent("Inspection list saved.")}`);
+}
+
 export async function createEquipmentDocument(formData: FormData) {
   const context = await requireEquipmentManager();
   const supabase = await createSupabaseServerClient();

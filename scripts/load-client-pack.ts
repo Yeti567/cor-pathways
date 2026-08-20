@@ -112,6 +112,58 @@ type SheetRead =
  * present but yields no table is reported, not skipped: a client who filled in a
  * sheet deserves to know it could not be read.
  */
+/**
+ * The plain value of a cell, whatever exceljs wrapped it in.
+ *
+ * Excel silently converts a typed email address into a hyperlink, and a typed
+ * formula into a formula cell, and exceljs faithfully returns those as objects. The
+ * parser then stringifies them, so a whole roster fails with
+ * `"[object Object]" is not a valid email address` and the person who filled the
+ * sheet in correctly is told their data is wrong. That happened to all eleven rows
+ * of Crude Master's office staff pack, and a fleet sheet full of linked serial
+ * numbers would fail the same way.
+ *
+ * Unwrap to the text the person actually typed. `text` is what Excel displays;
+ * `result` is a cached formula answer; `richText` is a run-formatted string that has
+ * to be reassembled from its runs.
+ */
+function flattenCell(value: unknown): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  const cell = value as {
+    text?: unknown;
+    hyperlink?: unknown;
+    result?: unknown;
+    richText?: { text?: unknown }[];
+  };
+
+  if (Array.isArray(cell.richText)) {
+    return cell.richText.map((run) => String(run?.text ?? "")).join("");
+  }
+
+  if (typeof cell.text === "string") {
+    return cell.text;
+  }
+
+  if (cell.result !== undefined) {
+    return flattenCell(cell.result);
+  }
+
+  // A hyperlink with no display text at all: the target is the only thing the
+  // person can have meant, and "mailto:sam@..." still beats "[object Object]".
+  if (typeof cell.hyperlink === "string") {
+    return cell.hyperlink.replace(/^mailto:/i, "");
+  }
+
+  return value;
+}
+
 async function readSheet(path: string, tab: string): Promise<SheetRead> {
   if (!existsSync(path)) {
     return { kind: "missing" };
@@ -135,7 +187,7 @@ async function readSheet(path: string, tab: string): Promise<SheetRead> {
     worksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
       const values = row.values as unknown[];
       // exceljs pads index 0, so drop it and keep the sheet's own column order.
-      grid[rowNumber - 1] = Array.isArray(values) ? values.slice(1) : [];
+      grid[rowNumber - 1] = Array.isArray(values) ? values.slice(1).map(flattenCell) : [];
     });
 
     const headerIndex = grid.findIndex(
@@ -437,9 +489,11 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
       category: item.row.category,
       current_meter: item.row.meterReading,
       is_commercial: item.row.isCommercial,
+      is_insulated: item.row.isInsulated,
       license_plate: item.row.plate,
       make: item.row.make,
       model: item.row.model,
+      tank_spec: item.row.tankSpec,
       tenant_id: tenant.id,
       tracking_mode: item.row.trackingMode ?? "mileage",
       unit_number: item.row.unitNumber,
@@ -457,6 +511,22 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
     }
 
     equipmentIdByUnit.set(unitKey(item.row.unitNumber), data.id);
+
+    // The unit's inspection list, when the sheet named one. A blank column is left
+    // alone rather than written as an empty list: "nobody filled this in" has to keep
+    // falling back to the tenant's defaults, or every pack that predates this column
+    // would silently strip every unit down to no inspections at all.
+    if (item.row.inspections.length > 0) {
+      const requirementError = await setUnitRequirements(supabase, {
+        tenantId: tenant.id,
+        equipmentId: data.id,
+        inspectionNames: item.row.inspections,
+      });
+
+      if (requirementError) {
+        fail(item.row.unitNumber, requirementError);
+      }
+    }
 
     // The three fixed compliance files, written as equipment_document rows so
     // they age, warn and reach the needs-document chase list exactly like one
@@ -541,11 +611,19 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
       continue;
     }
 
+    // A tank trailer carries four product hoses, each with its own serial and its
+    // own annual expiry. The title is what upsertEquipmentDocument matches on, so
+    // without the serial in it all four collapse into one row and three expiries
+    // are lost. With it, each hose is its own record and each ages on its own.
+    const title = item.row.componentId
+      ? `${item.row.certificationType} - ${item.row.componentId}`
+      : item.row.certificationType;
+
     const documentError = await upsertEquipmentDocument(supabase, {
       tenantId: tenant.id,
       equipmentId,
       docType: "certification",
-      title: item.row.certificationType,
+      title,
       expiryDate: item.row.expiresOn,
       issuedDate: item.row.issuedOn,
       certificationTypeId: typeIdByName.get(unitKey(item.row.certificationType)) ?? null,
@@ -557,7 +635,7 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
       continue;
     }
 
-    note(`${item.action === "create" ? "created" : "updated"} ${item.row.certificationType} on ${item.row.unitNumber}`);
+    note(`${item.action === "create" ? "created" : "updated"} ${title} on ${item.row.unitNumber}`);
   }
 
   console.log(
@@ -590,6 +668,74 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 
 /** The same loose matching the duplicate check uses, so keys agree across the app. */
+/**
+ * Replace the inspections one unit is held to, by name.
+ *
+ * Names are matched against the tenant's certification type list and never added to
+ * it, the same rule the certificate loader follows: the type list is fleet-wide
+ * policy, and a typo in one row of a hundred and fifty must not quietly become a new
+ * inspection that then reads as missing on every other unit. An unmatched name is
+ * reported so somebody fixes either the sheet or the list.
+ */
+async function setUnitRequirements(
+  supabase: SupabaseAdmin,
+  input: { tenantId: string; equipmentId: string; inspectionNames: readonly string[] },
+): Promise<string | null> {
+  const { data: types, error: typesError } = await supabase
+    .from("equipment_certification_types")
+    .select("id, name")
+    .eq("tenant_id", input.tenantId);
+
+  if (typesError) {
+    return typesError.message;
+  }
+
+  const idByName = new Map((types ?? []).map((type) => [unitKey(type.name), type.id] as const));
+  const wanted: string[] = [];
+  const unknown: string[] = [];
+
+  for (const name of input.inspectionNames) {
+    const id = idByName.get(unitKey(name));
+
+    if (id) {
+      wanted.push(id);
+      continue;
+    }
+
+    unknown.push(name);
+  }
+
+  if (unknown.length > 0) {
+    return `not on the certification type list: ${unknown.join(", ")}. Add them in Admin > Equipment > Vehicle Certification Types, or correct the spelling in the sheet.`;
+  }
+
+  const { error: clearError } = await supabase
+    .from("equipment_certification_requirement")
+    .delete()
+    .eq("tenant_id", input.tenantId)
+    .eq("equipment_id", input.equipmentId);
+
+  if (clearError) {
+    return clearError.message;
+  }
+
+  const unique = [...new Set(wanted)];
+
+  if (unique.length === 0) {
+    return null;
+  }
+
+  const { error: insertError } = await supabase.from("equipment_certification_requirement").insert(
+    unique.map((certificationTypeId) => ({
+      certification_type_id: certificationTypeId,
+      equipment_id: input.equipmentId,
+      tenant_id: input.tenantId,
+    })),
+  );
+
+  return insertError?.message ?? null;
+}
+
 function unitKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }

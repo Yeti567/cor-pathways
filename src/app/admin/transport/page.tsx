@@ -22,9 +22,11 @@ import {
   buildUnitCertificationStatuses,
   buildVehicleFileStatuses,
   unitCertificationGaps,
+  expectedCertificationTypesForUnit,
   unitExpectsCertifications,
   vehicleFileGaps,
 } from "@/lib/equipment";
+import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { hasAttachedProof } from "@/lib/proof-status";
 import {
@@ -348,14 +350,23 @@ export default async function TransportPage({ searchParams }: TransportPageProps
   // Certification gaps run wider than the registry files: a picker truck outside NSC
   // still needs its picker inspection, so this counts every road unit, not just the
   // commercial ones. Missing counts alongside expired, matching the vehicle-files page.
-  const certificationTypeInputs = certificationTypes.map((type) => ({ id: type.id, name: type.name }));
+  const certificationTypeInputs = certificationTypes.map((type) => ({
+    appliesByDefault: type.applies_by_default,
+    id: type.id,
+    name: type.name,
+  }));
+  const certificationRequirements = await fetchUnitCertificationRequirements(supabase, tenantId);
   const certificationGapCount = (fleetEquipment ?? []).reduce((total, unit) => {
     if (!unitExpectsCertifications(unit.category)) {
       return total;
     }
 
     const statuses = buildUnitCertificationStatuses({
-      certificationTypes: certificationTypeInputs,
+      certificationTypes: expectedCertificationTypesForUnit({
+        category: unit.category,
+        certificationTypes: certificationTypeInputs,
+        requiredTypeIds: certificationRequirements.get(unit.id) ?? null,
+      }),
       documents: (documentsByEquipment.get(unit.id) ?? []).map((document) => ({
         certificationTypeId: document.certification_type_id,
         docType: document.doc_type,

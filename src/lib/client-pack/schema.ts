@@ -181,6 +181,27 @@ export function numberValue(value: unknown): number | null | undefined {
 }
 
 /**
+ * Split one cell holding several values into a list.
+ *
+ * Semicolons, commas and new lines all separate, because a person filling in a
+ * column headed "inspections" reaches for whichever their keyboard offers first, and
+ * rejecting a pack over the choice of punctuation helps nobody. Blank entries are
+ * dropped so a trailing separator is not an empty inspection name.
+ */
+export function listValue(value: unknown): string[] {
+  const text = textValue(value);
+
+  if (!text) {
+    return [];
+  }
+
+  return text
+    .split(/[;,\r\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
  * Map an option the client picked from a dropdown onto the value the app stores.
  *
  * The dropdowns constrain what a client can choose, but a pack that has been
@@ -216,6 +237,18 @@ export const EQUIPMENT_TYPES: Readonly<Record<string, "vehicle" | "trailer" | "m
   crane: "vehicle",
   trailer: "trailer",
   other: "other",
+};
+
+// TC/MC tank specification. Fleets write it a dozen ways ("406", "TC406",
+// "MC-406"), and normalizeHeader has already stripped punctuation and case by the
+// time we look it up, so only the letters and digits need listing.
+export const TANK_SPECS: Readonly<Record<string, "tc406" | "tc407">> = {
+  "406": "tc406",
+  tc406: "tc406",
+  mc406: "tc406",
+  "407": "tc407",
+  tc407: "tc407",
+  mc407: "tc407",
 };
 
 export const METER_TYPES: Readonly<Record<string, "mileage" | "hours">> = {

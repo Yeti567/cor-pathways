@@ -9,8 +9,10 @@ import {
   buildVehicleFileStatuses,
   certificationTypeNameMap,
   statusesAwaitingProof,
+  expectedCertificationTypesForUnit,
   unitExpectsCertifications,
 } from "@/lib/equipment";
+import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import {
   AWAITING_PROOF_DESCRIPTION,
@@ -236,7 +238,12 @@ export default async function NeedsDocumentPage() {
     ]);
   }
 
-  const certificationTypeInputs = certificationTypes.map((type) => ({ id: type.id, name: type.name }));
+  const certificationTypeInputs = certificationTypes.map((type) => ({
+    appliesByDefault: type.applies_by_default,
+    id: type.id,
+    name: type.name,
+  }));
+  const certificationRequirements = await fetchUnitCertificationRequirements(supabase, tenantId);
   const certificationTypeNames = certificationTypeNameMap(certificationTypeInputs);
 
   for (const unit of equipmentRows ?? []) {
@@ -254,7 +261,11 @@ export default async function NeedsDocumentPage() {
         })
       : [];
     const certificationStatuses = buildUnitCertificationStatuses({
-      certificationTypes: unitExpectsCertifications(unit.category) ? certificationTypeInputs : [],
+      certificationTypes: expectedCertificationTypesForUnit({
+          category: unit.category,
+          certificationTypes: certificationTypeInputs,
+          requiredTypeIds: certificationRequirements.get(unit.id) ?? null,
+        }),
       certificationTypeNames,
       documents: documents.map((document) => ({
         certificationTypeId: document.certification_type_id,

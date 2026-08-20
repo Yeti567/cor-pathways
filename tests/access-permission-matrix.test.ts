@@ -156,6 +156,7 @@ const actionGroups = [
       "createEquipmentDocument",
       "createEquipmentCertificationType",
       "deleteEquipmentCertificationType",
+      "setEquipmentCertificationRequirements",
       "createManualEquipmentSubmissionLink",
       "deleteEquipmentSubmissionLink",
     ],

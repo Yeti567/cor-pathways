@@ -1,4 +1,7 @@
-import { DEFAULT_EQUIPMENT_CERTIFICATION_TYPES } from "@/lib/equipment";
+import {
+  DEFAULT_EQUIPMENT_CERTIFICATION_TYPES,
+  OPTIONAL_EQUIPMENT_CERTIFICATION_TYPES,
+} from "@/lib/equipment";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -40,9 +43,28 @@ export async function ensureEquipmentCertificationTypes(
     return existing;
   }
 
+  // Two groups in one insert. The standard set applies to every unit unless somebody
+  // says otherwise; the specialised tank inspections are laid down switched off, so
+  // they are there to tick when a tank trailer arrives and cost a tractor fleet
+  // nothing in the meantime.
+  const seed = [
+    ...DEFAULT_EQUIPMENT_CERTIFICATION_TYPES.map((name) => ({
+      applies_by_default: true,
+      name,
+      tenant_id: tenantId,
+    })),
+    ...OPTIONAL_EQUIPMENT_CERTIFICATION_TYPES.map((type) => ({
+      applies_by_default: false,
+      default_interval_days: type.defaultIntervalDays,
+      name: type.name,
+      notes: type.notes,
+      tenant_id: tenantId,
+    })),
+  ];
+
   const { data: inserted } = await supabase
     .from("equipment_certification_types")
-    .insert(DEFAULT_EQUIPMENT_CERTIFICATION_TYPES.map((name) => ({ name, tenant_id: tenantId })))
+    .insert(seed)
     .select("*")
     .returns<EquipmentCertificationTypeRow[]>();
 

@@ -28,6 +28,7 @@ import {
   createManualEquipmentSubmissionLink,
   createEquipmentScheduledService,
   deleteEquipmentSubmissionLink,
+  setEquipmentCertificationRequirements,
   updateEquipment,
   uploadEquipmentPhotos,
 } from "@/app/admin/actions";
@@ -35,6 +36,7 @@ import { AddEquipmentDocumentFields } from "@/app/admin/equipment/[equipmentId]/
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
+import { UnitCertificationRequirementFields } from "./UnitCertificationRequirementFields";
 import { requireAppUser } from "@/lib/current-user";
 import {
   coerceEquipmentTab,
@@ -56,6 +58,7 @@ import {
   getEquipmentScheduleStatus,
   statusesAwaitingProof,
   unitCertificationGaps,
+  expectedCertificationTypesForUnit,
   unitExpectsCertifications,
   vehicleFileStateClass,
   VEHICLE_FILE_STATE_LABELS,
@@ -475,10 +478,34 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
   // Every certification this unit is expected to hold, plus any extra it has filed.
   // Road units are held to the tenant's whole list, so a never-filed certification
   // reads Missing; anything else is only shown what it has actually filed.
+  // Which certifications this particular unit is held to. A unit whose list has never
+  // been edited has no rows here and falls back to the types marked as applying by
+  // default, which is what every unit did before per-unit lists existed.
+  const { data: requirementRows } = await supabase
+    .from("equipment_certification_requirement")
+    .select("certification_type_id")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("equipment_id", equipment.id)
+    .returns<{ certification_type_id: string }[]>();
+
+  const requiredTypeIds = requirementRows && requirementRows.length > 0
+    ? requirementRows.map((row) => row.certification_type_id)
+    : null;
+
+  const expectedCertificationTypes = expectedCertificationTypesForUnit({
+    category: equipment.category,
+    certificationTypes: equipmentCertificationTypes.map((type) => ({
+      appliesByDefault: type.applies_by_default,
+      id: type.id,
+      name: type.name,
+    })),
+    requiredTypeIds,
+  });
+
+  const expectedCertificationTypeIds = new Set(expectedCertificationTypes.map((type) => type.id));
+
   const certificationStatuses = buildUnitCertificationStatuses({
-    certificationTypes: unitExpectsCertifications(equipment.category)
-      ? equipmentCertificationTypes.map((type) => ({ id: type.id, name: type.name }))
-      : [],
+    certificationTypes: expectedCertificationTypes,
     // Names stay the full list even when nothing is expected, so a non-fleet unit's
     // filed certification still follows a rename.
     certificationTypeNames: certificationTypeNameById,
@@ -1330,9 +1357,25 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
               </div>
               <p className="mt-1 text-xs text-[var(--ink-muted)]">
                 {unitExpectsCertifications(equipment.category)
-                  ? "Every certification on your list is expected on every vehicle and trailer. If this fleet does not carry tanks or pickers, remove those from the list so they stop reporting as gaps."
-                  : "Certifications filed against this unit. Only vehicles and trailers are held to the full list."}
+                  ? "Only the inspections chosen for this unit are expected on it. A tractor is not held to a tank pressure test unless somebody ticks it."
+                  : "Certifications filed against this unit. Only vehicles and trailers are held to a list."}
               </p>
+
+              {unitExpectsCertifications(equipment.category) ? (
+                <form action={setEquipmentCertificationRequirements}>
+                  <input name="equipmentId" type="hidden" value={equipment.id} />
+                  <UnitCertificationRequirementFields
+                    options={equipmentCertificationTypes.map((type) => ({
+                      appliesByDefault: type.applies_by_default,
+                      checked: expectedCertificationTypeIds.has(type.id),
+                      id: type.id,
+                      name: type.name,
+                      notes: type.notes,
+                    }))}
+                    usingDefaults={requiredTypeIds === null}
+                  />
+                </form>
+              ) : null}
               <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {certificationStatuses.map((certification) => (
                   <li

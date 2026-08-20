@@ -79,6 +79,71 @@ export const DEFAULT_EQUIPMENT_CERTIFICATION_TYPES = [
   "Fire extinguisher inspection",
 ] as const;
 
+/**
+ * Specialised inspections a tenant can tick onto individual units.
+ *
+ * These are the CSA B620 periodic inspections a tank fleet runs. Every one is
+ * appliesByDefault: false, which is the whole reason they can be seeded at all: they
+ * appear as options on the certification types page and on each unit's tick list, and
+ * until somebody ticks one, no unit is deficient for it. Seeding these into a fleet of
+ * tractors adds eight choices and zero gaps.
+ *
+ * Which tank needs which inspection turns on specification, insulation, axle count and
+ * what the receiving refinery asks for, so the notes say who each one is for and a
+ * person decides. An app-invented rule would be wrong for somebody, and wrong silently.
+ */
+export const OPTIONAL_EQUIPMENT_CERTIFICATION_TYPES = [
+  {
+    name: "PIUC - pressure, internal, upper coupler",
+    defaultIntervalDays: 1825,
+    notes: "Five year TC/MC 406 and 407 non-insulated tank inspection.",
+  },
+  {
+    name: "Upper coupler (UC)",
+    defaultIntervalDays: 1825,
+    notes: "Five year. Non-insulated 407 and all 406.",
+  },
+  {
+    name: "External visual and leak (VK)",
+    defaultIntervalDays: 365,
+    notes: "Annual. 406 tri-axle non-insulated, with refinery paperwork.",
+  },
+  {
+    name: "Visual and leak (VK) - 407 annual",
+    defaultIntervalDays: 365,
+    notes: "Annual. Non-insulated 407.",
+  },
+  {
+    name: "Internal (I) - insulated annual",
+    defaultIntervalDays: 365,
+    notes: "Annual. Insulated 407 only.",
+  },
+  {
+    name: "Tank thickness (T)",
+    defaultIntervalDays: null,
+    notes: "Thickness test, recorded with the insulated annual internal.",
+  },
+  {
+    name: "Product hose",
+    defaultIntervalDays: 365,
+    notes: "Annual, one per hose. File the hose serial number as the title.",
+  },
+  {
+    name: "Load and vent line hose",
+    defaultIntervalDays: 365,
+    notes: "Annual, one per hose. File the hose serial number as the title.",
+  },
+] as const;
+
+// What a unit is, as opposed to what it is held to. Recorded because it is real fleet
+// data off the client's own inspection sheet and it explains why a unit carries the
+// inspections it does; deliberately NOT used to decide those inspections, so a safety
+// officer can overrule the app instead of arguing with it.
+export const equipmentTankSpecOptions = [
+  { value: "tc406", label: "TC/MC 406" },
+  { value: "tc407", label: "TC/MC 407" },
+] as const;
+
 export const equipmentTabs = ["overview", "service", "maintenance", "meter", "documents", "forms"] as const;
 
 export type EquipmentCategory = (typeof equipmentCategoryOptions)[number]["value"];
@@ -877,6 +942,13 @@ export function vehicleFileGaps(statuses: VehicleFileStatus[]): VehicleFileStatu
 export type UnitCertificationTypeInput = {
   id: string;
   name: string;
+  /**
+   * Whether a unit that has never had its list edited is held to this type.
+   *
+   * Undefined counts as true, so a caller that predates per-unit requirements keeps
+   * the old behaviour of expecting every type on every unit.
+   */
+  appliesByDefault?: boolean;
 };
 
 export type UnitCertificationDocumentInput = {
@@ -939,6 +1011,39 @@ export function certificationTypeNameMap(types: readonly UnitCertificationTypeIn
  */
 export function unitExpectsCertifications(category: string) {
   return category === "vehicle" || category === "trailer";
+}
+
+/**
+ * The certifications one unit is held to.
+ *
+ * Three cases, in order:
+ *
+ *  - Not a road unit: nothing. A picker inspection expected on a bench grinder is
+ *    noise, and noise is what buries real gaps.
+ *  - The unit has an explicit list: exactly that list. An empty array is a real
+ *    answer here and means "this unit is held to nothing", which is why the parameter
+ *    distinguishes an empty array from null.
+ *  - No explicit list: every type marked as applying by default. This is what every
+ *    unit did before per-unit requirements existed, so nothing already in the field
+ *    changes when this ships.
+ */
+export function expectedCertificationTypesForUnit(input: {
+  category: string;
+  certificationTypes: readonly UnitCertificationTypeInput[];
+  /** The type ids ticked for this unit, or null when nobody has chosen yet. */
+  requiredTypeIds: readonly string[] | null;
+}): UnitCertificationTypeInput[] {
+  if (!unitExpectsCertifications(input.category)) {
+    return [];
+  }
+
+  if (input.requiredTypeIds) {
+    const ticked = new Set(input.requiredTypeIds);
+
+    return input.certificationTypes.filter((type) => ticked.has(type.id));
+  }
+
+  return input.certificationTypes.filter((type) => type.appliesByDefault !== false);
 }
 
 /**

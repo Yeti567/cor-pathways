@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowLeft, BadgeCheck, FileText, Truck } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
+import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { requireAppUser } from "@/lib/current-user";
 import {
@@ -12,6 +13,7 @@ import {
   formatEquipmentCategory,
   statusesAwaitingProof,
   unitCertificationGaps,
+  expectedCertificationTypesForUnit,
   unitExpectsCertifications,
   vehicleFileGaps,
   vehicleFileStateClass,
@@ -197,7 +199,12 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
 
   const showRegistryFiles = view.value !== "vehicle_certifications";
   const showCertifications = view.value === "all" || view.value === "vehicle_certifications";
-  const certificationTypeInputs = certificationTypes.map((type) => ({ id: type.id, name: type.name }));
+  const certificationTypeInputs = certificationTypes.map((type) => ({
+    appliesByDefault: type.applies_by_default,
+    id: type.id,
+    name: type.name,
+  }));
+  const certificationRequirements = await fetchUnitCertificationRequirements(supabase, tenantId);
   const certificationTypeNames = certificationTypeNameMap(certificationTypeInputs);
 
   // The registry files (registration, insurance, permits, CVIP) are NSC obligations, so
@@ -234,7 +241,11 @@ export default async function VehicleFilesPage({ searchParams }: VehicleFilesPag
 
     const certifications = showCertifications
       ? buildUnitCertificationStatuses({
-          certificationTypes: unitExpectsCertifications(unit.category) ? certificationTypeInputs : [],
+          certificationTypes: expectedCertificationTypesForUnit({
+          category: unit.category,
+          certificationTypes: certificationTypeInputs,
+          requiredTypeIds: certificationRequirements.get(unit.id) ?? null,
+        }),
           certificationTypeNames,
           documents: documents.map((document) => ({
             certificationTypeId: document.certification_type_id,

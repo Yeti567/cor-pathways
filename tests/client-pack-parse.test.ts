@@ -307,3 +307,86 @@ describe("unit certifications", () => {
     expect(result.skipped).toBe(1);
   });
 });
+
+// The columns the tank fleet sheets need. Crude Master's trailers carry CSA B620
+// inspections on several different cycles, and four product hoses per unit that
+// each expire on their own date, none of which the original pack could express.
+describe("tank fleet columns", () => {
+  it("reads the tank specification however the fleet writes it", () => {
+    const { rows, errors } = parseEquipment(
+      sheet(
+        ["unit_number", "type", "tank_spec", "insulated"],
+        [
+          ["802", "Trailer", "406", "no"],
+          ["803", "Trailer", "TC-407", "yes"],
+          ["804", "Trailer", "mc 406", ""],
+        ],
+      ),
+    );
+
+    expect(errors).toEqual([]);
+    expect(rows.map((row) => row.tankSpec)).toEqual(["tc406", "tc407", "tc406"]);
+    expect(rows.map((row) => row.isInsulated)).toEqual([false, true, null]);
+  });
+
+  it("names the bad cell when a tank specification is not one we know", () => {
+    const { rows, errors } = parseEquipment(
+      sheet(["unit_number", "tank_spec"], [["802", "TC-412"]]),
+    );
+
+    expect(rows).toEqual([]);
+    expect(errors[0].column).toBe("tank_spec");
+    expect(errors[0].message).toContain("TC-412");
+  });
+
+  // Null rather than false on purpose: a tractor is not a non-insulated tank, it
+  // is not a tank, and the two must not read the same on a compliance screen.
+  it("leaves insulation unknown when the column is blank", () => {
+    const { rows } = parseEquipment(sheet(["unit_number"], [["T-014"]]));
+
+    expect(rows[0].isInsulated).toBeNull();
+    expect(rows[0].tankSpec).toBeNull();
+    expect(rows[0].inspections).toEqual([]);
+  });
+
+  it("splits an inspection list however it was punctuated", () => {
+    const { rows } = parseEquipment(
+      sheet(
+        ["unit_number", "inspections"],
+        [["802", "Product hose; Upper coupler (UC), Tank thickness (T)"]],
+      ),
+    );
+
+    expect(rows[0].inspections).toEqual(["Product hose", "Upper coupler (UC)", "Tank thickness (T)"]);
+  });
+
+  it("drops the empty entry a trailing separator leaves behind", () => {
+    const { rows } = parseEquipment(sheet(["unit_number", "inspections"], [["802", "Product hose;"]]));
+
+    expect(rows[0].inspections).toEqual(["Product hose"]);
+  });
+
+  it("keeps each hose serial so four hoses do not collapse into one record", () => {
+    const { rows, errors } = parseUnitCertifications(
+      sheet(
+        ["unit_number", "certification_type", "serial", "expiry_date"],
+        [
+          ["802", "Product hose", "2868451-1", "2026-08-31"],
+          ["802", "Product hose", "2868451-2", "2027-01-15"],
+        ],
+      ),
+    );
+
+    expect(errors).toEqual([]);
+    expect(rows.map((row) => row.componentId)).toEqual(["2868451-1", "2868451-2"]);
+    expect(rows.map((row) => row.expiresOn)).toEqual(["2026-08-31", "2027-01-15"]);
+  });
+
+  it("leaves the serial null for a certificate that covers the whole unit", () => {
+    const { rows } = parseUnitCertifications(
+      sheet(["unit_number", "certification_type", "expiry_date"], [["802", "Upper coupler (UC)", "2027-03-10"]]),
+    );
+
+    expect(rows[0].componentId).toBeNull();
+  });
+});

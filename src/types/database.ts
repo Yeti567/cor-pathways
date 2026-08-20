@@ -1128,6 +1128,7 @@ export type Database = {
           current_meter: number | null;
           deleted_at: string | null;
           is_commercial: boolean;
+          is_insulated: boolean | null;
           license_plate: string | null;
           location_id: string | null;
           make: string | null;
@@ -1137,6 +1138,7 @@ export type Database = {
           photo_ids: string[];
           purchase_date: string | null;
           status: "active" | "down" | "retired" | "sold";
+          tank_spec: "tc406" | "tc407" | null;
           tracking_mode: "mileage" | "hours";
           unit_number: string;
           vin_or_serial: string | null;
@@ -1314,11 +1316,28 @@ export type Database = {
       };
       equipment_certification_types: {
         Row: TenantScopedRow & {
+          applies_by_default: boolean;
+          default_interval_days: number | null;
           name: string;
+          notes: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["equipment_certification_types"]["Row"]> &
           Pick<Database["public"]["Tables"]["equipment_certification_types"]["Row"], "tenant_id" | "name">;
         Update: Partial<Database["public"]["Tables"]["equipment_certification_types"]["Row"]>;
+        Relationships: [];
+      };
+      equipment_certification_requirement: {
+        Row: TenantScopedRow & {
+          certification_type_id: string;
+          created_by: string | null;
+          equipment_id: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["equipment_certification_requirement"]["Row"]> &
+          Pick<
+            Database["public"]["Tables"]["equipment_certification_requirement"]["Row"],
+            "tenant_id" | "equipment_id" | "certification_type_id"
+          >;
+        Update: Partial<Database["public"]["Tables"]["equipment_certification_requirement"]["Row"]>;
         Relationships: [];
       };
       co_project: {
