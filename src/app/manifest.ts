@@ -1,15 +1,24 @@
 import type { MetadataRoute } from "next";
 import { APP_NAME } from "@/lib/brand";
 
-// Launchers truncate the label under a home-screen icon at roughly twelve
-// characters. A client name like "Crude Master Transport Inc." would render as
-// "Crude Mast...", so keep whole leading words while they fit.
-function shortName(name: string): string {
+// The label under a home-screen icon. Launchers truncate it, so a long legal name
+// like "Crude Master Transport Inc." has to be shortened to whole leading words
+// rather than cut mid-word.
+//
+// The bound is 16 rather than the launcher's own ~12, deliberately. At 12 a
+// two-word company loses its second word entirely: "Speed Logistics" became
+// "Speed" and "Northwind Energy Services" became "Northwind", which on a phone
+// full of icons identifies nobody. A slightly truncated "Speed Logistics" is far
+// easier to pick out than a bare first word that could belong to any app, so the
+// second word is worth keeping even when the launcher clips its tail.
+const SHORT_NAME_MAX = 16;
+
+export function shortName(name: string): string {
   const words = name.trim().split(/\s+/);
   let out = words[0] ?? name;
 
   for (const word of words.slice(1)) {
-    if (`${out} ${word}`.length > 12) {
+    if (`${out} ${word}`.length > SHORT_NAME_MAX) {
       break;
     }
     out = `${out} ${word}`;
