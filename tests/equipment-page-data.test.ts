@@ -8,7 +8,7 @@ const baseEquipment = [
     current_meter: "980",
     deleted_at: null,
     id: "equipment-1",
-    license_plate: "6EA 881",
+    license_plate: "7AB 461",
     location_id: "location-1",
     make: "Ford",
     model: "F-550",
@@ -24,7 +24,7 @@ const baseEquipment = [
     current_meter: 120,
     deleted_at: null,
     id: "equipment-2",
-    license_plate: "6UN8-26",
+    license_plate: "7EF9-38",
     location_id: null,
     make: "Cat",
     model: "XQ",
@@ -70,15 +70,15 @@ describe("equipment page data helpers", () => {
       }).map((row) => row.equipment.unit_number);
 
     // As stored.
-    expect(find("6EA 881")).toEqual(["47"]);
-    expect(find("6UN8-26")).toEqual(["GEN-2"]);
+    expect(find("7AB 461")).toEqual(["47"]);
+    expect(find("7EF9-38")).toEqual(["GEN-2"]);
     // Separator dropped by the searcher.
-    expect(find("6EA881")).toEqual(["47"]);
-    expect(find("6UN826")).toEqual(["GEN-2"]);
+    expect(find("7AB461")).toEqual(["47"]);
+    expect(find("7EF938")).toEqual(["GEN-2"]);
     // Separator typed differently from the way it was stored.
-    expect(find("6UN8 26")).toEqual(["GEN-2"]);
+    expect(find("7EF9 38")).toEqual(["GEN-2"]);
     // Case does not matter.
-    expect(find("6ea 881")).toEqual(["47"]);
+    expect(find("7ab 461")).toEqual(["47"]);
     // A plate belonging to nothing still finds nothing.
     expect(find("6ZZ 999")).toEqual([]);
     // The guarded second pass must not let a query run across word boundaries.

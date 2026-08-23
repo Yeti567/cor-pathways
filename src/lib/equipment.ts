@@ -1664,8 +1664,8 @@ function equipmentSearchText(input: EquipmentInventoryRow) {
     // The plate is the one identifier somebody arrives holding rather than
     // looking up: it is what a roadside call, a violation notice and an
     // insurance slip all lead with, and the unit number is what they are trying
-    // to find. Indexed twice because Crude Master's own sheet writes plates
-    // three ways - "6EA 881", "6HR073", "6UN8-26" - so a searcher typing what
+    // to find. Indexed twice because fleet spreadsheets write plates
+    // three ways - "7AB 461", "7CD742", "7EF9-38" - so a searcher typing what
     // they see on the paper cannot be relied on to match what we stored.
     plate,
     plate ? withoutSeparators(plate) : null,
@@ -1786,7 +1786,7 @@ export function buildEquipmentInventoryRows(input: {
       }
 
       // Second pass only when the query itself carried a separator, so a search
-      // for "6UN8 26" still finds "6UN8-26". Guarded rather than always run:
+      // for "7EF9 38" still finds "7EF9-38". Guarded rather than always run:
       // stripping every query would let "trailera" match "Trailer Active".
       const bare = withoutSeparators(query);
 
