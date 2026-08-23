@@ -28,6 +28,7 @@ import {
   GitBranch,
   IdCard,
   Package,
+  ScanSearch,
   Truck,
   Wrench,
 } from "lucide-react";
@@ -55,6 +56,7 @@ const navItems = [
   { href: "/admin/follow-ups", label: "Corrective Actions", icon: Wrench },
   { href: "/admin/equipment", label: "Equipment", icon: Forklift },
   { href: "/admin/equipment/compliance", label: "Fleet Compliance", icon: BadgeCheck },
+  { href: "/admin/equipment/data-quality", label: "Data Quality", icon: ScanSearch },
   { href: TRANSPORT_NAV_HREF, label: "Transport", icon: Truck },
   { href: COR_NAV_HREF, label: "COR Audit", icon: BadgeCheck },
   { href: OSHA_NAV_HREF, label: "OSHA Safety", icon: ShieldCheck },
