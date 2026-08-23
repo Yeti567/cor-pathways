@@ -66,6 +66,32 @@ export type FleetComplianceSummary = {
   units_: UnitCompliance[];
 };
 
+/**
+ * Whether a status is a gap the fleet has to answer for.
+ *
+ * Missing counts only when the document is actually required. "Operating
+ * permits" is defined optional on purpose, because oversize, overweight and fuel
+ * tax permits are carried only where the work needs them, and counting its
+ * absence made every unit in a 160-trailer fleet permanently deficient for a
+ * document most of them are never meant to hold. A false gap on every unit is
+ * worse than no dashboard: it hides the real ones.
+ *
+ * Expired always counts, required or not. An optional permit that someone did
+ * take out and then let lapse is a live problem, not an absence.
+ */
+export function isDeficiency(status: {
+  state: VehicleFileState;
+  required?: boolean;
+}): boolean {
+  if (status.state === "expired") {
+    return true;
+  }
+
+  // Certifications carry no `required` flag; reaching this list at all is what
+  // makes one expected, so an undefined flag means required.
+  return status.state === "missing" && status.required !== false;
+}
+
 /** Missing and expired are deficiencies. Awaiting proof and due soon are amber. */
 function stateOf(documentState: VehicleFileState): UnitComplianceState {
   switch (documentState) {
@@ -78,6 +104,23 @@ function stateOf(documentState: VehicleFileState): UnitComplianceState {
     default:
       return "compliant";
   }
+}
+
+/**
+ * The same call as stateOf, but for a status that knows whether it is required.
+ *
+ * An optional document nobody has taken out leaves the unit alone rather than
+ * marking it deficient, which is the difference between a fleet that reads
+ * 0 of 160 ready and one that reads the truth.
+ */
+function stateOfStatus(status: { state: VehicleFileState; required?: boolean }): UnitComplianceState {
+  if (isDeficiency(status)) {
+    return "deficient";
+  }
+
+  const base = stateOf(status.state);
+
+  return base === "deficient" ? "compliant" : base;
 }
 
 const RANK: Record<UnitComplianceState, number> = { deficient: 0, attention: 1, compliant: 2 };
@@ -111,9 +154,7 @@ export function buildFleetComplianceSummary(units: readonly FleetUnitInput[]): F
     // is shown on the unit but never drags the fleet numbers down.
     const counted = all.filter((status) => !("expected" in status) || status.expected);
 
-    const deficiencies = counted.filter(
-      (status) => status.state === "missing" || status.state === "expired",
-    ).length;
+    const deficiencies = counted.filter(isDeficiency).length;
     const unproven = statusesAwaitingProof(all).length;
 
     expired += counted.filter((status) => status.state === "expired").length;
@@ -146,7 +187,7 @@ export function buildFleetComplianceSummary(units: readonly FleetUnitInput[]): F
     return {
       id: unit.id,
       unitNumber: unit.unitNumber,
-      state: worst(counted.map((status) => stateOf(status.state))),
+      state: worst(counted.map(stateOfStatus)),
       outOfService: unit.status === "down",
       deficiencies,
       awaitingProof: unproven,

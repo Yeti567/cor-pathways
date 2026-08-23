@@ -7,6 +7,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import {
   buildEquipmentInventoryRows,
+  equipmentDisplayName,
   equipmentCategoryOptions,
   equipmentDueStatusClass,
   equipmentStatusOptions,
@@ -14,6 +15,7 @@ import {
   formatEquipmentCategory,
   formatEquipmentMeter,
   formatEquipmentStatus,
+  hasDistinctName,
 } from "@/lib/equipment";
 import { sendEquipmentAttentionNotifications } from "@/lib/equipment-reminders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -229,9 +231,11 @@ export default async function EquipmentPage({ searchParams }: EquipmentPageProps
                   >
                     <span className="font-semibold text-[var(--ink)]">
                       {row.equipment.unit_number}
-                      <span className="ml-2 text-sm font-normal text-[var(--ink-muted)]">
-                        {row.equipment.name ?? "Unnamed equipment"}
-                      </span>
+                      {hasDistinctName(row.equipment) ? (
+                        <span className="ml-2 text-sm font-normal text-[var(--ink-muted)]">
+                          {equipmentDisplayName(row.equipment)}
+                        </span>
+                      ) : null}
                     </span>
                     <span
                       className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${equipmentDueStatusClass(row.serviceIndicator)}`}
@@ -420,7 +424,7 @@ export default async function EquipmentPage({ searchParams }: EquipmentPageProps
               className="h-10 w-full rounded-md border border-[var(--border)] bg-white pl-9 pr-3 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
               defaultValue={query}
               name="q"
-              placeholder="Unit, name, serial, location"
+              placeholder="Unit, name, serial, plate, location"
             />
           </span>
         </label>
@@ -515,7 +519,9 @@ export default async function EquipmentPage({ searchParams }: EquipmentPageProps
                   <Link className="font-semibold text-[var(--primary)] hover:underline" href={`/admin/equipment/${row.equipment.id}`}>
                     {row.equipment.unit_number}
                   </Link>
-                  <p className="mt-1 text-sm text-[var(--ink-muted)]">{row.equipment.name ?? "Unnamed equipment"}</p>
+                  {hasDistinctName(row.equipment) ? (
+                    <p className="mt-1 text-sm text-[var(--ink-muted)]">{equipmentDisplayName(row.equipment)}</p>
+                  ) : null}
                   <p className="mt-1 text-xs text-[var(--ink-muted)]">
                     {[row.equipment.make, row.equipment.model, row.equipment.year].filter(Boolean).join(" ") || "No specs recorded"}
                   </p>

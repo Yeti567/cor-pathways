@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, ArrowLeft, BadgeCheck, CalendarClock, FileWarning, Truck, Wrench } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
+import { GapChart, ProofChart, ReadinessChart, RenewalChart } from "@/app/admin/equipment/_components/FleetCharts";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import {
@@ -13,6 +14,7 @@ import {
 } from "@/lib/equipment";
 import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
+import { gapsByInspection, proofOnFile, readiness, renewalsByMonth } from "@/lib/fleet-charts";
 import { buildFleetComplianceSummary, type FleetUnitInput, type UnitCompliance } from "@/lib/fleet-compliance";
 import { hasAttachedProof } from "@/lib/proof-status";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -206,6 +208,12 @@ export default async function FleetCompliancePage() {
   const summary = buildFleetComplianceSummary(inputs);
   const needsAttention = summary.units_.filter((row) => row.state !== "compliant");
 
+  // Shaped on the server so the charts ship numbers, not the fleet.
+  const readinessSlices = readiness(summary.compliance);
+  const gapRows = gapsByInspection(inputs);
+  const renewalBuckets = renewalsByMonth(inputs, new Date());
+  const proofSplit = proofOnFile(inputs);
+
   return (
     <AdminShell eyebrow="Equipment" tenantName={context.tenant?.name ?? "Company profile"} title="Fleet compliance">
       <Link
@@ -228,21 +236,16 @@ export default async function FleetCompliancePage() {
           </p>
         </div>
         <ComplianceBar {...summary.compliance} />
-        <div className="mt-3 flex flex-wrap gap-4 text-xs text-[var(--ink-muted)]">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[var(--success)]" aria-hidden="true" />
-            {summary.compliance.compliant} complete
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[var(--warning)]" aria-hidden="true" />
-            {summary.compliance.attention} need attention
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[var(--danger)]" aria-hidden="true" />
-            {summary.compliance.deficient} deficient
-          </span>
-        </div>
       </section>
+
+      {/* The pictures first. The tiles below still carry the links, but nobody
+          should have to read four numbers to find out the fleet is in trouble. */}
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
+        <ReadinessChart slices={readinessSlices} total={summary.units.total} />
+        <GapChart rows={gapRows} unitTotal={summary.units.total} />
+        <RenewalChart buckets={renewalBuckets} />
+        <ProofChart split={proofSplit} />
+      </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Tile
