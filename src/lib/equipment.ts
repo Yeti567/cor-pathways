@@ -211,6 +211,7 @@ export type EquipmentInventoryEquipmentRow = {
   current_meter: number | string | null;
   deleted_at?: string | null;
   id: string;
+  license_plate?: string | null;
   location_id: string | null;
   make: string | null;
   model: string | null;
@@ -1029,6 +1030,30 @@ export function certificationTypeNameMap(types: readonly UnitCertificationTypeIn
 }
 
 /**
+ * What to call a unit.
+ *
+ * The name is optional and most fleets never fill it in: the yard calls a trailer
+ * by its number, and adding "Lead" or "Pup" beside it is noise to people who
+ * already know. So the unit number IS the name unless someone chose a different
+ * one, and no screen tells a crew that names every unit perfectly well that it
+ * owns 160 pieces of "Unnamed equipment".
+ */
+export function equipmentDisplayName(unit: { name: string | null; unit_number: string }): string {
+  return unit.name?.trim() || unit.unit_number;
+}
+
+/**
+ * Whether a unit carries a name that is not just its number.
+ *
+ * For the screens that print the unit number and then a name beside it. Falling
+ * back to the number in that spot would print it twice, so those callers ask
+ * this and render nothing when the answer is no.
+ */
+export function hasDistinctName(unit: { name: string | null; unit_number: string }): boolean {
+  return equipmentDisplayName(unit) !== unit.unit_number;
+}
+
+/**
  * Whether the requirement model applies to this unit at all.
  *
  * Only road units. A picker inspection expected on a bench grinder is noise, and the
@@ -1616,13 +1641,34 @@ export function buildCompletedScheduledServiceUpdate(input: {
   };
 }
 
+/**
+ * Spaces and hyphens removed, for matching a plate typed a different way round.
+ *
+ * Exported because the data-quality scanner has to normalise plates exactly the
+ * same way it is done here. If the two ever drifted, a plate the search treats as
+ * a duplicate would not be reported as one, or the reverse.
+ */
+export function withoutSeparators(value: string) {
+  return value.replace(/[\s-]+/g, "");
+}
+
 function equipmentSearchText(input: EquipmentInventoryRow) {
+  const plate = input.equipment.license_plate ?? null;
+
   return [
     input.equipment.unit_number,
     input.equipment.name,
     input.equipment.make,
     input.equipment.model,
     input.equipment.vin_or_serial,
+    // The plate is the one identifier somebody arrives holding rather than
+    // looking up: it is what a roadside call, a violation notice and an
+    // insurance slip all lead with, and the unit number is what they are trying
+    // to find. Indexed twice because Crude Master's own sheet writes plates
+    // three ways - "6EA 881", "6HR073", "6UN8-26" - so a searcher typing what
+    // they see on the paper cannot be relied on to match what we stored.
+    plate,
+    plate ? withoutSeparators(plate) : null,
     input.categoryLabel,
     input.statusLabel,
     input.locationName,
@@ -1728,7 +1774,24 @@ export function buildEquipmentInventoryRows(input: {
 
       return row.equipment.assigned_to === assignedTo;
     })
-    .filter((row) => (query ? equipmentSearchText(row).includes(query) : true))
+    .filter((row) => {
+      if (!query) {
+        return true;
+      }
+
+      const haystack = equipmentSearchText(row);
+
+      if (haystack.includes(query)) {
+        return true;
+      }
+
+      // Second pass only when the query itself carried a separator, so a search
+      // for "6UN8 26" still finds "6UN8-26". Guarded rather than always run:
+      // stripping every query would let "trailera" match "Trailer Active".
+      const bare = withoutSeparators(query);
+
+      return bare !== query && bare.length > 0 && haystack.includes(bare);
+    })
     .sort((left, right) => {
       switch (sort) {
         case "status":

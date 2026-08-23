@@ -8,6 +8,7 @@ const baseEquipment = [
     current_meter: "980",
     deleted_at: null,
     id: "equipment-1",
+    license_plate: "6EA 881",
     location_id: "location-1",
     make: "Ford",
     model: "F-550",
@@ -23,6 +24,7 @@ const baseEquipment = [
     current_meter: 120,
     deleted_at: null,
     id: "equipment-2",
+    license_plate: "6UN8-26",
     location_id: null,
     make: "Cat",
     model: "XQ",
@@ -51,6 +53,36 @@ describe("equipment page data helpers", () => {
     expect(rows[0].equipment.unit_number).toBe("47");
     expect(rows[0].locationName).toBe("Main Yard (YARD)");
     expect(rows[0].assigneeName).toBe("Blake Cowan");
+  });
+
+  // The plate is what a roadside call or a violation notice leads with, and the
+  // plates in the source sheets are written three different ways, so searching
+  // one has to survive the separators landing somewhere else.
+  it("finds a unit by its licence plate, however the separators are typed", () => {
+    const find = (query: string) =>
+      buildEquipmentInventoryRows({
+        documents: [],
+        equipment: baseEquipment,
+        locations: [],
+        query,
+        scheduledServices: [],
+        users: [],
+      }).map((row) => row.equipment.unit_number);
+
+    // As stored.
+    expect(find("6EA 881")).toEqual(["47"]);
+    expect(find("6UN8-26")).toEqual(["GEN-2"]);
+    // Separator dropped by the searcher.
+    expect(find("6EA881")).toEqual(["47"]);
+    expect(find("6UN826")).toEqual(["GEN-2"]);
+    // Separator typed differently from the way it was stored.
+    expect(find("6UN8 26")).toEqual(["GEN-2"]);
+    // Case does not matter.
+    expect(find("6ea 881")).toEqual(["47"]);
+    // A plate belonging to nothing still finds nothing.
+    expect(find("6ZZ 999")).toEqual([]);
+    // The guarded second pass must not let a query run across word boundaries.
+    expect(find("truckvehicle")).toEqual([]);
   });
 
   it("filters equipment inventory by assigned worker and unassigned units", () => {
