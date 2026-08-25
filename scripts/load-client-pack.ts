@@ -126,7 +126,7 @@ type SheetRead =
  * parser then stringifies them, so a whole roster fails with
  * `"[object Object]" is not a valid email address` and the person who filled the
  * sheet in correctly is told their data is wrong. That happened to all eleven rows
- * of Crude Master's office staff pack, and a fleet sheet full of linked serial
+ * of one client's office staff pack, and a fleet sheet full of linked serial
  * numbers would fail the same way.
  *
  * Unwrap to the text the person actually typed. `text` is what Excel displays;

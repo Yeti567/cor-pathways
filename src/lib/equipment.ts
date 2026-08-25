@@ -1,4 +1,5 @@
 import { AWAITING_PROOF_CLASS, AWAITING_PROOF_LABEL } from "@/lib/proof-status";
+import { sanitizeStorageFilename } from "@/lib/document-control";
 import type { Json } from "@/types/database";
 
 export const equipmentCategoryOptions = [
@@ -72,7 +73,7 @@ export const equipmentDocumentTypeOptions = [
 //
 // The picker, tank and pressure inspections used to live here, back when the model had
 // no way to say "this one, not that one" and the advice was to delete the types a
-// fleet did not need. That advice never worked for a mixed fleet: Crude Master runs
+// fleet did not need. That advice never worked for a mixed fleet: a carrier that runs
 // tank trailers AND tractors, so any fleet-wide answer was wrong for half the yard.
 // They are seeded as options below instead, and a unit that carries one gets it ticked.
 //
@@ -383,6 +384,69 @@ export function parseEquipmentAttachmentIds(value: string) {
     .filter((entry) => uuidPattern.test(entry));
 
   return Array.from(new Set(ids));
+}
+
+// Equipment attachments are uploaded straight from the browser to storage, never
+// through the Server Action. A Server Action body is capped at 1 MB by Next, which a
+// phone photo or a multi-page scan clears easily, and the framework rejects it with a
+// raw 413 before any of this code runs, so there is no way to turn it into a message
+// the user can act on. The browser uploads first and posts only the paths, which is
+// what the mobile equipment panel has always done.
+export const equipmentAttachmentMaxBytes = 10 * 1024 * 1024;
+
+export const equipmentAttachmentMimeTypes = [
+  "application/pdf",
+  "image/heic",
+  "image/heif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+
+export const equipmentPhotoMimeTypes = ["image/heic", "image/heif", "image/jpeg", "image/png", "image/webp"] as const;
+
+export const equipmentAttachmentBucket = "tenant-documents";
+
+export type EquipmentAttachmentFolder = "documents" | "maintenance" | "photos";
+
+type EquipmentAttachmentLocation = {
+  equipmentId: string;
+  folder: EquipmentAttachmentFolder;
+  tenantId: string;
+};
+
+export function equipmentAttachmentStoragePrefix(input: EquipmentAttachmentLocation) {
+  return `${input.tenantId}/equipment/${input.equipmentId}/${input.folder}/`;
+}
+
+export function buildEquipmentAttachmentStoragePath(
+  input: EquipmentAttachmentLocation & { fileName: string; index: number },
+) {
+  return `${equipmentAttachmentStoragePrefix(input)}${Date.now()}-${input.index}-${sanitizeStorageFilename(input.fileName)}`;
+}
+
+// The browser decides these paths, so the server trusts none of it: a path counts only
+// when it sits directly inside this unit's own folder for this tenant. Anything with a
+// traversal segment, a nested path, or another tenant's prefix is dropped rather than
+// stored, so a tampered form cannot point a document record at someone else's file.
+export function parseUploadedEquipmentAttachmentPaths(
+  values: readonly (FormDataEntryValue | string)[],
+  location: EquipmentAttachmentLocation,
+) {
+  const prefix = equipmentAttachmentStoragePrefix(location);
+  const paths = values
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter((value) => value.startsWith(prefix))
+    .filter((value) => {
+      const fileName = value.slice(prefix.length);
+
+      // A name of only dots is still a traversal segment even though every
+      // character in it is allowed, so it is excluded on its own.
+      return /^[\w.-]+$/.test(fileName) && !/^\.+$/.test(fileName);
+    });
+
+  return Array.from(new Set(paths));
 }
 
 export function buildEquipmentActionMetadata(input: EquipmentActionMetadataInput): Json {

@@ -57,10 +57,12 @@ import {
   coerceEquipmentServiceType,
   coerceEquipmentStatus,
   coerceEquipmentTrackingMode,
+  equipmentAttachmentMaxBytes,
   equipmentLocationForStatus,
   normalizeEquipmentUnitNumber,
   numericEquipmentValue,
   parseEquipmentAttachmentIds,
+  parseUploadedEquipmentAttachmentPaths,
 } from "@/lib/equipment";
 import { requireAppUser, requireCurrentUser } from "@/lib/current-user";
 import { type CorCanonicalElement, COR_FRAMEWORKS, elementNumberForCanonical, isCanonicalElement } from "@/lib/cor-frameworks";
@@ -7367,6 +7369,10 @@ async function uploadEquipmentAttachmentFiles(input: {
       throw new Error("Choose PDF, PNG, JPEG, WebP, HEIC, or HEIF attachments.");
     }
 
+    if (file.size > equipmentAttachmentMaxBytes) {
+      throw new Error(`${file.name} is larger than 10 MB. Rescan it at a lower quality and try again.`);
+    }
+
     const storagePath = [
       input.tenantId,
       "equipment",
@@ -7401,6 +7407,10 @@ async function uploadEquipmentPhotoFiles(input: {
   for (const [index, file] of input.files.entries()) {
     if (!equipmentPhotoMimeTypes.has(file.type)) {
       throw new Error("Choose PNG, JPEG, WebP, HEIC, or HEIF photos.");
+    }
+
+    if (file.size > equipmentAttachmentMaxBytes) {
+      throw new Error(`${file.name} is larger than 10 MB. Rescan it at a lower quality and try again.`);
     }
 
     const storagePath = [
@@ -7678,12 +7688,20 @@ export async function uploadEquipmentPhotos(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const equipmentId = stringValue(formData, "equipmentId");
   const photoFiles = getUploadFiles(formData, "photos");
+  // Attachments arrive as storage paths the browser already uploaded; the files
+  // themselves never ride in the Server Action body. Validated against this unit's
+  // own folder before they are trusted.
+  const clientAttachmentPaths = parseUploadedEquipmentAttachmentPaths(formData.getAll("uploadedAttachmentPaths"), {
+    equipmentId,
+    folder: "photos",
+    tenantId: context.appUser.tenant_id,
+  });
 
   if (!equipmentId) {
     redirect("/admin/equipment?error=Choose%20equipment%20before%20uploading%20photos.");
   }
 
-  if (photoFiles.length === 0) {
+  if (photoFiles.length === 0 && clientAttachmentPaths.length === 0) {
     redirectEquipmentError(equipmentId, "overview", "Choose at least one equipment photo.");
   }
 
@@ -7693,10 +7711,10 @@ export async function uploadEquipmentPhotos(formData: FormData) {
     redirect("/admin/equipment?error=Choose%20valid%20equipment.");
   }
 
-  let uploadedPhotoPaths: string[];
+  let serverAttachmentPaths: string[];
 
   try {
-    uploadedPhotoPaths = await uploadEquipmentPhotoFiles({
+    serverAttachmentPaths = await uploadEquipmentPhotoFiles({
       equipmentId,
       files: photoFiles,
       supabase,
@@ -7706,7 +7724,11 @@ export async function uploadEquipmentPhotos(formData: FormData) {
     redirectEquipmentError(equipmentId, "overview", error instanceof Error ? error.message : "Photos were not uploaded.");
   }
 
-  const photoIds = Array.from(new Set([...(equipment.photo_ids ?? []), ...uploadedPhotoPaths]));
+  // Anything the browser already put in storage, plus anything small enough to have
+  // come through the form, end up in one list from here on.
+  const attachmentPaths = [...clientAttachmentPaths, ...serverAttachmentPaths];
+
+  const photoIds = Array.from(new Set([...(equipment.photo_ids ?? []), ...attachmentPaths]));
   const { error } = await supabase
     .from("equipment")
     .update({
@@ -7714,7 +7736,7 @@ export async function uploadEquipmentPhotos(formData: FormData) {
         action: "equipment.photos.upload",
         actorId: context.appUser.id,
         details: {
-          uploaded_count: uploadedPhotoPaths.length,
+          uploaded_count: attachmentPaths.length,
         },
         source: "admin",
       }),
@@ -7733,7 +7755,7 @@ export async function uploadEquipmentPhotos(formData: FormData) {
     entityId: equipmentId,
     entityTable: "equipment",
     metadata: {
-      uploaded_count: uploadedPhotoPaths.length,
+      uploaded_count: attachmentPaths.length,
     },
   });
 
@@ -7805,6 +7827,14 @@ export async function createEquipmentMaintenanceLog(formData: FormData) {
   const performedAt = dateOnlyValue(formData, "performedAt") ?? todayDateOnly();
   const meterAtService = optionalNumberValue(formData, "meterAtService");
   const attachmentFiles = getUploadFiles(formData, "attachments");
+  // Attachments arrive as storage paths the browser already uploaded; the files
+  // themselves never ride in the Server Action body. Validated against this unit's
+  // own folder before they are trusted.
+  const clientAttachmentPaths = parseUploadedEquipmentAttachmentPaths(formData.getAll("uploadedAttachmentPaths"), {
+    equipmentId,
+    folder: "maintenance",
+    tenantId: context.appUser.tenant_id,
+  });
 
   if (!equipmentId || !title) {
     redirect("/admin/equipment?error=Choose%20equipment%20and%20enter%20maintenance%20details.");
@@ -7816,10 +7846,10 @@ export async function createEquipmentMaintenanceLog(formData: FormData) {
     redirect("/admin/equipment?error=Choose%20valid%20equipment.");
   }
 
-  let uploadedAttachmentPaths: string[];
+  let serverAttachmentPaths: string[];
 
   try {
-    uploadedAttachmentPaths = await uploadEquipmentAttachmentFiles({
+    serverAttachmentPaths = await uploadEquipmentAttachmentFiles({
       equipmentId,
       files: attachmentFiles,
       folder: "maintenance",
@@ -7830,6 +7860,10 @@ export async function createEquipmentMaintenanceLog(formData: FormData) {
     redirectEquipmentError(equipmentId, "maintenance", error instanceof Error ? error.message : "Attachments were not uploaded.");
   }
 
+  // Anything the browser already put in storage, plus anything small enough to have
+  // come through the form, end up in one list from here on.
+  const attachmentPaths = [...clientAttachmentPaths, ...serverAttachmentPaths];
+
   const maintenanceType = coerceEquipmentMaintenanceType(stringValue(formData, "type"));
   const { data: maintenanceLog, error } = await supabase
     .from("equipment_maintenance_log")
@@ -7838,13 +7872,13 @@ export async function createEquipmentMaintenanceLog(formData: FormData) {
         action: "equipment.maintenance.create",
         actorId: context.appUser.id,
         details: {
-          attachment_count: uploadedAttachmentPaths.length,
+          attachment_count: attachmentPaths.length,
           meter_at_service: meterAtService,
           type: maintenanceType,
         },
         source: "admin",
       }),
-      attachment_ids: [...parseEquipmentAttachmentIds(stringValue(formData, "attachmentIds")), ...uploadedAttachmentPaths],
+      attachment_ids: [...parseEquipmentAttachmentIds(stringValue(formData, "attachmentIds")), ...attachmentPaths],
       cost: optionalNumberValue(formData, "cost"),
       created_by: context.appUser.id,
       description: stringValue(formData, "description") || null,
@@ -7870,7 +7904,7 @@ export async function createEquipmentMaintenanceLog(formData: FormData) {
     entityId: maintenanceLog.id,
     entityTable: "equipment_maintenance_log",
     metadata: {
-      attachment_count: uploadedAttachmentPaths.length,
+      attachment_count: attachmentPaths.length,
       equipment_id: equipmentId,
       meter_at_service: meterAtService,
       title,
@@ -8372,6 +8406,14 @@ export async function createEquipmentDocument(formData: FormData) {
   const expiryDate = dateOnlyValue(formData, "expiryDate");
   const attachmentFiles = getUploadFiles(formData, "attachments");
   const docType = coerceEquipmentDocumentType(stringValue(formData, "docType"));
+  // Attachments arrive as storage paths the browser already uploaded; the files
+  // themselves never ride in the Server Action body. Validated against this unit's
+  // own folder before they are trusted.
+  const clientAttachmentPaths = parseUploadedEquipmentAttachmentPaths(formData.getAll("uploadedAttachmentPaths"), {
+    equipmentId,
+    folder: "documents",
+    tenantId: context.appUser.tenant_id,
+  });
 
   if (!equipmentId || !expiryDate) {
     redirect("/admin/equipment?error=Choose%20equipment%20and%20enter%20document%20details.");
@@ -8413,10 +8455,10 @@ export async function createEquipmentDocument(formData: FormData) {
     redirectEquipmentError(equipmentId, "documents", "Enter a document title or choose a certification type.");
   }
 
-  let uploadedAttachmentPaths: string[];
+  let serverAttachmentPaths: string[];
 
   try {
-    uploadedAttachmentPaths = await uploadEquipmentAttachmentFiles({
+    serverAttachmentPaths = await uploadEquipmentAttachmentFiles({
       equipmentId,
       files: attachmentFiles,
       folder: "documents",
@@ -8427,6 +8469,10 @@ export async function createEquipmentDocument(formData: FormData) {
     redirectEquipmentError(equipmentId, "documents", error instanceof Error ? error.message : "Attachments were not uploaded.");
   }
 
+  // Anything the browser already put in storage, plus anything small enough to have
+  // come through the form, end up in one list from here on.
+  const attachmentPaths = [...clientAttachmentPaths, ...serverAttachmentPaths];
+
   const reminderLeadDays = Math.max(0, numberValue(formData, "reminderLeadDays", 30));
   const { data: equipmentDocument, error } = await supabase
     .from("equipment_document")
@@ -8435,14 +8481,14 @@ export async function createEquipmentDocument(formData: FormData) {
         action: "equipment.document.create",
         actorId: context.appUser.id,
         details: {
-          attachment_count: uploadedAttachmentPaths.length,
+          attachment_count: attachmentPaths.length,
           certification_type_id: certificationTypeId,
           doc_type: docType,
           expiry_date: expiryDate,
         },
         source: "admin",
       }),
-      attachment_ids: [...parseEquipmentAttachmentIds(stringValue(formData, "attachmentIds")), ...uploadedAttachmentPaths],
+      attachment_ids: [...parseEquipmentAttachmentIds(stringValue(formData, "attachmentIds")), ...attachmentPaths],
       certification_type_id: certificationTypeId,
       created_by: context.appUser.id,
       doc_type: docType,
@@ -8467,7 +8513,7 @@ export async function createEquipmentDocument(formData: FormData) {
     entityId: equipmentDocument.id,
     entityTable: "equipment_document",
     metadata: {
-      attachment_count: uploadedAttachmentPaths.length,
+      attachment_count: attachmentPaths.length,
       certification_type_id: certificationTypeId,
       doc_type: docType,
       equipment_id: equipmentId,

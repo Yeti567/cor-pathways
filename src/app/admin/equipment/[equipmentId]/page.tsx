@@ -33,6 +33,7 @@ import {
   uploadEquipmentPhotos,
 } from "@/app/admin/actions";
 import { AddEquipmentDocumentFields } from "@/app/admin/equipment/[equipmentId]/AddEquipmentDocumentFields";
+import { EquipmentAttachmentUploadField } from "@/app/admin/equipment/[equipmentId]/EquipmentAttachmentUploadField";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
@@ -41,9 +42,11 @@ import { requireAppUser } from "@/lib/current-user";
 import {
   coerceEquipmentTab,
   equipmentCategoryOptions,
+  equipmentAttachmentMimeTypes,
   equipmentDueStatusClass,
   equipmentIntervalModeOptions,
   equipmentMaintenanceTypeOptions,
+  equipmentPhotoMimeTypes,
   equipmentServiceTypeOptions,
   equipmentStatusOptions,
   equipmentTabs,
@@ -900,14 +903,18 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
             </div>
             <form action={uploadEquipmentPhotos} className="mt-5 border-t border-[var(--border)] pt-5">
               <input name="equipmentId" type="hidden" value={equipment.id} />
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-[var(--ink)]">Add Photos</span>
-                <input accept="image/*,.heic,.heif" className={inputClass} multiple name="photos" type="file" />
-              </label>
-              <button className={`${primaryButtonClass} mt-3`} type="submit">
-                <Camera className="h-4 w-4" aria-hidden="true" />
-                Upload Photos
-              </button>
+              <EquipmentAttachmentUploadField
+                accept="image/*,.heic,.heif"
+                allowedMimeTypes={equipmentPhotoMimeTypes}
+                equipmentId={equipment.id}
+                folder="photos"
+                inputClass={inputClass}
+                label="Add Photos"
+                submitClass={`${primaryButtonClass} mt-3`}
+                submitIcon={<Camera className="h-4 w-4" aria-hidden="true" />}
+                submitLabel="Upload Photos"
+                tenantId={context.appUser.tenant_id}
+              />
             </form>
           </aside>
         </section>
@@ -1192,22 +1199,20 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                 <span className="text-sm font-medium text-[var(--ink)]">Description</span>
                 <textarea className={textareaClass} name="description" />
               </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-[var(--ink)]">Receipts or photos</span>
-                <input
-                  accept="application/pdf,image/*"
-                  className={inputClass}
-                  multiple
-                  name="attachments"
-                  type="file"
-                />
-                <span className="block text-xs text-[var(--ink-muted)]">Upload invoices, receipts, or repair photos.</span>
-              </label>
+              <EquipmentAttachmentUploadField
+                accept="application/pdf,image/*"
+                allowedMimeTypes={equipmentAttachmentMimeTypes}
+                equipmentId={equipment.id}
+                folder="maintenance"
+                hint="Upload invoices, receipts, or repair photos."
+                inputClass={inputClass}
+                label="Receipts or photos"
+                submitClass={primaryButtonClass}
+                submitIcon={<Save className="h-4 w-4" aria-hidden="true" />}
+                submitLabel="Log Maintenance"
+                tenantId={context.appUser.tenant_id}
+              />
             </div>
-            <button className={`${primaryButtonClass} mt-4`} type="submit">
-              <Save className="h-4 w-4" aria-hidden="true" />
-              Log Maintenance
-            </button>
           </form>
 
           <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
@@ -1438,22 +1443,20 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                 <span className="text-sm font-medium text-[var(--ink)]">Reminder lead days</span>
                 <input className={inputClass} defaultValue={30} min="0" name="reminderLeadDays" type="number" />
               </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-[var(--ink)]">Scans or photos</span>
-                <input
-                  accept="application/pdf,image/*"
-                  className={inputClass}
-                  multiple
-                  name="attachments"
-                  type="file"
-                />
-                <span className="block text-xs text-[var(--ink-muted)]">Upload registrations, insurance slips, permits, or certificates.</span>
-              </label>
+              <EquipmentAttachmentUploadField
+                accept="application/pdf,image/*"
+                allowedMimeTypes={equipmentAttachmentMimeTypes}
+                equipmentId={equipment.id}
+                folder="documents"
+                hint="Upload registrations, insurance slips, permits, or certificates."
+                inputClass={inputClass}
+                label="Scans or photos"
+                submitClass={primaryButtonClass}
+                submitIcon={<Save className="h-4 w-4" aria-hidden="true" />}
+                submitLabel="Add Document"
+                tenantId={context.appUser.tenant_id}
+              />
             </div>
-            <button className={`${primaryButtonClass} mt-4`} type="submit">
-              <Save className="h-4 w-4" aria-hidden="true" />
-              Add Document
-            </button>
           </form>
 
           <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
