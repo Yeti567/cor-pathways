@@ -34,6 +34,7 @@ import {
 } from "@/app/admin/actions";
 import { AddEquipmentDocumentFields } from "@/app/admin/equipment/[equipmentId]/AddEquipmentDocumentFields";
 import { EquipmentAttachmentUploadField } from "@/app/admin/equipment/[equipmentId]/EquipmentAttachmentUploadField";
+import { EquipmentDocumentProofForm } from "@/app/admin/equipment/[equipmentId]/EquipmentDocumentProofForm";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
@@ -1470,7 +1471,8 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                   });
 
                   return (
-                    <div className="grid gap-3 px-4 py-4 lg:grid-cols-[1fr_140px_130px_120px] lg:items-center" key={document.id}>
+                    <div className="px-4 py-4" key={document.id}>
+                      <div className="grid gap-3 lg:grid-cols-[1fr_140px_130px_120px] lg:items-center">
                       <div>
                         <p className="font-semibold text-[var(--ink)]">{document.title}</p>
                         <p className="mt-1 text-sm text-[var(--ink-muted)]">
@@ -1512,7 +1514,19 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                         ) : (
                           <span className="text-sm text-[var(--ink-muted)]">No scan</span>
                         )}
+                        </div>
                       </div>
+                      <EquipmentDocumentProofForm
+                        documentId={document.id}
+                        equipmentId={equipment.id}
+                        expiryDate={document.expiry_date}
+                        hasProof={document.attachment_ids.length > 0}
+                        inputClass={inputClass}
+                        issuedDate={document.issued_date}
+                        submitClass={primaryButtonClass}
+                        tenantId={context.appUser.tenant_id}
+                        title={document.title}
+                      />
                     </div>
                   );
                 })}

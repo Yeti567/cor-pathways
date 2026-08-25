@@ -8526,6 +8526,122 @@ export async function createEquipmentDocument(formData: FormData) {
   redirect(`${equipmentDetailPath(equipmentId, "documents")}&notice=Equipment%20document%20added.`);
 }
 
+/**
+ * Files the scan for a document that is already on the unit, and corrects its dates.
+ *
+ * The fleet load enters every certification and CVIP a unit is held to as a dated row
+ * with no scan, and those rows are what the compliance watchers read. Adding a second
+ * document for the same file does not satisfy the row that is waiting: a certification
+ * is matched on its certification type, so a new entry without one is not the same
+ * file at all. The proof has to land on the row that is asking for it, which is what
+ * this does.
+ *
+ * The dates are editable in the same step because the placeholder dates came off the
+ * client's spreadsheet and the certificate in front of whoever is filing it is the
+ * better source. Leaving a field alone keeps what is already stored.
+ */
+export async function attachEquipmentDocumentProof(formData: FormData) {
+  const context = await requireEquipmentManager();
+  const supabase = await createSupabaseServerClient();
+  const equipmentId = stringValue(formData, "equipmentId");
+  const documentId = stringValue(formData, "documentId");
+
+  if (!equipmentId || !documentId) {
+    redirect("/admin/equipment?error=Choose%20a%20document%20to%20update.");
+  }
+
+  const equipment = await ensureTenantEquipment(supabase, equipmentId, context.appUser.tenant_id);
+
+  if (!equipment) {
+    redirect("/admin/equipment?error=Choose%20valid%20equipment.");
+  }
+
+  // Read the row back under the tenant and the unit before touching it, so a document
+  // id from somewhere else cannot be steered onto this unit.
+  const { data: existing } = await supabase
+    .from("equipment_document")
+    .select("id, attachment_ids, doc_type, expiry_date, issued_date, title")
+    .eq("id", documentId)
+    .eq("equipment_id", equipmentId)
+    .eq("tenant_id", context.appUser.tenant_id)
+    .is("deleted_at", null)
+    .maybeSingle<{
+      attachment_ids: string[] | null;
+      doc_type: string;
+      expiry_date: string | null;
+      id: string;
+      issued_date: string | null;
+      title: string;
+    }>();
+
+  if (!existing) {
+    redirectEquipmentError(equipmentId, "documents", "That document is no longer on this unit.");
+  }
+
+  const clientAttachmentPaths = parseUploadedEquipmentAttachmentPaths(formData.getAll("uploadedAttachmentPaths"), {
+    equipmentId,
+    folder: "documents",
+    tenantId: context.appUser.tenant_id,
+  });
+  const attachmentIds = Array.from(new Set([...(existing.attachment_ids ?? []), ...clientAttachmentPaths]));
+  const expiryDate = dateOnlyValue(formData, "expiryDate") ?? existing.expiry_date;
+  const issuedDate = dateOnlyValue(formData, "issuedDate") ?? existing.issued_date;
+
+  if (!expiryDate) {
+    redirectEquipmentError(equipmentId, "documents", "Enter an expiry date.");
+  }
+
+  if (clientAttachmentPaths.length === 0 && expiryDate === existing.expiry_date && issuedDate === existing.issued_date) {
+    redirectEquipmentError(equipmentId, "documents", "Choose a scan to upload, or change a date.");
+  }
+
+  const { error } = await supabase
+    .from("equipment_document")
+    .update({
+      action_metadata: buildEquipmentActionMetadata({
+        action: "equipment.document.attach_proof",
+        actorId: context.appUser.id,
+        details: {
+          attachment_count: attachmentIds.length,
+          doc_type: existing.doc_type,
+          expiry_date: expiryDate,
+          uploaded_count: clientAttachmentPaths.length,
+        },
+        source: "admin",
+      }),
+      attachment_ids: attachmentIds,
+      expiry_date: expiryDate,
+      issued_date: issuedDate,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", documentId)
+    .eq("equipment_id", equipmentId)
+    .eq("tenant_id", context.appUser.tenant_id);
+
+  if (error) {
+    redirectEquipmentError(equipmentId, "documents", error.message);
+  }
+
+  await recordEquipmentAuditEvent({
+    action: "equipment.document.attach_proof",
+    actor: context.appUser,
+    entityId: documentId,
+    entityTable: "equipment_document",
+    metadata: {
+      attachment_count: attachmentIds.length,
+      doc_type: existing.doc_type,
+      equipment_id: equipmentId,
+      expiry_date: expiryDate,
+      issued_date: issuedDate,
+      title: existing.title,
+      uploaded_count: clientAttachmentPaths.length,
+    },
+  });
+
+  revalidateEquipmentPaths(equipmentId);
+  redirect(`${equipmentDetailPath(equipmentId, "documents")}&notice=Document%20updated.`);
+}
+
 export async function createManualEquipmentSubmissionLink(formData: FormData) {
   const context = await requireEquipmentManager();
   const supabase = await createSupabaseServerClient();

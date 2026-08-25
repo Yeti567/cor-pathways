@@ -987,11 +987,21 @@ function freshestDocumentState(
   daysUntilExpiry: number | null;
   hasProof: boolean;
 } {
-  const ranked = [...documents].sort(
-    (a, b) =>
+  const ranked = [...documents].sort((a, b) => {
+    const byExpiry =
       (daysUntil(b.expiryDate, now) ?? Number.MAX_SAFE_INTEGER) -
-      (daysUntil(a.expiryDate, now) ?? Number.MAX_SAFE_INTEGER),
-  );
+      (daysUntil(a.expiryDate, now) ?? Number.MAX_SAFE_INTEGER);
+
+    if (byExpiry !== 0) {
+      return byExpiry;
+    }
+
+    // Two entries covering the same file to the same date: the one carrying the scan
+    // speaks for it. Without this the winner is whichever row the query happened to
+    // return first, so a bare date entered alongside a filed certificate can hide it
+    // and the file reads as unproven while the proof sits on the row underneath.
+    return Number(b.hasProof) - Number(a.hasProof);
+  });
   const best = ranked[0];
   const days = daysUntil(best.expiryDate, now);
   const lead = Number(best.reminderLeadDays ?? 30);

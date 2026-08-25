@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEquipmentAttachmentStoragePath,
+  buildVehicleFileStatuses,
   equipmentAttachmentStoragePrefix,
   parseUploadedEquipmentAttachmentPaths,
 } from "@/lib/equipment";
@@ -59,5 +60,43 @@ describe("equipment attachment storage paths", () => {
     expect(built.startsWith(prefix)).toBe(true);
     expect(built).toContain("951-CVIP-Exp.-Dec-31-2026.pdf");
     expect(parseUploadedEquipmentAttachmentPaths([built], location)).toEqual([built]);
+  });
+});
+
+describe("a duplicate entry does not hide a filed certificate", () => {
+  const now = new Date("2026-08-25T12:00:00Z");
+
+  // A unit as it stood after the fleet load plus an admin's upload: the bulk-loaded
+  // placeholder and the scanned certificate, both expiring on the same day.
+  const placeholder = { expiryDate: "2026-12-31", hasProof: false, isActive: true, docType: "cvip" } as const;
+  const scanned = { expiryDate: "2026-12-31", hasProof: true, isActive: true, docType: "cvip" } as const;
+
+  it("reads as on file whichever order the rows arrive in", () => {
+    for (const documents of [
+      [placeholder, scanned],
+      [scanned, placeholder],
+    ]) {
+      const [cvip] = buildVehicleFileStatuses({ category: "trailer", documents: documents.map((d) => ({ ...d, reminderLeadDays: 30 })) }, now).filter(
+        (status) => status.docType === "cvip",
+      );
+
+      expect(cvip.state).toBe("on_file");
+      expect(cvip.hasProof).toBe(true);
+    }
+  });
+
+  it("still refuses to let last year's scan prove this year's inspection", () => {
+    const [cvip] = buildVehicleFileStatuses(
+      {
+        category: "trailer",
+        documents: [
+          { docType: "cvip", expiryDate: "2025-12-31", hasProof: true, isActive: true, reminderLeadDays: 30 },
+          { docType: "cvip", expiryDate: "2026-12-31", hasProof: false, isActive: true, reminderLeadDays: 30 },
+        ],
+      },
+      now,
+    ).filter((status) => status.docType === "cvip");
+
+    expect(cvip.state).toBe("awaiting_proof");
   });
 });

@@ -154,6 +154,7 @@ const actionGroups = [
       "createEquipmentScheduledService",
       "completeEquipmentScheduledService",
       "createEquipmentDocument",
+      "attachEquipmentDocumentProof",
       "createEquipmentCertificationType",
       "deleteEquipmentCertificationType",
       "setEquipmentCertificationRequirements",
