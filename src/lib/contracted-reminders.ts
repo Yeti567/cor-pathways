@@ -134,6 +134,33 @@ export function buildContractedAttentionNotifications(input: {
   const unitById = new Map(activeUnits.map((unit) => [unit.id, unit]));
   const driverById = new Map(activeDrivers.map((driver) => [driver.id, driver]));
 
+  // Only the newest record of each kind is chased. Everything behind it is history.
+  //
+  // This is the rule the whole reminders module turns on once a client loads their
+  // renewal history rather than only what is current. Without it, a hose certificate
+  // renewed every year since 2023 raises a fresh "expired" notification for each of the
+  // old ones, every night, to every manager. The screens already collapse to the freshest
+  // record, so a reminder for a superseded one would also be pointing at something the
+  // app does not show as a problem.
+  const freshestOnly = <T>(
+    rows: readonly T[],
+    keyOf: (row: T) => string,
+    expiryOf: (row: T) => string | null,
+  ): T[] => {
+    const best = new Map<string, T>();
+
+    for (const row of rows) {
+      const key = keyOf(row);
+      const current = best.get(key);
+
+      if (!current || (expiryOf(row) ?? "") > (expiryOf(current) ?? "")) {
+        best.set(key, row);
+      }
+    }
+
+    return [...best.values()];
+  };
+
   const notifications: ReminderNotification[] = [];
 
   const push = (title: string, body: string, recipientType: string) => {
@@ -152,7 +179,16 @@ export function buildContractedAttentionNotifications(input: {
   };
 
   // --- Unit documents ---
-  for (const document of input.documents) {
+  // Keyed on the unit plus the document's own title, which is what tells a primary hose
+  // from a spare and a 20 lb extinguisher from a 10 lb one. Keying on the type alone
+  // would let a current spare silence an overdue primary.
+  const liveDocuments = freshestOnly(
+    input.documents.filter((document) => document.is_active),
+    (document) => `${document.contracted_equipment_id}|${document.title.trim().toLowerCase()}`,
+    (document) => document.expiry_date,
+  );
+
+  for (const document of liveDocuments) {
     const unit = unitById.get(document.contracted_equipment_id);
 
     if (!unit || !document.is_active) {
@@ -207,7 +243,14 @@ export function buildContractedAttentionNotifications(input: {
   }
 
   // --- Driver tickets ---
-  for (const certification of input.certifications) {
+  const liveCertifications = freshestOnly(
+    input.certifications,
+    (certification) =>
+      `${certification.contracted_driver_id}|${certification.name.trim().toLowerCase()}`,
+    (certification) => certification.expires_on,
+  );
+
+  for (const certification of liveCertifications) {
     const driver = driverById.get(certification.contracted_driver_id);
 
     if (!driver) {

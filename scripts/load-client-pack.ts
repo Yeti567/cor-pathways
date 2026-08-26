@@ -524,13 +524,22 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
         .select("id, unit_number, vin_or_serial, license_plate, status")
         .eq("tenant_id", tenant.id)
         .is("deleted_at", null),
-      supabase.from("certifications").select("id, name, worker_profile_id").eq("tenant_id", tenant.id),
-      supabase
-        .from("equipment_document")
-        .select("id, equipment_id, title, doc_type")
-        .eq("tenant_id", tenant.id)
-        .eq("doc_type", "certification")
-        .is("deleted_at", null),
+      readAll<{ id: string; name: string; worker_profile_id: string }>((from, to) =>
+        supabase
+          .from("certifications")
+          .select("id, name, worker_profile_id")
+          .eq("tenant_id", tenant.id)
+          .range(from, to),
+      ).then((data) => ({ data })),
+      readAll<{ id: string; equipment_id: string; title: string; doc_type: string }>((from, to) =>
+        supabase
+          .from("equipment_document")
+          .select("id, equipment_id, title, doc_type")
+          .eq("tenant_id", tenant.id)
+          .eq("doc_type", "certification")
+          .is("deleted_at", null)
+          .range(from, to),
+      ).then((data) => ({ data })),
       supabase.from("worker_profiles").select("id, user_id").eq("tenant_id", tenant.id),
     ]);
 
@@ -553,16 +562,22 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
       .select("id, full_name, subcontractor_id")
       .eq("tenant_id", tenant.id)
       .is("deleted_at", null),
-    supabase
-      .from("contracted_equipment_document")
-      .select("id, contracted_equipment_id, title, doc_type")
-      .eq("tenant_id", tenant.id)
-      .eq("doc_type", "certification")
-      .is("deleted_at", null),
-    supabase
-      .from("contracted_driver_certification")
-      .select("id, contracted_driver_id, name")
-      .eq("tenant_id", tenant.id),
+    readAll<{ id: string; contracted_equipment_id: string; title: string; doc_type: string }>((from, to) =>
+      supabase
+        .from("contracted_equipment_document")
+        .select("id, contracted_equipment_id, title, doc_type")
+        .eq("tenant_id", tenant.id)
+        .eq("doc_type", "certification")
+        .is("deleted_at", null)
+        .range(from, to),
+    ).then((data) => ({ data })),
+    readAll<{ id: string; contracted_driver_id: string; name: string }>((from, to) =>
+      supabase
+        .from("contracted_driver_certification")
+        .select("id, contracted_driver_id, name")
+        .eq("tenant_id", tenant.id)
+        .range(from, to),
+    ).then((data) => ({ data })),
     supabase
       .from("subcontractor_document")
       .select("id, subcontractor_id, slot_key")
@@ -1290,6 +1305,42 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
 }
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
+
+/**
+ * Read every row of a table, not the first thousand.
+ *
+ * PostgREST caps a select at 1000 rows and returns that first page with no error and no
+ * indication it truncated. The snapshot is what the planner compares the pack against,
+ * so a truncated snapshot means every row past the cap looks like it does not exist yet.
+ * On a large contracted load that turned a re-run into hundreds of duplicate driver
+ * records: more in the pack than the 1000 visible, and the difference created a second time.
+ *
+ * Anything that could exceed a thousand rows has to be read through here. A tenant with
+ * a hundred drivers and seventy certification types passes that on the driver records
+ * alone.
+ */
+async function readAll<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const rows: T[] = [];
+
+  for (let page = 0; ; page += 1) {
+    const from = page * PAGE;
+    const { data, error } = await build(from, from + PAGE - 1);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const batch = data ?? [];
+    rows.push(...batch);
+
+    if (batch.length < PAGE) {
+      return rows;
+    }
+  }
+}
 
 /** The same loose matching the duplicate check uses, so keys agree across the app. */
 /**

@@ -205,3 +205,107 @@ describe("how a driver reads at a glance", () => {
     expect(contractedDriverOverallTone({ identity, certifications: [], missingMandatory: [] })).toBe("danger");
   });
 });
+
+describe("renewal history", () => {
+  // The rule the whole historical load turns on: only the newest record of a kind speaks
+  // for the driver. Without it a ticket renewed three times reads as one certificate and
+  // two deficiencies, and the driver goes red on a roster they belong at the top of.
+  function h2s(id: string, expires: string | null, overrides: Partial<ContractedDriverCertificationInput> = {}) {
+    return certification({ id, expires_on: expires, typeName: "H2S Alive", ...overrides });
+  }
+
+  it("keeps only the newest as live and marks the rest history", () => {
+    const statuses = contractedDriverCertificationStatuses(
+      { certifications: [h2s("old", "2024-01-01"), h2s("new", "2028-01-01"), h2s("older", "2022-01-01")] },
+      NOW,
+    );
+
+    const live = statuses.filter((entry) => !entry.superseded);
+
+    expect(live).toHaveLength(1);
+    expect(live[0].id).toBe("new");
+    expect(statuses.filter((entry) => entry.superseded).map((entry) => entry.id).sort()).toEqual([
+      "old",
+      "older",
+    ]);
+  });
+
+  it("gives a superseded record no colour of its own", () => {
+    const statuses = contractedDriverCertificationStatuses(
+      { certifications: [h2s("old", "2024-01-01"), h2s("new", "2028-01-01")] },
+      NOW,
+    );
+    const old = statuses.find((entry) => entry.id === "old");
+
+    // Long expired, but replaced. Saying "Deficiency" here is the exact noise the rule
+    // exists to remove.
+    expect(old?.status.tone).toBe("neutral");
+    expect(old?.status.label).toBe("Superseded");
+  });
+
+  it("does not let an expired history record turn the driver red", () => {
+    const statuses = contractedDriverCertificationStatuses(
+      { certifications: [h2s("old", "2020-01-01"), h2s("new", "2028-01-01")] },
+      NOW,
+    );
+
+    expect(
+      contractedDriverOverallTone({ identity: [], certifications: statuses, missingMandatory: [] }),
+    ).toBe("success");
+  });
+
+  it("still goes red when the newest one is itself expired", () => {
+    const statuses = contractedDriverCertificationStatuses(
+      { certifications: [h2s("old", "2020-01-01"), h2s("newest", "2024-01-01")] },
+      NOW,
+    );
+
+    expect(
+      contractedDriverOverallTone({ identity: [], certifications: statuses, missingMandatory: [] }),
+    ).toBe("danger");
+  });
+
+  it("does not let an undated record displace a dated one", () => {
+    // An undated acknowledgement says nothing about when the dated certificate beside it
+    // runs out, so it must never become the record that speaks for the driver.
+    const statuses = contractedDriverCertificationStatuses(
+      { certifications: [h2s("dated", "2028-01-01"), h2s("undated", null)] },
+      NOW,
+    );
+
+    expect(statuses.find((entry) => !entry.superseded)?.id).toBe("dated");
+  });
+
+  it("keeps different certifications apart", () => {
+    const statuses = contractedDriverCertificationStatuses(
+      {
+        certifications: [
+          h2s("h2s", "2028-01-01"),
+          certification({ id: "fa", typeName: "Standard First Aid", expires_on: "2027-01-01" }),
+        ],
+      },
+      NOW,
+    );
+
+    expect(statuses.filter((entry) => entry.superseded)).toEqual([]);
+  });
+
+  it("does not merge a ticket with an orientation that shares a name", () => {
+    const statuses = contractedDriverCertificationStatuses(
+      {
+        certifications: [
+          certification({ id: "t", typeName: "Site training", typeCategory: "ticket", expires_on: "2028-01-01" }),
+          certification({
+            id: "o",
+            typeName: "Site training",
+            typeCategory: "orientation",
+            expires_on: "2020-01-01",
+          }),
+        ],
+      },
+      NOW,
+    );
+
+    expect(statuses.filter((entry) => entry.superseded)).toEqual([]);
+  });
+});

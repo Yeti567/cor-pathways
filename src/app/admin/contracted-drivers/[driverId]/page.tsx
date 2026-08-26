@@ -207,6 +207,14 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
             {CONTRACTED_DRIVER_CATEGORY_DESCRIPTIONS[category]}
           </p>
 
+          {grouped[category].filter((status) => status.superseded).length > 0 ? (
+            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+              {grouped[category].filter((status) => status.superseded).length} earlier record
+              {grouped[category].filter((status) => status.superseded).length === 1 ? " is" : "s are"} kept
+              below as history. Only the most recent of each counts.
+            </p>
+          ) : null}
+
           {grouped[category].length === 0 ? (
             <p className="mt-3 text-sm text-[var(--ink-muted)]">Nothing filed yet.</p>
           ) : (
@@ -215,12 +223,15 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
                 const source = certificationById.get(status.id);
 
                 return (
-                  <li className="py-3" key={status.id}>
+                  // History is dimmed rather than hidden: the file has to explain itself,
+                  // but a replaced certificate must not read like a live problem.
+                  <li className={`py-3${status.superseded ? " opacity-60" : ""}`} key={status.id}>
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-[var(--ink)]">
                           {status.label}
-                          {status.expected ? " · required" : ""}
+                          {status.expected && !status.superseded ? " · required" : ""}
+                          {status.superseded ? " · earlier record" : ""}
                         </p>
                         <p className="text-xs text-[var(--ink-muted)]">
                           {status.expiresOn ? `Expires ${status.expiresOn}` : "No expiry"}

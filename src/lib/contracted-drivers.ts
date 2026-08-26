@@ -142,6 +142,14 @@ export type ContractedDriverCertificationStatus = {
    * site is not short of anything.
    */
   expected: boolean;
+  /**
+   * A record of the same kind that a newer one has replaced.
+   *
+   * History, and nothing more. It is shown so the file explains itself, but it never
+   * decides the driver's colour, never counts as a deficiency and never raises a
+   * reminder. A ticket renewed three times must read as current, not as three failures.
+   */
+  superseded: boolean;
 };
 
 export type ContractedDriverCertificationInput = ContractedDriverCertificationRow & {
@@ -160,28 +168,92 @@ export function contractedDriverCertificationStatuses(
 ): ContractedDriverCertificationStatus[] {
   const mandatory = new Set(input.mandatoryTicketTypeIds ?? []);
 
-  return input.certifications
-    .map((certification) => {
-      const hasProof = hasAttachedProof(certification.attachment_path);
-      const category: CertificationCategory = certification.typeCategory ?? "ticket";
+  const built = input.certifications.map((certification) => {
+    const hasProof = hasAttachedProof(certification.attachment_path);
+    const category: CertificationCategory = certification.typeCategory ?? "ticket";
 
-      return {
-        id: certification.id,
-        label: certification.typeName?.trim() || certification.name,
-        category,
-        issuedOn: certification.issued_on,
-        expiresOn: certification.expires_on,
-        issuingCompany: certification.issuing_company,
-        detail: certification.detail,
-        hasProof,
-        status: certificationStatus(certification.expires_on, now, hasProof),
-        expected:
-          category === "ticket" &&
-          certification.certification_type_id !== null &&
-          mandatory.has(certification.certification_type_id),
-      };
-    })
-    .sort((left, right) => left.label.localeCompare(right.label));
+    return {
+      id: certification.id,
+      label: certification.typeName?.trim() || certification.name,
+      category,
+      issuedOn: certification.issued_on,
+      expiresOn: certification.expires_on,
+      issuingCompany: certification.issuing_company,
+      detail: certification.detail,
+      hasProof,
+      status: certificationStatus(certification.expires_on, now, hasProof),
+      expected:
+        category === "ticket" &&
+        certification.certification_type_id !== null &&
+        mandatory.has(certification.certification_type_id),
+      superseded: false,
+    };
+  });
+
+  // Only the newest record of each kind speaks for the driver; the rest are history.
+  //
+  // This is the same rule freshestDocumentState applies to a unit's documents, and it is
+  // what makes loading a driver's whole renewal history safe. Without it a ticket renewed
+  // three times reads as one current certificate and two deficiencies, the driver goes
+  // red on a roster they belong at the top of, and the reminder job chases certificates
+  // that were replaced years ago.
+  //
+  // Grouped by the type where there is one, and by the label otherwise, so a record filed
+  // as free text still supersedes its own earlier copies. A record with no expiry never
+  // displaces one that has a date: an undated acknowledgement says nothing about when the
+  // dated certificate beside it runs out.
+  const groups = new Map<string, typeof built>();
+
+  for (const status of built) {
+    const key = `${status.category}|${status.label.trim().toLowerCase()}`;
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.push(status);
+    } else {
+      groups.set(key, [status]);
+    }
+  }
+
+  for (const group of groups.values()) {
+    if (group.length < 2) {
+      continue;
+    }
+
+    const ranked = [...group].sort((left, right) => {
+      const byExpiry = (right.expiresOn ?? "").localeCompare(left.expiresOn ?? "");
+
+      if (byExpiry !== 0) {
+        return byExpiry;
+      }
+
+      // Same expiry, or none on either: the one carrying the scan speaks for the record,
+      // then the one issued most recently.
+      return (
+        Number(right.hasProof) - Number(left.hasProof) ||
+        (right.issuedOn ?? "").localeCompare(left.issuedOn ?? "")
+      );
+    });
+
+    for (const status of ranked.slice(1)) {
+      status.superseded = true;
+      // History carries no colour of its own. Saying "Deficiency" beside a certificate
+      // that was replaced is the exact noise this rule exists to remove.
+      status.status = { label: "Superseded", tone: "neutral" };
+    }
+  }
+
+  return built.sort(
+    (left, right) =>
+      Number(left.superseded) - Number(right.superseded) || left.label.localeCompare(right.label),
+  );
+}
+
+/** The records that speak for the driver today, with history dropped. */
+export function currentContractedDriverCertifications(
+  statuses: readonly ContractedDriverCertificationStatus[],
+): ContractedDriverCertificationStatus[] {
+  return statuses.filter((status) => !status.superseded);
 }
 
 export function groupContractedDriverCertifications(
@@ -241,7 +313,7 @@ export function contractedDriverOverallTone(input: {
     // to drive, and rolling every client's induction up here would make the roster
     // unreadable on a fleet that runs to a dozen sites.
     ...input.certifications
-      .filter((certification) => certification.category === "ticket")
+      .filter((certification) => certification.category === "ticket" && !certification.superseded)
       .map((certification) => certification.status.tone),
   ];
 
