@@ -79,6 +79,17 @@ type ManifestEntry = {
   createFor?: { driverId: string; name: string; expiresOn?: string | null; issuedOn?: string | null };
   expiresOn?: string | null;
   issuedOn?: string | null;
+  /**
+   * Stored on the record and shown beside it in the app.
+   *
+   * Use it whenever the expiry does not come from the face of the scan. A Red Cross
+   * temporary card says it is valid for thirty days, but the permanent card that
+   * replaces it is routinely never sent, so the ticket is carried three years from the
+   * temporary's issue date. A record reading 2028 with a scan attached that reads
+   * "valid 30 days" looks like a mistake, or worse, unless the reason travels with it.
+   */
+  detail?: string | null;
+  /** Printed in the run report only. Not stored. */
   note?: string;
 };
 
@@ -88,6 +99,7 @@ type CertificationRow = {
   name: string;
   issued_on: string | null;
   expires_on: string | null;
+  detail: string | null;
   attachment_path: string | null;
 };
 
@@ -196,7 +208,7 @@ async function main(): Promise<void> {
     if (entry.certificationId) {
       const { data } = await supabase
         .from("contracted_driver_certification")
-        .select("id, contracted_driver_id, name, issued_on, expires_on, attachment_path")
+        .select("id, contracted_driver_id, name, issued_on, expires_on, detail, attachment_path")
         .eq("id", entry.certificationId)
         .maybeSingle<CertificationRow>();
 
@@ -219,7 +231,7 @@ async function main(): Promise<void> {
       // a no-op and lets a manifest be corrected and replayed safely.
       const { data: existing } = await supabase
         .from("contracted_driver_certification")
-        .select("id, contracted_driver_id, name, issued_on, expires_on, attachment_path")
+        .select("id, contracted_driver_id, name, issued_on, expires_on, detail, attachment_path")
         .eq("contracted_driver_id", driverId)
         .returns<CertificationRow[]>();
 
@@ -275,6 +287,10 @@ async function main(): Promise<void> {
       if (entry.issuedOn && entry.issuedOn !== certification.issued_on) {
         changes.push(`issued ${certification.issued_on ?? "none"} -> ${entry.issuedOn}`);
       }
+
+      if (entry.detail && entry.detail !== certification.detail) {
+        changes.push(`detail set: ${entry.detail}`);
+      }
     }
 
     planned.push(
@@ -304,6 +320,7 @@ async function main(): Promise<void> {
           attachment_path: path,
           expires_on: entry.expiresOn ?? certification.expires_on,
           issued_on: entry.issuedOn ?? certification.issued_on,
+          detail: entry.detail ?? certification.detail,
         })
         .eq("id", certification.id);
 
@@ -344,6 +361,7 @@ async function main(): Promise<void> {
         name: create.name,
         issued_on: create.issuedOn ?? null,
         expires_on: create.expiresOn ?? null,
+        detail: entry.detail ?? null,
         attachment_path: path,
       });
 
