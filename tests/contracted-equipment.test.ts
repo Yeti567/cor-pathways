@@ -162,14 +162,37 @@ describe("two certificates of one type on one unit", () => {
 });
 
 describe("a tractor's fixed files", () => {
-  it("expects a registration, insurance and CVIP, and treats permits as optional", () => {
+  it("expects a registration and CVIP, and treats permits as optional", () => {
     const statuses = contractedUnitFileStatuses({ category: "vehicle", documents: [] }, NOW);
     const required = statuses.filter((status) => status.required).map((status) => status.docType);
 
     expect(required).toContain("registration");
-    expect(required).toContain("insurance");
     expect(required).toContain("cvip");
     expect(statuses.find((status) => status.docType === "permit")?.required).toBe(false);
+  });
+
+  // The fleet's own power units still carry a pink card; only the contracted side drops
+  // it, because a hired carrier insures its whole fleet under one policy filed against
+  // the company. A row here would ask 73 tractors for a document filed 38 times.
+  it("never asks a contracted tractor for its own pink card", () => {
+    const statuses = contractedUnitFileStatuses({ category: "vehicle", documents: [] }, NOW);
+
+    expect(statuses.map((status) => status.docType)).not.toContain("insurance");
+  });
+
+  // An insurance row left over from before the change must not resurrect the file, and
+  // must not quietly count as proof of something else either.
+  it("ignores an insurance document that is still on the unit", () => {
+    const statuses = contractedUnitFileStatuses(
+      {
+        category: "vehicle",
+        documents: [document({ doc_type: "insurance", expiry_date: "2028-01-01", attachment_ids: ["i.pdf"] })],
+      },
+      NOW,
+    );
+
+    expect(statuses.map((status) => status.docType)).not.toContain("insurance");
+    expect(statuses.every((status) => status.expiryDate !== "2028-01-01")).toBe(true);
   });
 });
 
@@ -211,8 +234,8 @@ describe("carrier rollup", () => {
         certificationTypes: TYPES,
         requiredTypeIds: [],
         documents: [
+          // Registration and CVIP are the whole required set for a contracted tractor.
           document({ doc_type: "registration", expiry_date: "2028-01-01", attachment_ids: ["r.pdf"] }),
-          document({ doc_type: "insurance", expiry_date: "2028-01-01", attachment_ids: ["i.pdf"] }),
           document({ doc_type: "cvip", expiry_date: "2028-01-01", attachment_ids: ["c.pdf"] }),
         ],
       },

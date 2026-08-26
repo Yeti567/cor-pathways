@@ -1048,13 +1048,17 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
 
     contractedIdByUnit.set(unitKey(item.row.unitNumber), data.id);
 
-    // The three fixed files, written straight from the columns, exactly as the fleet
-    // loader does. A null expiry is stored as null rather than skipped: the contracted
-    // document table allows it, and "on file, no expiry tracked" is a real answer.
+    // The two fixed files, written straight from the columns. A null expiry is stored as
+    // null rather than skipped: the contracted document table allows it, and "on file, no
+    // expiry tracked" is a real answer.
+    //
+    // Insurance is deliberately not among them, unlike the fleet loader above. A hired
+    // carrier's policy covers its whole fleet and is filed once on the carrier, so a
+    // per-unit pink card here would recreate rows the app no longer shows. The sheet may
+    // still carry a Pink Card column; it is ignored.
     for (const [docType, expiry] of [
       ["cvip", item.row.cvipExpiry],
       ["registration", item.row.registrationExpiry],
-      ["insurance", item.row.insuranceExpiry],
     ] as const) {
       if (!expiry) {
         continue;
@@ -1650,7 +1654,9 @@ async function upsertContractedDocument(
   input: {
     tenantId: string;
     contractedEquipmentId: string;
-    docType: "cvip" | "registration" | "insurance" | "certification";
+    // No "insurance": a contracted unit is not held to its own pink card, and the app has
+    // no row to render one on. Narrowed so a future caller cannot quietly reintroduce it.
+    docType: "cvip" | "registration" | "certification";
     title: string | null;
     expiryDate: string | null;
     issuedDate?: string | null;
@@ -1661,7 +1667,6 @@ async function upsertContractedDocument(
   const FIXED_TITLES = {
     cvip: "CVIP inspection",
     registration: "Registration",
-    insurance: "Insurance",
     certification: "Certification",
   } as const;
 

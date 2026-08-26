@@ -22,7 +22,12 @@ import type { Database } from "@/types/database";
 type UnitRow = Database["public"]["Tables"]["contracted_equipment"]["Row"];
 type DocumentRow = Database["public"]["Tables"]["contracted_equipment_document"]["Row"];
 
-const DOC_TYPES = ["registration", "insurance", "cvip", "permit", "certification", "other"] as const;
+// No "insurance". A contracted unit is not held to its own pink card -- the carrier's
+// fleet policy is filed once on the carrier -- so there is no row on the unit page an
+// insurance document could ever appear on. Leaving it accepted here would let a
+// hand-posted form store a document nothing renders. See CONTRACTED_EXCLUDED_DOC_TYPES
+// in src/lib/contracted-equipment.ts.
+const DOC_TYPES = ["registration", "cvip", "permit", "certification", "other"] as const;
 const CATEGORIES = ["vehicle", "trailer"] as const;
 const STATUSES = ["active", "inactive", "terminated"] as const;
 

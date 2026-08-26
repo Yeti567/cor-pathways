@@ -354,8 +354,12 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
           <label className="space-y-2">
             <span className="text-sm font-medium text-[var(--ink)]">Document type</span>
             <select className={inputClass} defaultValue="certification" name="docType">
+              {/*
+                No insurance option. A hired carrier's policy covers its whole fleet and
+                is filed once on the carrier under Subcontractors, so there is nothing a
+                per-unit pink card here would add. See CONTRACTED_EXCLUDED_DOC_TYPES.
+              */}
               <option value="registration">Registration</option>
-              <option value="insurance">Insurance (pink card)</option>
               <option value="cvip">CVIP</option>
               <option value="permit">Permit</option>
               <option value="certification">Certification / inspection</option>

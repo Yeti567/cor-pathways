@@ -104,13 +104,30 @@ export function parseUploadedContractedAttachmentPaths(
 }
 
 /**
+ * Files a contracted unit is deliberately NOT held to.
+ *
+ * Insurance is a carrier-level document here, not a per-truck one. A hired carrier
+ * insures its whole fleet under one policy, and that certificate already has a home on
+ * the subcontractor record as the fleet_insurance slot. Asking each tractor for its own
+ * pink card asks a second time for a document the carrier has filed once, and the
+ * arithmetic showed it: 48 of 73 units read red for a missing pink card while 32 of 38
+ * carriers had their fleet certificate on file. Removed at the client's request,
+ * 2026-08-26.
+ *
+ * Excluded here rather than in VEHICLE_FILE_REQUIREMENTS on purpose. That list also
+ * governs this company's own fleet, where a power unit they own genuinely does carry its
+ * own pink card. Only the contracted side drops it.
+ */
+const CONTRACTED_EXCLUDED_DOC_TYPES: ReadonlySet<string> = new Set(["insurance"]);
+
+/**
  * One contracted unit's fixed files, in the same shape the fleet uses.
  *
- * A tractor is category 'vehicle', so this returns registration, insurance (the pink
- * card), CVIP and operating permits, with permits optional. That is four of the seven
- * document families their contractor sheet tracks; the other three (belly hose, product
- * hose, bypass valve) are certifications and come back from the call below, because
- * they are per-unit choices rather than files every road unit must carry.
+ * A tractor is category 'vehicle', so this returns registration, CVIP and operating
+ * permits, with permits optional. Insurance is filtered out; see above. The remaining
+ * document families their contractor sheet tracks (belly hose, product hose, bypass
+ * valve) are certifications and come back from the call below, because they are per-unit
+ * choices rather than files every road unit must carry.
  */
 export function contractedUnitFileStatuses(
   input: {
@@ -131,7 +148,7 @@ export function contractedUnitFileStatuses(
       })),
     },
     now,
-  );
+  ).filter((status) => !CONTRACTED_EXCLUDED_DOC_TYPES.has(status.docType));
 }
 
 /**

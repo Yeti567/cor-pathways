@@ -179,9 +179,10 @@ export default async function ContractedEquipmentPage({ searchParams }: PageProp
           <div>
             <h2 className="text-lg font-semibold text-[var(--ink)]">Units your hired carriers run for you</h2>
             <p className="mt-1 max-w-3xl text-sm text-[var(--ink-muted)]">
-              Registrations, insurance, CVIP and the inspection certificates each contracted tractor carries, held to
-              the same standard as your own fleet. These units belong to the carrier, not to you, so they are kept
-              apart from Equipment and never counted in your own fleet numbers.
+              Registrations, CVIP and the inspection certificates each contracted tractor carries, held to the same
+              standard as your own fleet. These units belong to the carrier, not to you, so they are kept apart from
+              Equipment and never counted in your own fleet numbers. Insurance is filed once per carrier, not once per
+              truck.
             </p>
             <Link
               className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"

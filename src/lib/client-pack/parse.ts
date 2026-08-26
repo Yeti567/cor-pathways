@@ -163,10 +163,13 @@ export type ContractedEquipmentRow = {
   registrationProvince: string | null;
   status: "active" | "inactive" | "terminated";
   notes: string | null;
-  /** The fixed files, same three the fleet's own units carry. */
+  /**
+   * The fixed files. Two, not the fleet's three: insurance is a carrier-level document
+   * for a hired carrier, filed once against the company rather than against each truck,
+   * so a Pink Card column on the sheet is read past rather than loaded.
+   */
   cvipExpiry: string | null;
   registrationExpiry: string | null;
-  insuranceExpiry: string | null;
   /** Inspections this unit is held to, by name. Empty leaves it on the defaults. */
   inspections: string[];
 };
@@ -320,7 +323,8 @@ const COLUMN_ALIASES: Record<PackSheet, Record<string, readonly string[]>> = {
     notes: ["notes", "comments"],
     cvipExpiry: ["cvip_expiry", "cvip", "inspection"],
     registrationExpiry: ["registration_expiry", "registration"],
-    insuranceExpiry: ["insurance_expiry", "insurance", "pink card"],
+    // No insuranceExpiry alias. Their truck sheet has a Pink Card column and it stays
+    // there; it simply has nowhere to land now that insurance is held on the carrier.
     inspections: ["inspections", "inspection_list", "required inspections", "certifications"],
   },
   contractedEquipmentCertifications: {
@@ -665,7 +669,6 @@ export function parseContractedEquipment(raw: RawSheet): ParseResult<ContractedE
         notes: textValue(cell(row, index, "notes")) || null,
         cvipExpiry: optionalDate(cell(row, index, "cvipExpiry"), "cvip_expiry", fail),
         registrationExpiry: optionalDate(cell(row, index, "registrationExpiry"), "registration_expiry", fail),
-        insuranceExpiry: optionalDate(cell(row, index, "insuranceExpiry"), "insurance_expiry", fail),
         inspections: listValue(cell(row, index, "inspections")),
       };
     },
