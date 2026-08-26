@@ -136,9 +136,13 @@ export default async function WorkerTicketCompliancePage() {
       .eq("tenant_id", tenantId)
       .returns<CertificationRow[]>(),
     supabase
+      // Mandatory TICKETS only. Orientations and site badges share this list but belong
+      // to contracted drivers, and a mandatory one would otherwise be reported missing
+      // against every employee.
       .from("certification_types")
       .select("name")
       .eq("tenant_id", tenantId)
+      .eq("category", "ticket")
       .eq("is_mandatory", true)
       .returns<{ name: string }[]>(),
   ]);

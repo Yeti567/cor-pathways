@@ -46,6 +46,10 @@ const TRADES_NAV_HREF = "/admin/trades";
 const GC_NAV_HREF = "/admin/projects";
 const INVENTORY_NAV_HREF = "/admin/inventory";
 const SUBCONTRACTORS_NAV_HREF = "/admin/subcontractors";
+// Contracted units and drivers hang off a carrier record, so they ride the same flag.
+// A flag of their own would only create a state where half the module works.
+const CONTRACTED_EQUIPMENT_NAV_HREF = "/admin/contracted-equipment";
+const CONTRACTED_DRIVERS_NAV_HREF = "/admin/contracted-drivers";
 
 const navItems = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
@@ -66,6 +70,8 @@ const navItems = [
   { href: GC_NAV_HREF, label: "Projects", icon: Building2 },
   { href: INVENTORY_NAV_HREF, label: "Inventory", icon: Package },
   { href: SUBCONTRACTORS_NAV_HREF, label: "Subcontractors", icon: Handshake },
+  { href: CONTRACTED_EQUIPMENT_NAV_HREF, label: "Contracted Equipment", icon: Truck },
+  { href: CONTRACTED_DRIVERS_NAV_HREF, label: "Contracted Drivers", icon: IdCard },
   { href: "/admin/workflows", label: "Workflow Station", icon: GitBranch },
   { href: "/admin/forms", label: "Forms", icon: ClipboardList },
   { href: "/admin/lists", label: "Managed Lists", icon: ListChecks },
@@ -127,7 +133,9 @@ export async function AdminShell({
     .filter((item) => item.href !== TRADES_NAV_HREF || tradesEnabled)
     .filter((item) => item.href !== GC_NAV_HREF || gcEnabled)
     .filter((item) => item.href !== INVENTORY_NAV_HREF || inventoryEnabled)
-    .filter((item) => item.href !== SUBCONTRACTORS_NAV_HREF || subcontractorsEnabled);
+    .filter((item) => item.href !== SUBCONTRACTORS_NAV_HREF || subcontractorsEnabled)
+    .filter((item) => item.href !== CONTRACTED_EQUIPMENT_NAV_HREF || subcontractorsEnabled)
+    .filter((item) => item.href !== CONTRACTED_DRIVERS_NAV_HREF || subcontractorsEnabled);
   // Equipment and Transport both stay in the nav. A company running commercial
   // vehicles still has job equipment to track, and the two are different things:
   // Transport is the NSC/COR file room for road units, Equipment is every unit

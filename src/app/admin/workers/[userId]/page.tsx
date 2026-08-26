@@ -161,9 +161,12 @@ export default async function WorkerDetailPage({ params, searchParams }: WorkerD
       .eq("user_id", userId)
       .returns<UserLocationRow[]>(),
     supabase
+      // Tickets only: orientations and site access badges on this shared list belong to
+      // contracted drivers, not to the crew.
       .from("certification_types")
       .select("*")
       .eq("tenant_id", context.appUser.tenant_id)
+      .eq("category", "ticket")
       .order("name")
       .returns<CertificationTypeRow[]>(),
     profile?.id

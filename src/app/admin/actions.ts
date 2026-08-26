@@ -9904,6 +9904,15 @@ export async function createCertificationType(formData: FormData) {
   const name = stringValue(formData, "name");
   const expires = boolValue(formData, "expires");
 
+  // What kind of record this type holds. Tickets are the default, and everything that
+  // existed before this column did is one. Orientations and site access exist so a
+  // client's site induction does not land in the employee ticket list, where it would
+  // read as a qualification the whole crew is short of.
+  const requestedCategory = stringValue(formData, "category");
+  const category = (["ticket", "orientation", "site_access"] as const).find(
+    (option) => option === requestedCategory,
+  ) ?? "ticket";
+
   if (!name) {
     redirect("/admin/certification-types?error=Enter%20a%20certification%20type%20name.");
   }
@@ -9911,6 +9920,7 @@ export async function createCertificationType(formData: FormData) {
   const { data: certificationType, error } = await supabase
     .from("certification_types")
     .insert({
+      category,
       expires,
       name,
       tenant_id: context.appUser.tenant_id,
@@ -9927,6 +9937,7 @@ export async function createCertificationType(formData: FormData) {
     entityId: certificationType.id,
     entityTable: "certification_types",
     metadata: {
+      category,
       expires,
       name,
     },
@@ -9934,6 +9945,7 @@ export async function createCertificationType(formData: FormData) {
 
   revalidatePath("/admin/certification-types");
   revalidatePath("/admin/workers");
+  revalidatePath("/admin/contracted-drivers");
   redirect("/admin/certification-types?notice=Certification%20type%20created.");
 }
 

@@ -183,9 +183,12 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
       .eq("tenant_id", context.appUser.tenant_id)
       .eq("active", true),
     supabase
+      // The crew's ticket types, not the contracted drivers' orientation list, which
+      // would otherwise report this setup step as done by accident.
       .from("certification_types")
       .select("*", { count: "exact", head: true })
-      .eq("tenant_id", context.appUser.tenant_id),
+      .eq("tenant_id", context.appUser.tenant_id)
+      .eq("category", "ticket"),
     supabase
       .from("permission_profiles")
       .select("*", { count: "exact", head: true })

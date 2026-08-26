@@ -48,7 +48,12 @@ export type TenantScopedTable =
   | "inventory_location"
   | "inventory_movement"
   | "inventory_transfer"
-  | "inventory_count";
+  | "inventory_count"
+  | "contracted_equipment"
+  | "contracted_equipment_document"
+  | "contracted_equipment_certification_requirement"
+  | "contracted_driver"
+  | "contracted_driver_certification";
 
 type TenantScopedRow = {
   id: string;
@@ -422,6 +427,91 @@ type InventoryItemRow = TenantScopedRow & {
   deleted_at: string | null;
 };
 
+/**
+ * What kind of thing a certification type records.
+ *
+ * `ticket`      a qualification the person carries anywhere: H2S Alive, First Aid, TDG.
+ * `orientation` one client site's induction, which proves nothing at any other site.
+ * `site_access` a badge, gate PIN or key fob.
+ */
+export type CertificationCategory = "ticket" | "orientation" | "site_access";
+
+type ContractedEquipmentRow = TenantScopedRow & {
+  subcontractor_id: string;
+  unit_number: string;
+  category: "vehicle" | "trailer";
+  year: number | null;
+  make: string | null;
+  model_or_colour: string | null;
+  vin_or_serial: string | null;
+  license_plate: string | null;
+  registration_province: string | null;
+  owner_name: string | null;
+  status: "active" | "inactive" | "terminated";
+  photo_ids: string[];
+  notes: string | null;
+  created_by: string | null;
+  deleted_at: string | null;
+};
+
+type ContractedEquipmentDocumentRow = TenantScopedRow & {
+  contracted_equipment_id: string;
+  doc_type: "registration" | "insurance" | "cvip" | "permit" | "certification" | "other";
+  certification_type_id: string | null;
+  title: string;
+  issued_date: string | null;
+  /**
+   * Nullable, unlike equipment_document.expiry_date. Null means no expiry is tracked for
+   * this document, NOT that it is overdue: a fire extinguisher tag carrying a serial and
+   * no printed date is a real record, and the not-null column on the fleet table rejected
+   * 52 of them during the fleet load.
+   */
+  expiry_date: string | null;
+  reminder_lead_days: number;
+  attachment_ids: string[];
+  is_active: boolean;
+  created_by: string | null;
+  deleted_at: string | null;
+  action_metadata: Json;
+};
+
+type ContractedEquipmentCertificationRequirementRow = TenantScopedRow & {
+  contracted_equipment_id: string;
+  certification_type_id: string;
+  created_by: string | null;
+};
+
+type ContractedDriverRow = TenantScopedRow & {
+  subcontractor_id: string;
+  full_name: string;
+  contracted_equipment_id: string | null;
+  license_province: string | null;
+  license_expiry: string | null;
+  abstract_issued: string | null;
+  abstract_expiry: string | null;
+  cso_completed: string | null;
+  driver_type: "contracted" | "casual";
+  status: "active" | "inactive" | "terminated";
+  notes: string | null;
+  created_by: string | null;
+  deleted_at: string | null;
+  // No emergency contact and no medical information, deliberately. See the table comment
+  // in 20260826010000_contracted_drivers.sql.
+};
+
+type ContractedDriverCertificationRow = TenantScopedRow & {
+  contracted_driver_id: string;
+  certification_type_id: string | null;
+  name: string;
+  issued_on: string | null;
+  /** Nullable: a Common Safety Orientation and most acknowledgements never expire. */
+  expires_on: string | null;
+  issuing_company: string | null;
+  /** Badge number, gate PIN or key fob. An identifier to read back, never computed on. */
+  detail: string | null;
+  attachment_path: string | null;
+};
+
 type SubcontractorRow = TenantScopedRow & {
   legal_name: string;
   operating_name: string | null;
@@ -430,6 +520,7 @@ type SubcontractorRow = TenantScopedRow & {
   contact_phone: string | null;
   nsc_number: string | null;
   wcb_account_number: string | null;
+  cra_business_number: string | null;
   broker_name: string | null;
   broker_email: string | null;
   broker_phone: string | null;
@@ -1346,6 +1437,47 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["equipment_certification_requirement"]["Row"]>;
         Relationships: [];
       };
+      contracted_equipment: {
+        Row: ContractedEquipmentRow;
+        Insert: Partial<ContractedEquipmentRow> &
+          Pick<ContractedEquipmentRow, "tenant_id" | "subcontractor_id" | "unit_number">;
+        Update: Partial<ContractedEquipmentRow>;
+        Relationships: [];
+      };
+      contracted_equipment_document: {
+        Row: ContractedEquipmentDocumentRow;
+        Insert: Partial<ContractedEquipmentDocumentRow> &
+          Pick<
+            ContractedEquipmentDocumentRow,
+            "tenant_id" | "contracted_equipment_id" | "doc_type" | "title"
+          >;
+        Update: Partial<ContractedEquipmentDocumentRow>;
+        Relationships: [];
+      };
+      contracted_equipment_certification_requirement: {
+        Row: ContractedEquipmentCertificationRequirementRow;
+        Insert: Partial<ContractedEquipmentCertificationRequirementRow> &
+          Pick<
+            ContractedEquipmentCertificationRequirementRow,
+            "tenant_id" | "contracted_equipment_id" | "certification_type_id"
+          >;
+        Update: Partial<ContractedEquipmentCertificationRequirementRow>;
+        Relationships: [];
+      };
+      contracted_driver: {
+        Row: ContractedDriverRow;
+        Insert: Partial<ContractedDriverRow> &
+          Pick<ContractedDriverRow, "tenant_id" | "subcontractor_id" | "full_name">;
+        Update: Partial<ContractedDriverRow>;
+        Relationships: [];
+      };
+      contracted_driver_certification: {
+        Row: ContractedDriverCertificationRow;
+        Insert: Partial<ContractedDriverCertificationRow> &
+          Pick<ContractedDriverCertificationRow, "tenant_id" | "contracted_driver_id" | "name">;
+        Update: Partial<ContractedDriverCertificationRow>;
+        Relationships: [];
+      };
       co_project: {
         Row: CoProjectRow;
         Insert: Partial<CoProjectRow> & Pick<CoProjectRow, "tenant_id" | "name">;
@@ -1548,6 +1680,12 @@ export type Database = {
           expires: boolean;
           /** Every active worker is expected to hold this one. See 20260815000000. */
           is_mandatory: boolean;
+          /**
+           * What kind of record this type holds. Employee screens read tickets only;
+           * orientations and site access exist for contracted drivers. Everything that
+           * existed before 20260826010000 is a ticket.
+           */
+          category: CertificationCategory;
         };
         Insert: Partial<Database["public"]["Tables"]["certification_types"]["Row"]> &
           Pick<Database["public"]["Tables"]["certification_types"]["Row"], "tenant_id" | "name">;

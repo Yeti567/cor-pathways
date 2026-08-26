@@ -415,7 +415,7 @@ export default async function CertificationTypesPage({ searchParams }: Certifica
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-[var(--ink)]">New Certification Type</h2>
-                <p className="text-sm text-[var(--ink-muted)]">Create a reusable worker credential type.</p>
+                <p className="text-sm text-[var(--ink-muted)]">Create a reusable credential type.</p>
               </div>
             </div>
             <label className="mt-5 block space-y-2">
@@ -425,6 +425,22 @@ export default async function CertificationTypesPage({ searchParams }: Certifica
                 name="name"
                 required
               />
+            </label>
+            <label className="mt-4 block space-y-2">
+              <span className="text-sm font-medium text-[var(--ink)]">Kind</span>
+              <select
+                className="h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
+                defaultValue="ticket"
+                name="category"
+              >
+                <option value="ticket">Ticket, held by anyone</option>
+                <option value="orientation">Client site orientation</option>
+                <option value="site_access">Site access or badge</option>
+              </select>
+              <span className="block text-xs text-[var(--ink-muted)]">
+                Tickets appear for your own crew and for contracted drivers. Orientations and badges are specific to
+                one client&apos;s site, so they appear on contracted drivers only.
+              </span>
             </label>
             <label className="mt-4 flex min-h-10 items-center gap-2 rounded-md border border-[var(--border)] bg-white px-3 text-sm text-[var(--ink)]">
               <input className="h-4 w-4 accent-[var(--primary)]" defaultChecked name="expires" type="checkbox" />

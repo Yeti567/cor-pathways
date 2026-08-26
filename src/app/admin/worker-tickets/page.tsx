@@ -114,9 +114,13 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
         .order("created_at", { ascending: false })
         .returns<CertificationRow[]>(),
       supabase
+        // Tickets only. Client site orientations and access badges share this list but
+        // belong to contracted drivers, and dropping seventy of them into an employee
+        // ticket picker would bury the handful that apply to the crew.
         .from("certification_types")
         .select("id, name")
         .eq("tenant_id", context.appUser.tenant_id)
+        .eq("category", "ticket")
         .order("name")
         .returns<CertificationTypeRow[]>(),
       supabase
