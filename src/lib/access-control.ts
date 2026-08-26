@@ -102,14 +102,26 @@ export function profileHasCapability(capabilities: unknown, key: string) {
   );
 }
 
-// Who may upload and manage medical/injury vault records: super admins, or
-// holders of the medical_vault_access capability. The affected worker can view
-// their own records (see canViewMedicalVault) but not manage the vault.
+// Who may upload and manage medical/injury vault records: ONLY holders of the
+// medical_vault_access capability. The affected worker can view their own records
+// (see canViewMedicalVault) but not manage the vault.
+//
+// Being a super admin is deliberately NOT enough, and that is the whole point of the
+// vault. What is in here is a doctor's account of an injured worker's restrictions, and
+// the company needs exactly one person able to read it, named on purpose. Every other
+// capability is about what somebody can run; this one is about what they can read about
+// a colleague's body, so it is granted deliberately or not at all.
+//
+// The bypass this replaces let anyone with super_admin in, which at one client meant
+// three people including the outside safety consultant, who is not an employee and has
+// no business in their staff's medical files. Removed 2026-08-26 at his own request.
+//
+// Consequence worth knowing: a tenant where nobody holds the capability has a vault
+// nobody can open. That is the correct failure. Designating a person is a decision the
+// company makes, not a default they inherit. Mirrored in
+// authz.current_user_can_access_medical_vault -- change both together.
 export function canManageMedicalVault(profile: AppProfile | null | undefined, capabilities: unknown) {
-  return Boolean(
-    profile?.active &&
-      (profile.power_level === "super_admin" || profileHasCapability(capabilities, "medical_vault_access")),
-  );
+  return Boolean(profile?.active && profileHasCapability(capabilities, "medical_vault_access"));
 }
 
 // Who may view a driver's medical vault: anyone who can manage it, plus the
