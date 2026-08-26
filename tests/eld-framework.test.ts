@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { EldTarget } from "@/lib/eld/targets";
 import {
   ELD_PROVIDERS,
   eldProviderConfig,
@@ -54,7 +55,7 @@ describe("buildDutyEventInserts", () => {
     { externalDriverId: "ext-1", status: "off_duty", startedAt: "2026-05-01T18:00:00.000Z" },
     { externalDriverId: "ext-unmapped", status: "driving", startedAt: "2026-05-01T09:00:00.000Z" },
   ];
-  const links = new Map([["ext-1", "driver-1"]]);
+  const links = new Map<string, EldTarget>([["ext-1", { kind: "own", id: "driver-1" }]]);
 
   it("maps matched events to eld-sourced rows and skips unmatched drivers", () => {
     const result = buildDutyEventInserts({ tenantId: "t1", events, driverIdByExternalId: links });
@@ -140,9 +141,9 @@ describe("buildVehicleLinkMatches", () => {
 });
 
 describe("buildEldMeterReadings", () => {
-  const links = new Map<string, string>([
-    ["mv-truck", "eq-truck"],
-    ["mv-hours", "eq-hours"],
+  const links = new Map<string, EldTarget>([
+    ["mv-truck", { kind: "own", id: "eq-truck" }],
+    ["mv-hours", { kind: "own", id: "eq-hours" }],
   ]);
   const info = new Map([
     ["eq-truck", { id: "eq-truck", currentMeter: 185000, trackingMode: "mileage" }],
@@ -214,7 +215,7 @@ describe("buildEldDeviceUpserts", () => {
         { externalVehicleId: "mv-1", identifier: "ELD-9", model: "X", firmware: "1.0", status: "connected", lastSeenAt: null },
         { externalVehicleId: "mv-unknown", identifier: "ELD-0", model: null, firmware: null, status: null, lastSeenAt: null },
       ],
-      equipmentIdByExternalVehicleId: new Map([["mv-1", "eq-1"]]),
+      equipmentIdByExternalVehicleId: new Map<string, EldTarget>([["mv-1", { kind: "own", id: "eq-1" }]]),
     });
     expect(rows).toEqual([
       {
@@ -222,6 +223,7 @@ describe("buildEldDeviceUpserts", () => {
         provider: "motive",
         external_vehicle_id: "mv-1",
         equipment_id: "eq-1",
+        contracted_equipment_id: null,
         identifier: "ELD-9",
         model: "X",
         firmware: "1.0",
@@ -233,7 +235,7 @@ describe("buildEldDeviceUpserts", () => {
 });
 
 describe("buildEldVehicleEventInserts", () => {
-  const links = new Map<string, string>([["mv-1", "eq-1"]]);
+  const links = new Map<string, EldTarget>([["mv-1", { kind: "own", id: "eq-1" }]]);
   const events: NormalizedVehicleEvent[] = [
     { externalVehicleId: "mv-1", eventType: "disconnect", occurredAt: "2026-06-01T09:00:00Z", externalEventId: "11", description: "power loss" },
     { externalVehicleId: "mv-1", eventType: "fault_code", occurredAt: "2026-06-01T08:00:00Z", code: "SPN 100 FMI 1", severity: "high" },
@@ -286,7 +288,7 @@ describe("buildEldDriverProfileUpserts", () => {
       tenantId: "t1",
       provider: "motive",
       details,
-      driverIdByExternalId: new Map([["7", "driver-7"]]),
+      driverIdByExternalId: new Map<string, EldTarget>([["7", { kind: "own", id: "driver-7" }]]),
       reportedAt: "2026-06-02T00:00:00.000Z",
     });
     expect(rows).toEqual([
@@ -295,6 +297,7 @@ describe("buildEldDriverProfileUpserts", () => {
         provider: "motive",
         external_driver_id: "7",
         driver_id: "driver-7",
+        contracted_driver_id: null,
         email: "a@b.c",
         phone: "555",
         role: "driver",
@@ -308,8 +311,8 @@ describe("buildEldDriverProfileUpserts", () => {
 });
 
 describe("buildEldDriverEventInserts", () => {
-  const drivers = new Map([["7", "driver-7"]]);
-  const vehicles = new Map([["4821", "eq-truck"]]);
+  const drivers = new Map<string, EldTarget>([["7", { kind: "own", id: "driver-7" }]]);
+  const vehicles = new Map<string, EldTarget>([["4821", { kind: "own", id: "eq-truck" }]]);
   const events: NormalizedDriverEvent[] = [
     { externalDriverId: "7", externalVehicleId: "4821", eventType: "speeding", occurredAt: "2026-06-01T08:00:00Z", externalEventId: "3", value: 120 },
     { externalDriverId: "unlinked", eventType: "collision", occurredAt: "2026-06-01T10:00:00Z" },
@@ -360,7 +363,7 @@ describe("buildEldDriverPerformanceUpserts", () => {
       tenantId: "t1",
       provider: "motive",
       performances,
-      driverIdByExternalId: new Map([["7", "driver-7"]]),
+      driverIdByExternalId: new Map<string, EldTarget>([["7", { kind: "own", id: "driver-7" }]]),
       reportedAt: "2026-06-02T00:00:00.000Z",
     });
     expect(rows).toHaveLength(1);

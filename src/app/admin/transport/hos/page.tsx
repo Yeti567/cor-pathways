@@ -21,7 +21,7 @@ type DriverRow = Pick<
 >;
 type EventRow = Pick<
   Database["public"]["Tables"]["transport_duty_status_event"]["Row"],
-  "driver_id" | "status" | "started_at"
+  "driver_id" | "contracted_driver_id" | "status" | "started_at"
 >;
 
 // Cycle 2 spans 14 days, so two weeks of events covers every availability window.
@@ -57,7 +57,7 @@ export default async function TransportHosPage() {
       .returns<DriverRow[]>(),
     supabase
       .from("transport_duty_status_event")
-      .select("driver_id, status, started_at")
+      .select("driver_id, contracted_driver_id, status, started_at")
       .eq("tenant_id", tenantId)
       .gte("started_at", windowStart)
       .order("started_at", { ascending: true })
@@ -66,8 +66,16 @@ export default async function TransportHosPage() {
 
   const eventsByDriver = new Map<string, DutyStatusEvent[]>();
   for (const event of events ?? []) {
-    eventsByDriver.set(event.driver_id, [
-      ...(eventsByDriver.get(event.driver_id) ?? []),
+    // Whichever target column the event landed in. A contracted driver's event matches
+    // no own-fleet driver here, which is right: their hours belong on their own file.
+    const driverId = event.contracted_driver_id ?? event.driver_id;
+
+    if (!driverId) {
+      continue;
+    }
+
+    eventsByDriver.set(driverId, [
+      ...(eventsByDriver.get(driverId) ?? []),
       { status: event.status, startedAt: event.started_at },
     ]);
   }

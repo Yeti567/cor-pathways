@@ -53,7 +53,7 @@ const FLEET_CATEGORIES = ["vehicle", "trailer"] as const;
 type DriverRow = Pick<Database["public"]["Tables"]["transport_driver"]["Row"], "id" | "hos_cycle" | "hos_regime">;
 type HosEventRow = Pick<
   Database["public"]["Tables"]["transport_duty_status_event"]["Row"],
-  "driver_id" | "status" | "started_at"
+  "driver_id" | "contracted_driver_id" | "status" | "started_at"
 >;
 type TransportDocRow = Pick<
   Database["public"]["Tables"]["transport_document"]["Row"],
@@ -223,7 +223,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         .returns<FleetDocumentRow[]>(),
       supabase
         .from("transport_duty_status_event")
-        .select("driver_id, status, started_at")
+        .select("driver_id, contracted_driver_id, status, started_at")
         .eq("tenant_id", tenantId)
         .gte("started_at", hosWindowStart)
         .order("started_at", { ascending: true })
@@ -234,8 +234,16 @@ export default async function TransportPage({ searchParams }: TransportPageProps
   // HOS violations across the fleet, computed from the duty-status log.
   const hosEventsByDriver = new Map<string, DutyStatusEvent[]>();
   for (const event of hosEvents ?? []) {
-    hosEventsByDriver.set(event.driver_id, [
-      ...(hosEventsByDriver.get(event.driver_id) ?? []),
+    // Whichever target column the event landed in. A contracted driver's event matches
+    // no own-fleet driver here, which is right: their hours belong on their own file.
+    const driverId = event.contracted_driver_id ?? event.driver_id;
+
+    if (!driverId) {
+      continue;
+    }
+
+    hosEventsByDriver.set(driverId, [
+      ...(hosEventsByDriver.get(driverId) ?? []),
       { status: event.status, startedAt: event.started_at },
     ]);
   }

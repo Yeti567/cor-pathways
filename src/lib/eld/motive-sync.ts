@@ -7,6 +7,7 @@
 
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { reconcileEldDriverLinks, reconcileEldVehicleLinks } from "@/lib/eld/links";
+import { splitEldTargets, type EldTarget } from "@/lib/eld/targets";
 import {
   buildDutyEventInserts,
   buildEldDeviceUpserts,
@@ -242,7 +243,7 @@ export async function syncMotiveConnection(
     accessToken = refreshed.tokens.accessToken;
   }
 
-  let driverIdByExternalId: Map<string, string>;
+  let driverIdByExternalId: Map<string, EldTarget>;
   let matchedVehicles = 0;
   let metersUpdated = 0;
   let devices = 0;
@@ -315,20 +316,39 @@ export async function syncMotiveConnection(
   }
 
   // Skip events we already have for these drivers in the window.
-  const linkedDriverIds = Array.from(new Set(driverIdByExternalId.values()));
   const existingKeys = new Set<string>();
-  if (linkedDriverIds.length > 0) {
-    const windowStartIso = new Date(now.getTime() - SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const windowStartIso = new Date(now.getTime() - SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const dutyTargets = splitEldTargets(driverIdByExternalId.values());
+
+  for (const [column, ids] of [
+    ["driver_id", dutyTargets.own],
+    ["contracted_driver_id", dutyTargets.contracted],
+  ] as const) {
+    if (ids.length === 0) {
+      continue;
+    }
+
     const { data: existing } = await admin
       .from("transport_duty_status_event")
-      .select("driver_id, status, started_at")
+      .select("driver_id, contracted_driver_id, status, started_at")
       .eq("tenant_id", tenantId)
-      .in("driver_id", linkedDriverIds)
+      .in(column, ids)
       .gte("started_at", windowStartIso)
-      .returns<{ driver_id: string; status: NormalizedDutyEvent["status"]; started_at: string }[]>();
+      .returns<
+        {
+          driver_id: string | null;
+          contracted_driver_id: string | null;
+          status: NormalizedDutyEvent["status"];
+          started_at: string;
+        }[]
+      >();
 
     for (const row of existing ?? []) {
-      existingKeys.add(dutyEventKey(row.driver_id, row.started_at, row.status));
+      const id = row.contracted_driver_id ?? row.driver_id;
+
+      if (id) {
+        existingKeys.add(dutyEventKey(id, row.started_at, row.status));
+      }
     }
   }
 
@@ -376,12 +396,19 @@ export async function syncMotiveConnection(
 async function syncTripOdometers(input: {
   admin: AdminClient;
   tenantId: string;
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   accessToken: string;
   fetchImpl: typeof fetch;
 }): Promise<number> {
   const { admin, tenantId, equipmentIdByExternalVehicleId, accessToken, fetchImpl } = input;
-  const equipmentIds = Array.from(new Set(equipmentIdByExternalVehicleId.values()));
+  // Own-fleet units only: a contracted unit has no meter log to advance.
+  const equipmentIds = Array.from(
+    new Set(
+      Array.from(equipmentIdByExternalVehicleId.values())
+        .filter((target) => target.kind === "own")
+        .map((target) => target.id),
+    ),
+  );
 
   if (equipmentIds.length === 0) {
     return 0;
@@ -434,12 +461,19 @@ async function syncTripOdometers(input: {
 async function syncVehicleTelematics(input: {
   admin: AdminClient;
   tenantId: string;
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   accessToken: string;
   fetchImpl: typeof fetch;
 }): Promise<{ devices: number; vehicleEvents: number }> {
   const { admin, tenantId, equipmentIdByExternalVehicleId, accessToken, fetchImpl } = input;
-  const equipmentIds = Array.from(new Set(equipmentIdByExternalVehicleId.values()));
+  // Own-fleet units only: a contracted unit has no meter log to advance.
+  const equipmentIds = Array.from(
+    new Set(
+      Array.from(equipmentIdByExternalVehicleId.values())
+        .filter((target) => target.kind === "own")
+        .map((target) => target.id),
+    ),
+  );
 
   if (equipmentIds.length === 0) {
     return { devices: 0, vehicleEvents: 0 };
@@ -469,15 +503,18 @@ async function syncVehicleTelematics(input: {
 
   const { data: existing } = await admin
     .from("eld_vehicle_event")
-    .select("equipment_id, event_type, occurred_at, code, external_event_id")
+    .select("equipment_id, contracted_equipment_id, event_type, occurred_at, code, external_event_id")
     .eq("tenant_id", tenantId)
     .in("equipment_id", equipmentIds)
     .returns<
-      { equipment_id: string; event_type: "disconnect" | "fault_code"; occurred_at: string; code: string | null; external_event_id: string | null }[]
+      { equipment_id: string | null; contracted_equipment_id: string | null; event_type: "disconnect" | "fault_code"; occurred_at: string; code: string | null; external_event_id: string | null }[]
     >();
 
   const existingKeys = new Set<string>(
-    (existing ?? []).map((row) => eldVehicleEventKey(row.equipment_id, row.event_type, row.occurred_at, row.code, row.external_event_id)),
+    (existing ?? [])
+      .map((row) => ({ ...row, unitId: row.contracted_equipment_id ?? row.equipment_id }))
+      .filter((row): row is typeof row & { unitId: string } => row.unitId !== null)
+      .map((row) => eldVehicleEventKey(row.unitId, row.event_type, row.occurred_at, row.code, row.external_event_id)),
   );
 
   const { inserts } = buildEldVehicleEventInserts({
@@ -502,8 +539,8 @@ async function syncVehicleTelematics(input: {
 async function syncDriverSafety(input: {
   admin: AdminClient;
   tenantId: string;
-  driverIdByExternalId: Map<string, string>;
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  driverIdByExternalId: Map<string, EldTarget>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   accessToken: string;
   fetchImpl: typeof fetch;
   now: Date;
@@ -526,18 +563,43 @@ async function syncDriverSafety(input: {
     ...normalizeMotiveCollisions(collisionsRaw),
   ];
 
-  const { data: existing } = await admin
-    .from("eld_driver_event")
-    .select("driver_id, event_type, occurred_at, external_event_id, value")
-    .eq("tenant_id", tenantId)
-    .in("driver_id", driverIds)
-    .returns<
-      { driver_id: string; event_type: NormalizedDriverEvent["eventType"]; occurred_at: string; external_event_id: string | null; value: number | null }[]
-    >();
+  const eventTargets = splitEldTargets(driverIdByExternalId.values());
+  const existingKeys = new Set<string>();
 
-  const existingKeys = new Set<string>(
-    (existing ?? []).map((row) => eldDriverEventKey(row.driver_id, row.event_type, row.occurred_at, row.external_event_id, row.value)),
-  );
+  for (const [column, ids] of [
+    ["driver_id", eventTargets.own],
+    ["contracted_driver_id", eventTargets.contracted],
+  ] as const) {
+    if (ids.length === 0) {
+      continue;
+    }
+
+    const { data: existing } = await admin
+      .from("eld_driver_event")
+      .select("driver_id, contracted_driver_id, event_type, occurred_at, external_event_id, value")
+      .eq("tenant_id", tenantId)
+      .in(column, ids)
+      .returns<
+        {
+          driver_id: string | null;
+          contracted_driver_id: string | null;
+          event_type: NormalizedDriverEvent["eventType"];
+          occurred_at: string;
+          external_event_id: string | null;
+          value: number | null;
+        }[]
+      >();
+
+    for (const row of existing ?? []) {
+      const id = row.contracted_driver_id ?? row.driver_id;
+
+      if (id) {
+        existingKeys.add(
+          eldDriverEventKey(id, row.event_type, row.occurred_at, row.external_event_id, row.value),
+        );
+      }
+    }
+  }
 
   const { inserts } = buildEldDriverEventInserts({
     tenantId,

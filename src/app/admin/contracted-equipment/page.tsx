@@ -10,6 +10,7 @@ import {
   type ContractedEquipmentDocumentRow,
   type ContractedEquipmentRow,
 } from "@/lib/contracted-equipment";
+import { sendContractedAttentionNotifications } from "@/lib/contracted-reminders";
 import { requireAppUser } from "@/lib/current-user";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { VEHICLE_FILE_STATE_LABELS, vehicleFileStateClass } from "@/lib/equipment";
@@ -54,6 +55,12 @@ export default async function ContractedEquipmentPage({ searchParams }: PageProp
 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
+
+  // Fire on render as well as from the nightly cron, the way the fleet list does. A
+  // workspace nobody has opened all week still gets its reminders from cron; opening the
+  // page just means you never see a renewal the notification list has not caught up to.
+  // De-duplicated on recipient, title and body, so the two paths cannot double up.
+  await sendContractedAttentionNotifications(tenantId);
 
   const [{ data: carriers }, { data: units }, { data: documents }, { data: requirements }, certificationTypes] =
     await Promise.all([

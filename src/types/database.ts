@@ -155,7 +155,8 @@ type TransportDriverRow = TenantScopedRow & {
 };
 
 type TransportDutyStatusEventRow = TenantScopedRow & {
-  driver_id: string;
+  driver_id: string | null;
+  contracted_driver_id: string | null;
   status: "off_duty" | "sleeper_berth" | "driving" | "on_duty";
   started_at: string;
   source: "manual" | "eld" | "edit" | "time_record" | "ocr";
@@ -189,19 +190,32 @@ type EldConnectionSecretRow = {
 type EldDriverLinkRow = TenantScopedRow & {
   provider: EldProvider;
   external_driver_id: string;
-  driver_id: string;
+  /**
+   * Exactly one of the own-fleet and contracted targets is set. A telematics device sits
+   * in one truck, and that truck is either this company's or a hired carrier's; the
+   * database enforces it (see 20260826020000).
+   */
+  driver_id: string | null;
+  contracted_driver_id: string | null;
 };
 
 type EldVehicleLinkRow = TenantScopedRow & {
   provider: EldProvider;
   external_vehicle_id: string;
-  equipment_id: string;
+  /**
+   * Exactly one of the own-fleet and contracted targets is set. A telematics device sits
+   * in one truck, and that truck is either this company's or a hired carrier's; the
+   * database enforces it (see 20260826020000).
+   */
+  equipment_id: string | null;
+  contracted_equipment_id: string | null;
 };
 
 type EldDriverProfileRow = TenantScopedRow & {
   provider: EldProvider;
   external_driver_id: string;
-  driver_id: string;
+  driver_id: string | null;
+  contracted_driver_id: string | null;
   email: string | null;
   phone: string | null;
   role: string | null;
@@ -213,8 +227,10 @@ type EldDriverProfileRow = TenantScopedRow & {
 
 type EldDriverEventRow = TenantScopedRow & {
   provider: EldProvider;
-  driver_id: string;
+  driver_id: string | null;
+  contracted_driver_id: string | null;
   equipment_id: string | null;
+  contracted_equipment_id: string | null;
   event_type: "speeding" | "harsh_brake" | "harsh_accel" | "collision" | "other";
   external_event_id: string | null;
   occurred_at: string;
@@ -229,7 +245,8 @@ type EldDriverEventRow = TenantScopedRow & {
 type EldDriverPerformanceRow = TenantScopedRow & {
   provider: EldProvider;
   external_driver_id: string;
-  driver_id: string;
+  driver_id: string | null;
+  contracted_driver_id: string | null;
   period_start: string | null;
   period_end: string | null;
   score: number | null;
@@ -246,7 +263,8 @@ type EldDriverPerformanceRow = TenantScopedRow & {
 type EldDeviceRow = TenantScopedRow & {
   provider: EldProvider;
   external_vehicle_id: string;
-  equipment_id: string;
+  equipment_id: string | null;
+  contracted_equipment_id: string | null;
   identifier: string | null;
   model: string | null;
   firmware: string | null;
@@ -256,7 +274,8 @@ type EldDeviceRow = TenantScopedRow & {
 
 type EldVehicleEventRow = TenantScopedRow & {
   provider: EldProvider;
-  equipment_id: string;
+  equipment_id: string | null;
+  contracted_equipment_id: string | null;
   event_type: "disconnect" | "fault_code";
   external_event_id: string | null;
   code: string | null;
@@ -1567,14 +1586,14 @@ export type Database = {
       eld_driver_link: {
         Row: EldDriverLinkRow;
         Insert: Partial<EldDriverLinkRow> &
-          Pick<EldDriverLinkRow, "tenant_id" | "provider" | "external_driver_id" | "driver_id">;
+          Pick<EldDriverLinkRow, "tenant_id" | "provider" | "external_driver_id">;
         Update: Partial<EldDriverLinkRow>;
         Relationships: [];
       };
       eld_driver_profile: {
         Row: EldDriverProfileRow;
         Insert: Partial<EldDriverProfileRow> &
-          Pick<EldDriverProfileRow, "tenant_id" | "provider" | "external_driver_id" | "driver_id">;
+          Pick<EldDriverProfileRow, "tenant_id" | "provider" | "external_driver_id">;
         Update: Partial<EldDriverProfileRow>;
         Relationships: [];
       };
@@ -1588,21 +1607,21 @@ export type Database = {
       eld_driver_performance: {
         Row: EldDriverPerformanceRow;
         Insert: Partial<EldDriverPerformanceRow> &
-          Pick<EldDriverPerformanceRow, "tenant_id" | "provider" | "external_driver_id" | "driver_id">;
+          Pick<EldDriverPerformanceRow, "tenant_id" | "provider" | "external_driver_id">;
         Update: Partial<EldDriverPerformanceRow>;
         Relationships: [];
       };
       eld_vehicle_link: {
         Row: EldVehicleLinkRow;
         Insert: Partial<EldVehicleLinkRow> &
-          Pick<EldVehicleLinkRow, "tenant_id" | "provider" | "external_vehicle_id" | "equipment_id">;
+          Pick<EldVehicleLinkRow, "tenant_id" | "provider" | "external_vehicle_id">;
         Update: Partial<EldVehicleLinkRow>;
         Relationships: [];
       };
       eld_device: {
         Row: EldDeviceRow;
         Insert: Partial<EldDeviceRow> &
-          Pick<EldDeviceRow, "tenant_id" | "provider" | "external_vehicle_id" | "equipment_id">;
+          Pick<EldDeviceRow, "tenant_id" | "provider" | "external_vehicle_id">;
         Update: Partial<EldDeviceRow>;
         Relationships: [];
       };

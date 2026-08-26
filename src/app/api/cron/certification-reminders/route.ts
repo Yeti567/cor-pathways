@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendCertificationExpiryNotifications } from "@/lib/certification-reminders";
+import { sendContractedAttentionNotifications } from "@/lib/contracted-reminders";
 import { sendDailyInspectionNotifications } from "@/lib/daily-inspection-reminders";
 import { sendDocumentReviewNotifications } from "@/lib/document-reminders";
 import { sendSubcontractorExpiryNotifications } from "@/lib/subcontractor-reminders";
@@ -183,6 +184,35 @@ export async function GET(request: Request) {
 
       results.push({
         ...subcontractorResult,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+      });
+
+      // Contracted units and drivers ride the same flag as the carriers they belong to.
+      const contractedResult = await sendContractedAttentionNotifications(tenant.id, now, supabase, {
+        auditClient: supabase,
+        auditSource: "cron",
+      });
+
+      if (contractedResult.created > 0) {
+        await recordTenantAuditEvent(
+          {
+            action: "contracted_reminders.send",
+            actorRole: "system",
+            entityTable: "notifications",
+            metadata: {
+              notification_count: contractedResult.created,
+              skipped_count: contractedResult.skipped,
+              tenant_name: tenant.name,
+            },
+            tenantId: tenant.id,
+          },
+          supabase,
+        );
+      }
+
+      results.push({
+        ...contractedResult,
         tenantId: tenant.id,
         tenantName: tenant.name,
       });

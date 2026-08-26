@@ -10,6 +10,7 @@
 // valid until they revoke it. See the auth note at the top of samsara.ts.
 
 import { reconcileEldDriverLinks, reconcileEldVehicleLinks } from "@/lib/eld/links";
+import { splitEldTargets, type EldTarget } from "@/lib/eld/targets";
 import {
   buildSamsaraImportPlan,
   type ExistingDriverRow,
@@ -244,8 +245,8 @@ export async function syncSamsaraConnection(
 
   const windowStart = new Date(now.getTime() - SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-  let driverIdByExternalId: Map<string, string>;
-  let equipmentIdByExternalVehicleId: Map<string, string>;
+  let driverIdByExternalId: Map<string, EldTarget>;
+  let equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   let dutyEvents: NormalizedDutyEvent[];
   let metersUpdated = 0;
   let driverProfiles = 0;
@@ -319,19 +320,45 @@ export async function syncSamsaraConnection(
   }
 
   // Skip duty events we already have for these drivers in the window.
-  const linkedDriverIds = Array.from(new Set(driverIdByExternalId.values()));
+  // Split by target: a duty event for a contracted driver sits in a different column, and
+  // filtering the wrong one silently finds nothing, which would re-insert the whole
+  // window on every sync.
+  const linkedTargets = Array.from(driverIdByExternalId.values());
+  const ownDriverIds = Array.from(new Set(linkedTargets.filter((t) => t.kind === "own").map((t) => t.id)));
+  const contractedDriverIds = Array.from(
+    new Set(linkedTargets.filter((t) => t.kind === "contracted").map((t) => t.id)),
+  );
   const existingKeys = new Set<string>();
-  if (linkedDriverIds.length > 0) {
+
+  for (const [column, ids] of [
+    ["driver_id", ownDriverIds],
+    ["contracted_driver_id", contractedDriverIds],
+  ] as const) {
+    if (ids.length === 0) {
+      continue;
+    }
+
     const { data: existing } = await admin
       .from("transport_duty_status_event")
-      .select("driver_id, status, started_at")
+      .select("driver_id, contracted_driver_id, status, started_at")
       .eq("tenant_id", tenantId)
-      .in("driver_id", linkedDriverIds)
+      .in(column, ids)
       .gte("started_at", windowStart.toISOString())
-      .returns<{ driver_id: string; status: NormalizedDutyEvent["status"]; started_at: string }[]>();
+      .returns<
+        {
+          driver_id: string | null;
+          contracted_driver_id: string | null;
+          status: NormalizedDutyEvent["status"];
+          started_at: string;
+        }[]
+      >();
 
     for (const row of existing ?? []) {
-      existingKeys.add(dutyEventKey(row.driver_id, row.started_at, row.status));
+      const id = row.contracted_driver_id ?? row.driver_id;
+
+      if (id) {
+        existingKeys.add(dutyEventKey(id, row.started_at, row.status));
+      }
     }
   }
 
@@ -391,7 +418,17 @@ async function computeSamsaraImportPlan(input: {
   const { admin, tenantId } = input;
   const fleet = await fetchSamsaraFleet({ apiToken: input.apiToken, fetchImpl: input.fetchImpl });
 
-  const [{ data: drivers }, { data: equipment }, { data: driverLinks }, { data: vehicleLinks }] = await Promise.all([
+  // Both rosters. "Already present" has to mean present ANYWHERE, or a fleet whose
+  // tractors are all contracted would be offered every one of them again as a new record
+  // on every import.
+  const [
+    { data: ownDrivers },
+    { data: contractedDrivers },
+    { data: ownEquipment },
+    { data: contractedEquipment },
+    { data: driverLinks },
+    { data: vehicleLinks },
+  ] = await Promise.all([
     admin
       .from("transport_driver")
       .select("id, full_name")
@@ -399,7 +436,19 @@ async function computeSamsaraImportPlan(input: {
       .is("deleted_at", null)
       .returns<ExistingDriverRow[]>(),
     admin
+      .from("contracted_driver")
+      .select("id, full_name")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .returns<ExistingDriverRow[]>(),
+    admin
       .from("equipment")
+      .select("id, unit_number, vin_or_serial, license_plate")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .returns<EquipmentMatchRow[]>(),
+    admin
+      .from("contracted_equipment")
       .select("id, unit_number, vin_or_serial, license_plate")
       .eq("tenant_id", tenantId)
       .is("deleted_at", null)
@@ -421,8 +470,8 @@ async function computeSamsaraImportPlan(input: {
   return buildSamsaraImportPlan({
     drivers: fleet.drivers,
     vehicles: fleet.vehicles,
-    existingDrivers: drivers ?? [],
-    existingEquipment: equipment ?? [],
+    existingDrivers: [...(ownDrivers ?? []), ...(contractedDrivers ?? [])],
+    existingEquipment: [...(ownEquipment ?? []), ...(contractedEquipment ?? [])],
     linkedDriverExternalIds: new Set((driverLinks ?? []).map((link) => link.external_driver_id)),
     linkedVehicleExternalIds: new Set((vehicleLinks ?? []).map((link) => link.external_vehicle_id)),
   });
@@ -465,6 +514,29 @@ export async function applySamsaraImport(
   tenantId: string,
   now: Date = new Date(),
   fetchImpl: typeof fetch = fetch,
+  options: {
+    /**
+     * Where newly created records should go.
+     *
+     * `own`       the company's own fleet and its own driver files. The original
+     *             behaviour, and right for a company that runs its own trucks.
+     * `carrier`   one named carrier's contracted units and drivers. Only correct when
+     *             everything in the account belongs to that one carrier.
+     * `link_only` create nothing. Match what the provider knows against records that
+     *             already exist and stop there.
+     *
+     * `link_only` is the honest default once carriers are in play, because a telematics
+     * account is usually ONE account covering every truck running for the company,
+     * whoever owns them. This client is exactly that case: the devices and the
+     * subscription are theirs, the trucks belong to thirty-odd carriers, and they all
+     * appear in one undifferentiated Samsara fleet list. Nothing in that list says which
+     * carrier a truck belongs to, so filing the whole import under a single carrier would
+     * misattribute seventy trucks in one click. The carrier comes from the carrier's own
+     * expiry sheet, which is the only place it is actually recorded; Samsara then matches
+     * to those units by VIN, plate or unit number.
+     */
+    target?: { kind: "own" } | { kind: "carrier"; carrierId: string } | { kind: "link_only" };
+  } = {},
 ): Promise<
   { ok: true; driversCreated: number; vehiclesCreated: number; synced: boolean } | { ok: false; error: string }
 > {
@@ -488,20 +560,73 @@ export async function applySamsaraImport(
     return { ok: false, error: error instanceof Error ? error.message : "Could not read the Samsara fleet." };
   }
 
-  if (plan.driversToCreate.length > 0) {
-    const { error } = await admin.from("transport_driver").insert(
-      plan.driversToCreate.map((driver) => ({
-        tenant_id: tenantId,
-        full_name: driver.fullName,
-      })),
-    );
+  const target = options.target ?? { kind: "own" };
+  const carrierId = target.kind === "carrier" ? target.carrierId.trim() || null : null;
+
+  if (target.kind === "carrier" && !carrierId) {
+    return { ok: false, error: "Choose which carrier these belong to." };
+  }
+
+  if (carrierId) {
+    // Confirm it is this tenant's carrier before anything is filed against it. Row level
+    // security would refuse a cross-tenant write by matching nothing, which reads back as
+    // a successful insert of zero rows.
+    const { data: carrier } = await admin
+      .from("subcontractor")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("id", carrierId)
+      .is("deleted_at", null)
+      .maybeSingle<{ id: string }>();
+
+    if (!carrier) {
+      return { ok: false, error: "That carrier no longer exists. Choose one and try again." };
+    }
+  }
+
+  if (plan.driversToCreate.length > 0 && target.kind !== "link_only") {
+    const { error } = carrierId
+      ? await admin.from("contracted_driver").insert(
+          plan.driversToCreate.map((driver) => ({
+            tenant_id: tenantId,
+            subcontractor_id: carrierId,
+            full_name: driver.fullName,
+          })),
+        )
+      : await admin.from("transport_driver").insert(
+          plan.driversToCreate.map((driver) => ({
+            tenant_id: tenantId,
+            full_name: driver.fullName,
+          })),
+        );
 
     if (error) {
       return { ok: false, error: `Could not create drivers: ${error.message}` };
     }
   }
 
-  if (plan.vehiclesToCreate.length > 0) {
+  if (plan.vehiclesToCreate.length > 0 && carrierId) {
+    const { error } = await admin.from("contracted_equipment").insert(
+      plan.vehiclesToCreate.map((vehicle) => ({
+        tenant_id: tenantId,
+        subcontractor_id: carrierId,
+        unit_number: vehicle.unitNumber,
+        vin_or_serial: vehicle.vin,
+        license_plate: vehicle.plate,
+        make: vehicle.make,
+        model_or_colour: vehicle.model,
+        year: vehicle.year,
+        // Samsara's /fleet/vehicles is powered units, so these are tractors.
+        category: "vehicle",
+      })),
+    );
+
+    if (error) {
+      return { ok: false, error: `Could not create units: ${error.message}` };
+    }
+  }
+
+  if (plan.vehiclesToCreate.length > 0 && !carrierId && target.kind !== "link_only") {
     const { error } = await admin.from("equipment").insert(
       plan.vehiclesToCreate.map((vehicle) => ({
         tenant_id: tenantId,
@@ -533,10 +658,12 @@ export async function applySamsaraImport(
   // sees hours and odometer immediately rather than waiting for the cron.
   const sync = await syncSamsaraConnection(tenantId, now, fetchImpl);
 
+  const created = target.kind !== "link_only";
+
   return {
     ok: true,
-    driversCreated: plan.driversToCreate.length,
-    vehiclesCreated: plan.vehiclesToCreate.length,
+    driversCreated: created ? plan.driversToCreate.length : 0,
+    vehiclesCreated: created ? plan.vehiclesToCreate.length : 0,
     synced: sync.ok,
   };
 }
@@ -550,7 +677,7 @@ export async function applySamsaraImport(
 async function syncSamsaraOdometers(input: {
   admin: AdminClient;
   tenantId: string;
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   apiToken: string;
   fetchImpl: typeof fetch;
 }): Promise<number> {
@@ -573,7 +700,14 @@ async function syncSamsaraOdometers(input: {
     return 0;
   }
 
-  const equipmentIds = Array.from(new Set(equipmentIdByExternalVehicleId.values()));
+  // Own-fleet units only: a contracted unit has no meter log to advance.
+  const equipmentIds = Array.from(
+    new Set(
+      Array.from(equipmentIdByExternalVehicleId.values())
+        .filter((target) => target.kind === "own")
+        .map((target) => target.id),
+    ),
+  );
 
   const { data: equipmentRows } = await admin
     .from("equipment")
@@ -620,8 +754,8 @@ async function syncSamsaraOdometers(input: {
 async function syncSamsaraSafetyEvents(input: {
   admin: AdminClient;
   tenantId: string;
-  driverIdByExternalId: Map<string, string>;
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  driverIdByExternalId: Map<string, EldTarget>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   apiToken: string;
   fetchImpl: typeof fetch;
   windowStart: Date;
@@ -646,28 +780,46 @@ async function syncSamsaraSafetyEvents(input: {
     return 0;
   }
 
-  const linkedDriverIds = Array.from(new Set(driverIdByExternalId.values()));
-  const { data: existing } = await admin
-    .from("eld_driver_event")
-    .select("driver_id, event_type, occurred_at, external_event_id, value")
-    .eq("tenant_id", tenantId)
-    .in("driver_id", linkedDriverIds)
-    .gte("occurred_at", input.windowStart.toISOString())
-    .returns<
-      {
-        driver_id: string;
-        event_type: EldDriverEventType;
-        occurred_at: string;
-        external_event_id: string | null;
-        value: number | null;
-      }[]
-    >();
+  // Split by target: a contracted driver's id sits in its own column, and filtering only
+  // the own-fleet one would report every event as new and re-insert the window each sync.
+  const eventTargets = splitEldTargets(driverIdByExternalId.values());
+  const existingKeys = new Set<string>();
 
-  const existingKeys = new Set(
-    (existing ?? []).map((row) =>
-      eldDriverEventKey(row.driver_id, row.event_type, row.occurred_at, row.external_event_id, row.value),
-    ),
-  );
+  for (const [column, ids] of [
+    ["driver_id", eventTargets.own],
+    ["contracted_driver_id", eventTargets.contracted],
+  ] as const) {
+    if (ids.length === 0) {
+      continue;
+    }
+
+    const { data: existing } = await admin
+      .from("eld_driver_event")
+      .select("driver_id, contracted_driver_id, event_type, occurred_at, external_event_id, value")
+      .eq("tenant_id", tenantId)
+      .in(column, ids)
+      .gte("occurred_at", input.windowStart.toISOString())
+      .returns<
+        {
+          driver_id: string | null;
+          contracted_driver_id: string | null;
+          event_type: EldDriverEventType;
+          occurred_at: string;
+          external_event_id: string | null;
+          value: number | null;
+        }[]
+      >();
+
+    for (const row of existing ?? []) {
+      const id = row.contracted_driver_id ?? row.driver_id;
+
+      if (id) {
+        existingKeys.add(
+          eldDriverEventKey(id, row.event_type, row.occurred_at, row.external_event_id, row.value),
+        );
+      }
+    }
+  }
 
   const { inserts } = buildEldDriverEventInserts({
     tenantId,

@@ -7,6 +7,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { isSamsaraImportPlanEmpty } from "@/lib/eld/samsara-import";
 import { planSamsaraImport } from "@/lib/eld/samsara-sync";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,21 @@ export default async function SamsaraImportPage() {
   }
 
   const result = await planSamsaraImport(context.appUser.tenant_id);
+
+  // The carriers these units and drivers might belong to. Only offered when the
+  // subcontractor module is on; a company that hires nobody sees the old behaviour and no
+  // extra question.
+  const supabase = await createSupabaseServerClient();
+  const { data: carriers } = context.tenant?.subcontractors_enabled
+    ? await supabase
+        .from("subcontractor")
+        .select("id, legal_name")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .is("deleted_at", null)
+        .order("legal_name")
+        .returns<{ id: string; legal_name: string }[]>()
+    : { data: null };
+  const carrierRows = carriers ?? [];
 
   return (
     <AdminShell
@@ -146,14 +162,46 @@ export default async function SamsaraImportPage() {
             </div>
           ) : (
             <form action={importSamsaraFleet} className="mt-6">
+              {carrierRows.length > 0 ? (
+                <label className="mb-4 block max-w-xl space-y-2">
+                  <span className="text-sm font-medium text-[var(--ink)]">Whose units and drivers are these?</span>
+                  <select
+                    className="h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
+                    defaultValue="link-only"
+                    name="importTarget"
+                  >
+                    <option value="link-only">
+                      Several carriers, or not sure &mdash; match only, create nothing
+                    </option>
+                    <option value="">All ours: our own fleet and our own drivers</option>
+                    {carrierRows.map((carrier) => (
+                      <option key={carrier.id} value={carrier.id}>
+                        All one carrier: {carrier.legal_name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="block text-xs text-[var(--ink-muted)]">
+                    Samsara lists every truck running your devices in one fleet, and nothing in that list says
+                    which carrier owns which truck. So the safe option is the first one: it matches Samsara against
+                    the units and drivers you already have and creates nothing. Anything it cannot match is listed
+                    above &mdash; add those under the right carrier in Contracted Equipment and Contracted Drivers,
+                    then run this again and they will link. Only pick a single carrier when every truck in the
+                    account genuinely belongs to that one company.
+                  </span>
+                </label>
+              ) : null}
               <button
                 className="inline-flex h-11 items-center gap-2 rounded-md bg-[var(--primary)] px-5 text-sm font-semibold text-white transition hover:bg-[var(--primary-strong)]"
                 type="submit"
               >
                 <Download className="h-4 w-4" aria-hidden="true" />
-                Import {result.plan.driversToCreate.length} driver
-                {result.plan.driversToCreate.length === 1 ? "" : "s"} and {result.plan.vehiclesToCreate.length} unit
-                {result.plan.vehiclesToCreate.length === 1 ? "" : "s"}
+                {carrierRows.length > 0
+                  ? "Run import"
+                  : `Import ${result.plan.driversToCreate.length} driver${
+                      result.plan.driversToCreate.length === 1 ? "" : "s"
+                    } and ${result.plan.vehiclesToCreate.length} unit${
+                      result.plan.vehiclesToCreate.length === 1 ? "" : "s"
+                    }`}
               </button>
               <p className="mt-2 text-xs text-[var(--ink-muted)]">
                 Safe to run again later: anything that already exists is left alone.

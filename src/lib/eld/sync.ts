@@ -7,6 +7,7 @@
 // driver); events for an unmatched provider driver are skipped and counted so
 // the UI can prompt the operator to map them.
 
+import { driverTargetColumns, vehicleTargetColumns, type EldTarget } from "@/lib/eld/targets";
 import type { DutyStatus } from "@/lib/hos-rules";
 import type { Database, EldProvider, Json } from "@/types/database";
 
@@ -68,7 +69,7 @@ export function eldMeterKey(equipmentId: string, value: number): string {
 export function buildEldMeterReadings(input: {
   tenantId: string;
   trips: EldTripReading[];
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   equipmentInfoById: Map<string, EquipmentMeterInfo>;
   existingKeys?: Set<string>;
 }): { inserts: MeterLogInsert[]; updated: number; skippedUnlinked: number } {
@@ -76,12 +77,18 @@ export function buildEldMeterReadings(input: {
   let skippedUnlinked = 0;
 
   for (const trip of input.trips) {
-    const equipmentId = input.equipmentIdByExternalVehicleId.get(trip.externalVehicleId);
+    const target = input.equipmentIdByExternalVehicleId.get(trip.externalVehicleId);
 
-    if (!equipmentId) {
+    // Own-fleet units only. equipment_meter_log belongs to a unit this company services,
+    // and a contracted unit has no meter history, scheduled service or maintenance log
+    // here, so a reading for one is counted as unlinked rather than given a home it does
+    // not have. See the closing note in 20260826020000.
+    if (!target || target.kind !== "own") {
       skippedUnlinked += 1;
       continue;
     }
+
+    const equipmentId = target.id;
 
     if (typeof trip.odometer !== "number" || !Number.isFinite(trip.odometer)) {
       continue;
@@ -149,15 +156,15 @@ export function buildEldDriverProfileUpserts(input: {
   tenantId: string;
   provider: EldProvider;
   details: EldDriverDetail[];
-  driverIdByExternalId: Map<string, string>;
+  driverIdByExternalId: Map<string, EldTarget>;
   reportedAt?: string | null;
 }): EldDriverProfileInsert[] {
   const rows: EldDriverProfileInsert[] = [];
 
   for (const detail of input.details) {
-    const driverId = input.driverIdByExternalId.get(detail.externalDriverId);
+    const target = input.driverIdByExternalId.get(detail.externalDriverId);
 
-    if (!driverId) {
+    if (!target) {
       continue;
     }
 
@@ -165,7 +172,7 @@ export function buildEldDriverProfileUpserts(input: {
       tenant_id: input.tenantId,
       provider: input.provider,
       external_driver_id: detail.externalDriverId,
-      driver_id: driverId,
+      ...driverTargetColumns(target),
       email: detail.email,
       phone: detail.phone,
       role: detail.role,
@@ -233,23 +240,27 @@ export function buildEldDriverEventInserts(input: {
   tenantId: string;
   provider: EldProvider;
   events: NormalizedDriverEvent[];
-  driverIdByExternalId: Map<string, string>;
-  equipmentIdByExternalVehicleId?: Map<string, string>;
+  driverIdByExternalId: Map<string, EldTarget>;
+  equipmentIdByExternalVehicleId?: Map<string, EldTarget>;
   existingKeys?: Set<string>;
 }): { inserts: EldDriverEventInsert[]; skippedUnlinked: number } {
   const existing = input.existingKeys ?? new Set<string>();
-  const vehicleLinks = input.equipmentIdByExternalVehicleId ?? new Map<string, string>();
+  const vehicleLinks = input.equipmentIdByExternalVehicleId ?? new Map<string, EldTarget>();
   const seen = new Set<string>();
   const inserts: EldDriverEventInsert[] = [];
   let skippedUnlinked = 0;
 
   for (const event of input.events) {
-    const driverId = input.driverIdByExternalId.get(event.externalDriverId);
+    const target = input.driverIdByExternalId.get(event.externalDriverId);
 
-    if (!driverId) {
+    if (!target) {
       skippedUnlinked += 1;
       continue;
     }
+
+    // Own and contracted ids are both uuids from different tables, so they can never
+    // collide; the id alone is a safe de-duplication key.
+    const driverId = target.id;
 
     const occurredMs = Date.parse(event.occurredAt);
     if (Number.isNaN(occurredMs)) {
@@ -266,8 +277,8 @@ export function buildEldDriverEventInserts(input: {
     inserts.push({
       tenant_id: input.tenantId,
       provider: input.provider,
-      driver_id: driverId,
-      equipment_id: event.externalVehicleId ? vehicleLinks.get(event.externalVehicleId) ?? null : null,
+      ...driverTargetColumns(target),
+      ...vehicleTargetColumns(event.externalVehicleId ? vehicleLinks.get(event.externalVehicleId) : null),
       event_type: event.eventType,
       external_event_id: event.externalEventId ?? null,
       occurred_at: occurredIso,
@@ -288,15 +299,15 @@ export function buildEldDriverPerformanceUpserts(input: {
   tenantId: string;
   provider: EldProvider;
   performances: EldDriverPerformance[];
-  driverIdByExternalId: Map<string, string>;
+  driverIdByExternalId: Map<string, EldTarget>;
   reportedAt?: string | null;
 }): EldDriverPerformanceInsert[] {
   const rows: EldDriverPerformanceInsert[] = [];
 
   for (const performance of input.performances) {
-    const driverId = input.driverIdByExternalId.get(performance.externalDriverId);
+    const target = input.driverIdByExternalId.get(performance.externalDriverId);
 
-    if (!driverId) {
+    if (!target) {
       continue;
     }
 
@@ -304,7 +315,7 @@ export function buildEldDriverPerformanceUpserts(input: {
       tenant_id: input.tenantId,
       provider: input.provider,
       external_driver_id: performance.externalDriverId,
-      driver_id: driverId,
+      ...driverTargetColumns(target),
       period_start: performance.periodStart ?? null,
       period_end: performance.periodEnd ?? null,
       score: performance.score ?? null,
@@ -344,14 +355,14 @@ export function buildEldDeviceUpserts(input: {
   tenantId: string;
   provider: EldProvider;
   devices: EldDeviceSummary[];
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
 }): EldDeviceInsert[] {
   const rows: EldDeviceInsert[] = [];
 
   for (const device of input.devices) {
-    const equipmentId = input.equipmentIdByExternalVehicleId.get(device.externalVehicleId);
+    const target = input.equipmentIdByExternalVehicleId.get(device.externalVehicleId);
 
-    if (!equipmentId) {
+    if (!target) {
       continue;
     }
 
@@ -359,7 +370,7 @@ export function buildEldDeviceUpserts(input: {
       tenant_id: input.tenantId,
       provider: input.provider,
       external_vehicle_id: device.externalVehicleId,
-      equipment_id: equipmentId,
+      ...vehicleTargetColumns(target),
       identifier: device.identifier,
       model: device.model,
       firmware: device.firmware,
@@ -391,7 +402,7 @@ export function buildEldVehicleEventInserts(input: {
   tenantId: string;
   provider: EldProvider;
   events: NormalizedVehicleEvent[];
-  equipmentIdByExternalVehicleId: Map<string, string>;
+  equipmentIdByExternalVehicleId: Map<string, EldTarget>;
   existingKeys?: Set<string>;
 }): { inserts: EldVehicleEventInsert[]; skippedUnlinked: number } {
   const existing = input.existingKeys ?? new Set<string>();
@@ -400,12 +411,14 @@ export function buildEldVehicleEventInserts(input: {
   let skippedUnlinked = 0;
 
   for (const event of input.events) {
-    const equipmentId = input.equipmentIdByExternalVehicleId.get(event.externalVehicleId);
+    const target = input.equipmentIdByExternalVehicleId.get(event.externalVehicleId);
 
-    if (!equipmentId) {
+    if (!target) {
       skippedUnlinked += 1;
       continue;
     }
+
+    const equipmentId = target.id;
 
     const occurredMs = Date.parse(event.occurredAt);
     if (Number.isNaN(occurredMs)) {
@@ -422,7 +435,7 @@ export function buildEldVehicleEventInserts(input: {
     inserts.push({
       tenant_id: input.tenantId,
       provider: input.provider,
-      equipment_id: equipmentId,
+      ...vehicleTargetColumns(target),
       event_type: event.eventType,
       external_event_id: event.externalEventId ?? null,
       code: event.code ?? null,
@@ -518,7 +531,7 @@ export function dutyEventKey(driverId: string, startedAt: string, status: DutySt
 export function buildDutyEventInserts(input: {
   tenantId: string;
   events: NormalizedDutyEvent[];
-  driverIdByExternalId: Map<string, string>;
+  driverIdByExternalId: Map<string, EldTarget>;
   existingKeys?: Set<string>;
 }): { inserts: DutyStatusInsert[]; matched: number; skippedUnmatched: number; skippedDuplicate: number } {
   const existing = input.existingKeys ?? new Set<string>();
@@ -528,13 +541,14 @@ export function buildDutyEventInserts(input: {
   let skippedDuplicate = 0;
 
   for (const event of input.events) {
-    const driverId = input.driverIdByExternalId.get(event.externalDriverId);
+    const target = input.driverIdByExternalId.get(event.externalDriverId);
 
-    if (!driverId) {
+    if (!target) {
       skippedUnmatched += 1;
       continue;
     }
 
+    const driverId = target.id;
     const key = dutyEventKey(driverId, event.startedAt, event.status);
 
     if (existing.has(key) || seen.has(key)) {
@@ -545,7 +559,7 @@ export function buildDutyEventInserts(input: {
 
     inserts.push({
       tenant_id: input.tenantId,
-      driver_id: driverId,
+      ...driverTargetColumns(target),
       status: event.status,
       started_at: new Date(event.startedAt).toISOString(),
       source: "eld",

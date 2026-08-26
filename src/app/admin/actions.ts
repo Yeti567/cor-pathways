@@ -4380,13 +4380,28 @@ export async function syncSamsaraNow(_formData: FormData) {
  * recomputed inside applySamsaraImport rather than taken from the form, so what
  * runs is a fresh read and never a stale or tampered preview.
  */
-export async function importSamsaraFleet(_formData: FormData) {
+export async function importSamsaraFleet(formData: FormData) {
   const context = await requireTransportManager();
-  const result = await applySamsaraImport(context.appUser.tenant_id);
+
+  // Where the new records should go. Samsara cannot know who owns a truck, and one
+  // telematics account routinely covers every truck running for the company whoever owns
+  // them, so this is the operator's choice rather than anything inferred. "link-only"
+  // creates nothing and just matches what is already on file, which is the safe answer
+  // for a mixed account.
+  const choice = stringValue(formData, "importTarget");
+  const target =
+    choice === "link-only"
+      ? ({ kind: "link_only" } as const)
+      : choice
+        ? ({ kind: "carrier", carrierId: choice } as const)
+        : ({ kind: "own" } as const);
+  const result = await applySamsaraImport(context.appUser.tenant_id, new Date(), fetch, { target });
 
   revalidatePath(ELD_CONNECTIONS_PATH);
   revalidatePath("/admin/transport/drivers");
   revalidatePath("/admin/equipment");
+  revalidatePath("/admin/contracted-equipment");
+  revalidatePath("/admin/contracted-drivers");
 
   if (!result.ok) {
     redirect(`${ELD_CONNECTIONS_PATH}/samsara-import?error=${encodeURIComponent(result.error)}`);
@@ -4399,12 +4414,16 @@ export async function importSamsaraFleet(_formData: FormData) {
       provider: "samsara",
       drivers_created: result.driversCreated,
       vehicles_created: result.vehiclesCreated,
+      import_target: target.kind,
+      carrier_id: target.kind === "carrier" ? target.carrierId : null,
     },
   });
 
   redirect(
     `${ELD_CONNECTIONS_PATH}?notice=${encodeURIComponent(
-      `Imported from Samsara: ${result.driversCreated} driver file${result.driversCreated === 1 ? "" : "s"} and ${result.vehiclesCreated} unit${result.vehiclesCreated === 1 ? "" : "s"} created.`,
+      target.kind === "link_only"
+        ? "Matched against Samsara. Nothing new was created; anything it could not match is listed on the import page."
+        : `Imported from Samsara: ${result.driversCreated} driver file${result.driversCreated === 1 ? "" : "s"} and ${result.vehiclesCreated} unit${result.vehiclesCreated === 1 ? "" : "s"} created.`,
     )}`,
   );
 }
