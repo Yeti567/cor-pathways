@@ -27,6 +27,12 @@ import {
 } from "@/lib/duplicate-check";
 import type {
   CertificationRow,
+  ContractedCompanyDocumentRow,
+  ContractedCompanyRow,
+  ContractedDriverCertificationRow,
+  ContractedDriverRow,
+  ContractedEquipmentCertificationRow,
+  ContractedEquipmentRow,
   EmployeeRow,
   EquipmentRow,
   LocationRow,
@@ -52,6 +58,16 @@ export type PackPlan = {
   equipment: PlanItem<EquipmentRow>[];
   certifications: PlanItem<CertificationRow & { workerId: string }>[];
   unitCertifications: PlanItem<UnitCertificationRow & { equipmentId: string }>[];
+  contractedCompanies: PlanItem<ContractedCompanyRow>[];
+  contractedCompanyDocuments: PlanItem<ContractedCompanyDocumentRow & { subcontractorId: string }>[];
+  contractedEquipment: PlanItem<ContractedEquipmentRow & { subcontractorId: string }>[];
+  contractedEquipmentCertifications: PlanItem<
+    ContractedEquipmentCertificationRow & { contractedEquipmentId: string }
+  >[];
+  contractedDrivers: PlanItem<ContractedDriverRow & { subcontractorId: string }>[];
+  contractedDriverCertifications: PlanItem<
+    ContractedDriverCertificationRow & { contractedDriverId: string }
+  >[];
   errors: PackRowError[];
 };
 
@@ -64,6 +80,13 @@ export type TenantSnapshot = {
   certifications: { id: string; userId: string; name: string }[];
   /** Unit certifications filed as equipment_document rows of type certification. */
   unitCertifications: { id: string; equipmentId: string; label: string }[];
+  /** The hired carriers, matched by legal name. */
+  subcontractors: { id: string; legalName: string }[];
+  contractedCompanyDocuments: { id: string; subcontractorId: string; slotKey: string }[];
+  contractedEquipment: { id: string; unitNumber: string; subcontractorId: string }[];
+  contractedDrivers: { id: string; fullName: string; subcontractorId: string }[];
+  contractedEquipmentCertifications: { id: string; contractedEquipmentId: string; label: string }[];
+  contractedDriverCertifications: { id: string; contractedDriverId: string; label: string }[];
 };
 
 function error(sheet: PackSheet, row: number, column: string, message: string): PackRowError {
@@ -479,4 +502,429 @@ export function countActions(items: readonly PlanItem<unknown>[]): PlanCounts {
  */
 export function planIsApplicable(plan: PackPlan): boolean {
   return plan.errors.length === 0;
+}
+
+// --- The contracted side ----------------------------------------------------
+//
+// Everything here hangs off a carrier resolved by legal name. That resolution is the
+// one genuinely new failure mode: a unit or driver whose company does not match any
+// carrier cannot be filed anywhere, and it is reported by row rather than dropped,
+// because "eleven units did not load" with no names is not something a person can act
+// on. Carriers arriving on the companies sheet in the same pack count as resolvable,
+// so a single pack can introduce a carrier and its fleet at once.
+
+/** Carrier names as people type them: case, spacing and punctuation all vary. */
+function carrierKey(name: string): string {
+  return normalizeIdentifier(name);
+}
+
+function buildCarrierIndex(
+  snapshot: TenantSnapshot,
+  companiesInPack: readonly ContractedCompanyRow[],
+): { existing: Map<string, string>; arriving: Set<string> } {
+  return {
+    existing: new Map(
+      snapshot.subcontractors.map((carrier) => [carrierKey(carrier.legalName), carrier.id] as const),
+    ),
+    arriving: new Set(companiesInPack.map((company) => carrierKey(company.legalName))),
+  };
+}
+
+export function planContractedCompanies(
+  rows: readonly ContractedCompanyRow[],
+  snapshot: TenantSnapshot,
+): { items: PlanItem<ContractedCompanyRow>[]; errors: PackRowError[] } {
+  const errors = findInternalDuplicates(
+    "contractedCompanies",
+    rows,
+    (row) => carrierKey(row.legalName),
+    (row) => row.rowNumber,
+    "legal_name",
+    "That company",
+  );
+
+  const existing = new Map(
+    snapshot.subcontractors.map((carrier) => [carrierKey(carrier.legalName), carrier] as const),
+  );
+
+  const items = rows.map((row) => {
+    const match = existing.get(carrierKey(row.legalName));
+
+    if (match) {
+      return {
+        action: "update" as const,
+        row,
+        existingId: match.id,
+        detail: `${row.legalName} is already on file. Its contact and account numbers will be updated.`,
+      };
+    }
+
+    return { action: "create" as const, row, detail: `${row.legalName} will be added as a carrier.` };
+  });
+
+  return { items, errors };
+}
+
+export function planContractedEquipment(
+  rows: readonly ContractedEquipmentRow[],
+  snapshot: TenantSnapshot,
+  companiesInPack: readonly ContractedCompanyRow[],
+): { items: PlanItem<ContractedEquipmentRow & { subcontractorId: string }>[]; errors: PackRowError[] } {
+  const errors = [
+    ...findInternalDuplicates(
+      "contractedEquipment",
+      rows,
+      (row) => normalizeIdentifier(row.unitNumber),
+      (row) => row.rowNumber,
+      "unit_number",
+      "That unit number",
+    ),
+    ...findInternalDuplicates(
+      "contractedEquipment",
+      rows.filter((row) => row.vin),
+      (row) => normalizeIdentifier(row.vin ?? ""),
+      (row) => row.rowNumber,
+      "vin",
+      "That VIN",
+    ),
+  ];
+
+  const carriers = buildCarrierIndex(snapshot, companiesInPack);
+  const existingByUnit = new Map(
+    snapshot.contractedEquipment.map((unit) => [normalizeIdentifier(unit.unitNumber), unit] as const),
+  );
+
+  const items: PlanItem<ContractedEquipmentRow & { subcontractorId: string }>[] = [];
+
+  for (const row of rows) {
+    const key = carrierKey(row.company);
+    const subcontractorId = carriers.existing.get(key);
+
+    if (!subcontractorId && !carriers.arriving.has(key)) {
+      errors.push(
+        error(
+          "contractedEquipment",
+          row.rowNumber,
+          "company",
+          `No carrier called "${row.company}". Add it to the Contracted Companies sheet, or correct the spelling to match one already on file.`,
+        ),
+      );
+      continue;
+    }
+
+    const existing = existingByUnit.get(normalizeIdentifier(row.unitNumber));
+
+    if (existing) {
+      items.push({
+        action: "update",
+        row: { ...row, subcontractorId: subcontractorId ?? "" },
+        existingId: existing.id,
+        detail: `Unit ${row.unitNumber} is already on file. Its details and expiry dates will be updated.`,
+      });
+      continue;
+    }
+
+    items.push({
+      action: "create",
+      row: { ...row, subcontractorId: subcontractorId ?? "" },
+      detail: `Unit ${row.unitNumber} will be created for ${row.company}.`,
+    });
+  }
+
+  return { items, errors };
+}
+
+export function planContractedEquipmentCertifications(
+  rows: readonly ContractedEquipmentCertificationRow[],
+  snapshot: TenantSnapshot,
+  equipmentInPack: readonly ContractedEquipmentRow[],
+): {
+  items: PlanItem<ContractedEquipmentCertificationRow & { contractedEquipmentId: string }>[];
+  errors: PackRowError[];
+} {
+  const errors: PackRowError[] = [];
+  const byUnit = new Map(
+    snapshot.contractedEquipment.map((unit) => [normalizeIdentifier(unit.unitNumber), unit.id] as const),
+  );
+  const arriving = new Set(equipmentInPack.map((unit) => normalizeIdentifier(unit.unitNumber)));
+
+  // Keyed on unit AND title, not unit and type. A tractor carries a primary and a spare
+  // product hose, and two extinguishers of different sizes; keying on the type alone
+  // resolves them all to one stored record and each write overwrites the last.
+  const existingByUnitAndTitle = new Map(
+    snapshot.contractedEquipmentCertifications.map(
+      (certification) =>
+        [
+          `${certification.contractedEquipmentId}|${normalizeIdentifier(certification.label)}`,
+          certification,
+        ] as const,
+    ),
+  );
+
+  const items: PlanItem<ContractedEquipmentCertificationRow & { contractedEquipmentId: string }>[] = [];
+
+  for (const row of rows) {
+    const key = normalizeIdentifier(row.unitNumber);
+    const unitId = byUnit.get(key);
+    const title = unitCertificationTitle(row.certificationType, row.componentId);
+
+    if (!unitId) {
+      if (arriving.has(key)) {
+        items.push({
+          action: "create",
+          row: { ...row, contractedEquipmentId: "" },
+          detail: `${title} will be filed on unit ${row.unitNumber}, which this pack creates.`,
+        });
+        continue;
+      }
+
+      errors.push(
+        error(
+          "contractedEquipmentCertifications",
+          row.rowNumber,
+          "unit_number",
+          `No contracted unit numbered ${row.unitNumber}. Add it to the Contracted Equipment sheet or correct the number.`,
+        ),
+      );
+      continue;
+    }
+
+    const existing = existingByUnitAndTitle.get(`${unitId}|${normalizeIdentifier(title)}`);
+
+    if (existing) {
+      items.push({
+        action: "update",
+        row: { ...row, contractedEquipmentId: unitId },
+        existingId: existing.id,
+        detail: `${title} is already on unit ${row.unitNumber}. Its dates will be updated.`,
+      });
+      continue;
+    }
+
+    items.push({
+      action: "create",
+      row: { ...row, contractedEquipmentId: unitId },
+      detail: `${title} will be filed on unit ${row.unitNumber}.`,
+    });
+  }
+
+  return { items, errors };
+}
+
+export function planContractedDrivers(
+  rows: readonly ContractedDriverRow[],
+  snapshot: TenantSnapshot,
+  companiesInPack: readonly ContractedCompanyRow[],
+): { items: PlanItem<ContractedDriverRow & { subcontractorId: string }>[]; errors: PackRowError[] } {
+  // Duplicates are per company, matching the database: two carriers can each employ a
+  // John Smith, and on a 125-driver sheet that is a matter of time, not a hypothetical.
+  const errors = findInternalDuplicates(
+    "contractedDrivers",
+    rows,
+    (row) => `${carrierKey(row.company)}|${normalizeIdentifier(row.fullName)}`,
+    (row) => row.rowNumber,
+    "full_name",
+    "That driver, at that company,",
+  );
+
+  const carriers = buildCarrierIndex(snapshot, companiesInPack);
+  const existingByCompanyAndName = new Map(
+    snapshot.contractedDrivers.map(
+      (driver) => [`${driver.subcontractorId}|${normalizeIdentifier(driver.fullName)}`, driver] as const,
+    ),
+  );
+
+  const items: PlanItem<ContractedDriverRow & { subcontractorId: string }>[] = [];
+
+  for (const row of rows) {
+    const key = carrierKey(row.company);
+    const subcontractorId = carriers.existing.get(key);
+
+    if (!subcontractorId && !carriers.arriving.has(key)) {
+      errors.push(
+        error(
+          "contractedDrivers",
+          row.rowNumber,
+          "company",
+          `No carrier called "${row.company}". Add it to the Contracted Companies sheet, or correct the spelling to match one already on file.`,
+        ),
+      );
+      continue;
+    }
+
+    const existing = subcontractorId
+      ? existingByCompanyAndName.get(`${subcontractorId}|${normalizeIdentifier(row.fullName)}`)
+      : undefined;
+
+    if (existing) {
+      items.push({
+        action: "update",
+        row: { ...row, subcontractorId: subcontractorId ?? "" },
+        existingId: existing.id,
+        detail: `${row.fullName} is already on file for ${row.company}. Their details will be updated.`,
+      });
+      continue;
+    }
+
+    items.push({
+      action: "create",
+      row: { ...row, subcontractorId: subcontractorId ?? "" },
+      detail: `${row.fullName} will be added for ${row.company}.`,
+    });
+  }
+
+  return { items, errors };
+}
+
+export function planContractedDriverCertifications(
+  rows: readonly ContractedDriverCertificationRow[],
+  snapshot: TenantSnapshot,
+  driversInPack: readonly ContractedDriverRow[],
+): {
+  items: PlanItem<ContractedDriverCertificationRow & { contractedDriverId: string }>[];
+  errors: PackRowError[];
+} {
+  const errors: PackRowError[] = [];
+  const carrierNameById = new Map(
+    snapshot.subcontractors.map((carrier) => [carrier.id, carrierKey(carrier.legalName)] as const),
+  );
+
+  // Drivers are keyed by company AND name, because the name alone is not unique across
+  // carriers. Getting this wrong would file one carrier's ticket onto another's driver.
+  const byCompanyAndName = new Map<string, string>(
+    snapshot.contractedDrivers.map(
+      (driver) =>
+        [
+          `${carrierNameById.get(driver.subcontractorId) ?? driver.subcontractorId}|${normalizeIdentifier(driver.fullName)}`,
+          driver.id,
+        ] as const,
+    ),
+  );
+  const arriving = new Set(
+    driversInPack.map((driver) => `${carrierKey(driver.company)}|${normalizeIdentifier(driver.fullName)}`),
+  );
+
+  const existingByDriverAndName = new Map(
+    snapshot.contractedDriverCertifications.map(
+      (certification) =>
+        [
+          `${certification.contractedDriverId}|${normalizeIdentifier(certification.label)}`,
+          certification,
+        ] as const,
+    ),
+  );
+
+  const items: PlanItem<ContractedDriverCertificationRow & { contractedDriverId: string }>[] = [];
+
+  for (const row of rows) {
+    const key: string = `${carrierKey(row.company)}|${normalizeIdentifier(row.driverName)}`;
+    const driverId = byCompanyAndName.get(key);
+
+    if (!driverId) {
+      if (arriving.has(key)) {
+        items.push({
+          action: "create",
+          row: { ...row, contractedDriverId: "" },
+          detail: `${row.certificationType} will be added for ${row.driverName}, who this pack creates.`,
+        });
+        continue;
+      }
+
+      errors.push(
+        error(
+          "contractedDriverCertifications",
+          row.rowNumber,
+          "driver_name",
+          `No driver called ${row.driverName} at ${row.company}. Add them to the Contracted Drivers sheet, or correct the name or company.`,
+        ),
+      );
+      continue;
+    }
+
+    const existing = existingByDriverAndName.get(`${driverId}|${normalizeIdentifier(row.certificationType)}`);
+
+    if (existing) {
+      items.push({
+        action: "update",
+        row: { ...row, contractedDriverId: driverId },
+        existingId: existing.id,
+        detail: `${row.certificationType} is already on file for ${row.driverName}. Its dates will be updated.`,
+      });
+      continue;
+    }
+
+    items.push({
+      action: "create",
+      row: { ...row, contractedDriverId: driverId },
+      detail: `${row.certificationType} will be added for ${row.driverName}.`,
+    });
+  }
+
+  return { items, errors };
+}
+
+/**
+ * Company-level documents: insurance, carrier profile, WCB, the signed agreement.
+ *
+ * One document per slot per carrier. A second row for the same slot is not a duplicate
+ * to reject, it is a renewal, so the newest wins and the planner reports it as an
+ * update. Slot keys are validated by the loader against the code-owned slot list rather
+ * than here, so this stays pure.
+ */
+export function planContractedCompanyDocuments(
+  rows: readonly ContractedCompanyDocumentRow[],
+  snapshot: TenantSnapshot,
+  companiesInPack: readonly ContractedCompanyRow[],
+): {
+  items: PlanItem<ContractedCompanyDocumentRow & { subcontractorId: string }>[];
+  errors: PackRowError[];
+} {
+  const errors: PackRowError[] = [];
+  const carriers = buildCarrierIndex(snapshot, companiesInPack);
+  const existingByCarrierAndSlot = new Map(
+    snapshot.contractedCompanyDocuments.map(
+      (document) => [`${document.subcontractorId}|${document.slotKey}`, document] as const,
+    ),
+  );
+
+  const items: PlanItem<ContractedCompanyDocumentRow & { subcontractorId: string }>[] = [];
+
+  for (const row of rows) {
+    const key = carrierKey(row.company);
+    const subcontractorId = carriers.existing.get(key);
+
+    if (!subcontractorId && !carriers.arriving.has(key)) {
+      errors.push(
+        error(
+          "contractedCompanyDocuments",
+          row.rowNumber,
+          "company",
+          `No carrier called "${row.company}". Add it to the Contracted Companies sheet, or correct the spelling.`,
+        ),
+      );
+      continue;
+    }
+
+    const existing = subcontractorId
+      ? existingByCarrierAndSlot.get(`${subcontractorId}|${row.slotKey}`)
+      : undefined;
+
+    if (existing) {
+      items.push({
+        action: "update",
+        row: { ...row, subcontractorId: subcontractorId ?? "" },
+        existingId: existing.id,
+        detail: `${row.slotKey} for ${row.company} is already on file. Its dates will be updated.`,
+      });
+      continue;
+    }
+
+    items.push({
+      action: "create",
+      row: { ...row, subcontractorId: subcontractorId ?? "" },
+      detail: `${row.slotKey} will be filed for ${row.company}.`,
+    });
+  }
+
+  return { items, errors };
 }

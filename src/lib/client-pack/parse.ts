@@ -10,6 +10,9 @@
 // of record that looks fine on a list and breaks at login.
 
 import {
+  CERTIFICATION_CATEGORIES,
+  CONTRACTED_DRIVER_TYPES,
+  CONTRACTED_STATUSES,
   EQUIPMENT_TYPES,
   METER_TYPES,
   PERMISSION_LEVELS,
@@ -110,6 +113,112 @@ export type UnitCertificationRow = {
   componentId: string | null;
 };
 
+// --- The contracted side ----------------------------------------------------
+//
+// Every contracted record hangs off a carrier, and the carrier is identified by its
+// legal name as written on the sheet. That is deliberately a NAME rather than an id:
+// these sheets are maintained by the client in Excel, and asking them to carry a uuid
+// around would guarantee it goes stale. The planner resolves the name once and reports
+// any that do not match a carrier, which is the failure a person can actually fix.
+
+export type ContractedCompanyRow = {
+  rowNumber: number;
+  legalName: string;
+  operatingName: string | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  nscNumber: string | null;
+  wcbAccountNumber: string | null;
+  craBusinessNumber: string | null;
+  notes: string | null;
+};
+
+export type ContractedCompanyDocumentRow = {
+  rowNumber: number;
+  company: string;
+  /**
+   * Which requirement this satisfies, as a slot key from
+   * src/lib/subcontractor-requirements.ts. The converter maps the client's column
+   * headings onto these, so a sheet never has to carry an internal key by hand.
+   */
+  slotKey: string;
+  issuedOn: string | null;
+  expiresOn: string | null;
+  documentNumber: string | null;
+  notes: string | null;
+};
+
+export type ContractedEquipmentRow = {
+  rowNumber: number;
+  unitNumber: string;
+  /** The carrier's legal name, matched against the companies sheet and the database. */
+  company: string;
+  ownerName: string | null;
+  year: number | null;
+  make: string | null;
+  modelOrColour: string | null;
+  vin: string | null;
+  plate: string | null;
+  registrationProvince: string | null;
+  status: "active" | "inactive" | "terminated";
+  notes: string | null;
+  /** The fixed files, same three the fleet's own units carry. */
+  cvipExpiry: string | null;
+  registrationExpiry: string | null;
+  insuranceExpiry: string | null;
+  /** Inspections this unit is held to, by name. Empty leaves it on the defaults. */
+  inspections: string[];
+};
+
+export type ContractedEquipmentCertificationRow = {
+  rowNumber: number;
+  unitNumber: string;
+  certificationType: string;
+  issuedOn: string | null;
+  expiresOn: string | null;
+  /**
+   * Which physical part this covers, when a unit has more than one of a type.
+   *
+   * A tractor carries a primary and a spare product hose, and two fire extinguishers of
+   * different sizes. Without this they collapse into one record per type and the second
+   * expiry is lost.
+   */
+  componentId: string | null;
+};
+
+export type ContractedDriverRow = {
+  rowNumber: number;
+  fullName: string;
+  company: string;
+  /** The truck they are in, matched by unit number. Blank is normal. */
+  unitNumber: string | null;
+  licenseProvince: string | null;
+  licenseExpiry: string | null;
+  abstractIssued: string | null;
+  abstractExpiry: string | null;
+  csoCompleted: string | null;
+  driverType: "contracted" | "casual";
+  status: "active" | "inactive" | "terminated";
+  notes: string | null;
+  // No emergency contact and no medical column, deliberately. Those stay with dispatch;
+  // see the table comment in 20260826010000.
+};
+
+export type ContractedDriverCertificationRow = {
+  rowNumber: number;
+  driverName: string;
+  /** Needed as well as the name: two carriers can each employ a John Smith. */
+  company: string;
+  certificationType: string;
+  category: "ticket" | "orientation" | "site_access";
+  issuedOn: string | null;
+  expiresOn: string | null;
+  issuingCompany: string | null;
+  /** Badge number, gate PIN or key fob. */
+  detail: string | null;
+};
+
 export type ParseResult<T> = {
   rows: T[];
   errors: PackRowError[];
@@ -177,6 +286,72 @@ const COLUMN_ALIASES: Record<PackSheet, Record<string, readonly string[]>> = {
     issuedOn: ["issued_on", "issued", "issue date"],
     expiresOn: ["expires_on", "expires", "expiry", "expiry date"],
     componentId: ["serial", "component", "hose_serial", "hose serial", "serial number", "component id"],
+  },
+  contractedCompanies: {
+    legalName: ["legal_name", "company", "company name", "carrier", "legal name"],
+    operatingName: ["operating_name", "operating as", "trade name", "dba"],
+    contactName: ["contact_name", "contact"],
+    contactEmail: ["contact_email", "email"],
+    contactPhone: ["contact_phone", "phone"],
+    nscNumber: ["nsc_number", "nsc", "safety fitness certificate"],
+    wcbAccountNumber: ["wcb_account", "wcb", "wcb number", "wcb account"],
+    craBusinessNumber: ["cra_business_number", "cra", "business number", "cra business"],
+    notes: ["notes", "comments"],
+  },
+  contractedCompanyDocuments: {
+    company: ["company", "company name", "carrier", "legal_name"],
+    slotKey: ["slot_key", "slot", "document", "requirement", "document type"],
+    issuedOn: ["issued_on", "issued", "issue date"],
+    expiresOn: ["expires_on", "expires", "expiry", "expiry date"],
+    documentNumber: ["document_number", "number", "policy_number", "policy number"],
+    notes: ["notes", "comments"],
+  },
+  contractedEquipment: {
+    unitNumber: ["unit_number", "unit", "unit no", "unit number"],
+    company: ["company", "company name", "carrier", "legal_name"],
+    ownerName: ["owner", "owner_name"],
+    year: ["year"],
+    make: ["make"],
+    modelOrColour: ["model", "model_or_colour", "make and colour", "truck make color", "colour", "color"],
+    vin: ["vin", "serial", "vin or serial"],
+    plate: ["plate", "licence plate", "license plate", "tractor license plate"],
+    registrationProvince: ["registration_province", "reg prov", "reg province", "registered in"],
+    status: ["status"],
+    notes: ["notes", "comments"],
+    cvipExpiry: ["cvip_expiry", "cvip", "inspection"],
+    registrationExpiry: ["registration_expiry", "registration"],
+    insuranceExpiry: ["insurance_expiry", "insurance", "pink card"],
+    inspections: ["inspections", "inspection_list", "required inspections", "certifications"],
+  },
+  contractedEquipmentCertifications: {
+    unitNumber: ["unit_number", "unit", "unit no", "unit number"],
+    certificationType: ["certification_type", "certification", "type"],
+    issuedOn: ["issued_on", "issued", "issue date"],
+    expiresOn: ["expires_on", "expires", "expiry", "expiry date"],
+    componentId: ["serial", "component", "component id", "serial number", "position"],
+  },
+  contractedDrivers: {
+    fullName: ["full_name", "name", "driver", "drivers"],
+    company: ["company", "company name", "carrier", "legal_name"],
+    unitNumber: ["unit_number", "unit", "unit no", "unit number"],
+    licenseProvince: ["license_province", "licence province", "drivers licence province", "prov"],
+    licenseExpiry: ["license_expiry", "licence expiry", "drivers licence", "drivers license"],
+    abstractIssued: ["abstract_issued", "abstract issue date", "drivers abstract issue date"],
+    abstractExpiry: ["abstract_expiry", "abstract expiry", "driver abstract expiry date"],
+    csoCompleted: ["cso_completed", "cso", "common safety orientation"],
+    driverType: ["driver_type", "type"],
+    status: ["status"],
+    notes: ["notes", "comments"],
+  },
+  contractedDriverCertifications: {
+    driverName: ["driver_name", "name", "driver", "drivers"],
+    company: ["company", "company name", "carrier", "legal_name"],
+    certificationType: ["certification_type", "certification", "type", "ticket"],
+    category: ["category", "kind"],
+    issuedOn: ["issued_on", "issued", "issue date"],
+    expiresOn: ["expires_on", "expires", "expiry", "expiry date"],
+    issuingCompany: ["issuing_company", "issued by", "provider", "training company"],
+    detail: ["detail", "badge", "pin", "fob", "badge number"],
   },
 };
 
@@ -437,6 +612,142 @@ export function parseUnitCertifications(raw: RawSheet): ParseResult<UnitCertific
       issuedOn: optionalDate(cell(row, index, "issuedOn"), "issued_on", fail),
       expiresOn: optionalDate(cell(row, index, "expiresOn"), "expires_on", fail),
       componentId: textValue(cell(row, index, "componentId")) || null,
+    }),
+  );
+}
+
+// --- The contracted side ----------------------------------------------------
+
+export function parseContractedCompanies(raw: RawSheet): ParseResult<ContractedCompanyRow> {
+  return parseSheet<ContractedCompanyRow>(
+    "contractedCompanies",
+    raw,
+    ["legalName"],
+    (row, index, rowNumber, fail) => ({
+      rowNumber,
+      legalName: requiredText(cell(row, index, "legalName"), "legal_name", fail),
+      operatingName: textValue(cell(row, index, "operatingName")) || null,
+      contactName: textValue(cell(row, index, "contactName")) || null,
+      contactEmail: textValue(cell(row, index, "contactEmail")).toLowerCase() || null,
+      contactPhone: textValue(cell(row, index, "contactPhone")) || null,
+      nscNumber: textValue(cell(row, index, "nscNumber")) || null,
+      wcbAccountNumber: textValue(cell(row, index, "wcbAccountNumber")) || null,
+      craBusinessNumber: textValue(cell(row, index, "craBusinessNumber")) || null,
+      notes: textValue(cell(row, index, "notes")) || null,
+    }),
+  );
+}
+
+export function parseContractedEquipment(raw: RawSheet): ParseResult<ContractedEquipmentRow> {
+  return parseSheet<ContractedEquipmentRow>(
+    "contractedEquipment",
+    raw,
+    ["unitNumber", "company"],
+    (row, index, rowNumber, fail) => {
+      const year = numberValue(cell(row, index, "year"));
+
+      if (year === undefined) {
+        fail("year", `"${textValue(cell(row, index, "year"))}" is not a year we can read.`);
+      }
+
+      return {
+        rowNumber,
+        unitNumber: requiredText(cell(row, index, "unitNumber"), "unit_number", fail),
+        company: requiredText(cell(row, index, "company"), "company", fail),
+        ownerName: textValue(cell(row, index, "ownerName")) || null,
+        year: year ?? null,
+        make: textValue(cell(row, index, "make")) || null,
+        modelOrColour: textValue(cell(row, index, "modelOrColour")) || null,
+        vin: textValue(cell(row, index, "vin")) || null,
+        plate: textValue(cell(row, index, "plate")) || null,
+        registrationProvince: textValue(cell(row, index, "registrationProvince")) || null,
+        status: optionValue(cell(row, index, "status"), CONTRACTED_STATUSES) ?? "active",
+        notes: textValue(cell(row, index, "notes")) || null,
+        cvipExpiry: optionalDate(cell(row, index, "cvipExpiry"), "cvip_expiry", fail),
+        registrationExpiry: optionalDate(cell(row, index, "registrationExpiry"), "registration_expiry", fail),
+        insuranceExpiry: optionalDate(cell(row, index, "insuranceExpiry"), "insurance_expiry", fail),
+        inspections: listValue(cell(row, index, "inspections")),
+      };
+    },
+  );
+}
+
+export function parseContractedEquipmentCertifications(
+  raw: RawSheet,
+): ParseResult<ContractedEquipmentCertificationRow> {
+  return parseSheet<ContractedEquipmentCertificationRow>(
+    "contractedEquipmentCertifications",
+    raw,
+    ["unitNumber", "certificationType"],
+    (row, index, rowNumber, fail) => ({
+      rowNumber,
+      unitNumber: requiredText(cell(row, index, "unitNumber"), "unit_number", fail),
+      certificationType: requiredText(cell(row, index, "certificationType"), "certification_type", fail),
+      issuedOn: optionalDate(cell(row, index, "issuedOn"), "issued_on", fail),
+      expiresOn: optionalDate(cell(row, index, "expiresOn"), "expires_on", fail),
+      componentId: textValue(cell(row, index, "componentId")) || null,
+    }),
+  );
+}
+
+export function parseContractedDrivers(raw: RawSheet): ParseResult<ContractedDriverRow> {
+  return parseSheet<ContractedDriverRow>(
+    "contractedDrivers",
+    raw,
+    ["fullName", "company"],
+    (row, index, rowNumber, fail) => ({
+      rowNumber,
+      fullName: requiredText(cell(row, index, "fullName"), "full_name", fail),
+      company: requiredText(cell(row, index, "company"), "company", fail),
+      unitNumber: textValue(cell(row, index, "unitNumber")) || null,
+      licenseProvince: textValue(cell(row, index, "licenseProvince")) || null,
+      licenseExpiry: optionalDate(cell(row, index, "licenseExpiry"), "license_expiry", fail),
+      abstractIssued: optionalDate(cell(row, index, "abstractIssued"), "abstract_issued", fail),
+      abstractExpiry: optionalDate(cell(row, index, "abstractExpiry"), "abstract_expiry", fail),
+      csoCompleted: optionalDate(cell(row, index, "csoCompleted"), "cso_completed", fail),
+      driverType: optionValue(cell(row, index, "driverType"), CONTRACTED_DRIVER_TYPES) ?? "contracted",
+      status: optionValue(cell(row, index, "status"), CONTRACTED_STATUSES) ?? "active",
+      notes: textValue(cell(row, index, "notes")) || null,
+    }),
+  );
+}
+
+export function parseContractedDriverCertifications(
+  raw: RawSheet,
+): ParseResult<ContractedDriverCertificationRow> {
+  return parseSheet<ContractedDriverCertificationRow>(
+    "contractedDriverCertifications",
+    raw,
+    ["driverName", "company", "certificationType"],
+    (row, index, rowNumber, fail) => ({
+      rowNumber,
+      driverName: requiredText(cell(row, index, "driverName"), "driver_name", fail),
+      company: requiredText(cell(row, index, "company"), "company", fail),
+      certificationType: requiredText(cell(row, index, "certificationType"), "certification_type", fail),
+      // An unlabelled row is a ticket, which is what most of them are. A wrong guess
+      // here only decides which list it appears in, never whether it is loaded.
+      category: optionValue(cell(row, index, "category"), CERTIFICATION_CATEGORIES) ?? "ticket",
+      issuedOn: optionalDate(cell(row, index, "issuedOn"), "issued_on", fail),
+      expiresOn: optionalDate(cell(row, index, "expiresOn"), "expires_on", fail),
+      issuingCompany: textValue(cell(row, index, "issuingCompany")) || null,
+      detail: textValue(cell(row, index, "detail")) || null,
+    }),
+  );
+}
+
+export function parseContractedCompanyDocuments(raw: RawSheet): ParseResult<ContractedCompanyDocumentRow> {
+  return parseSheet<ContractedCompanyDocumentRow>(
+    "contractedCompanyDocuments",
+    raw,
+    ["company", "slotKey"],
+    (row, index, rowNumber, fail) => ({
+      rowNumber,
+      company: requiredText(cell(row, index, "company"), "company", fail),
+      slotKey: requiredText(cell(row, index, "slotKey"), "slot_key", fail),
+      issuedOn: optionalDate(cell(row, index, "issuedOn"), "issued_on", fail),
+      expiresOn: optionalDate(cell(row, index, "expiresOn"), "expires_on", fail),
+      documentNumber: textValue(cell(row, index, "documentNumber")) || null,
+      notes: textValue(cell(row, index, "notes")) || null,
     }),
   );
 }

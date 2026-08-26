@@ -365,10 +365,20 @@ describe("which subcontractor files are required by default", () => {
   // insurance is the one slot that is situational: a sub moving the hiring
   // company's own equipment between its own yards has no freight to insure, and
   // leaving it required paints the board permanently red for those carriers.
-  it("requires everything except cargo insurance", () => {
+  it("only makes optional the slots a real carrier can legitimately not have", () => {
     const optional = SUBCONTRACTOR_SLOTS.filter((slot) => !slot.required).map((slot) => slot.key);
 
-    expect(optional).toEqual(["cargo_insurance"]);
+    // Every one of these is optional because a required slot a carrier can never
+    // satisfy sits permanently red, and a board that is always red is a board nobody
+    // reads. Cargo: a sub moving the hiring company's own equipment insures nothing.
+    // Articles and proof of ownership: a sole proprietor has neither. Telematics: only
+    // relevant where the hiring company's device is in the carrier's truck.
+    expect(optional).toEqual([
+      "cargo_insurance",
+      "articles_of_incorporation",
+      "proof_of_ownership",
+      "telematics_agreement",
+    ]);
   });
 
   it("keeps the two protections that cost nothing to hold", () => {

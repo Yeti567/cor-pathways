@@ -24,7 +24,21 @@
 //     parsing has to be stable and the planner above it has to update rather than
 //     duplicate.
 
-export type PackSheet = "employees" | "locations" | "equipment" | "certifications" | "unitCertifications";
+export type PackSheet =
+  | "employees"
+  | "locations"
+  | "equipment"
+  | "certifications"
+  | "unitCertifications"
+  // The contracted side: hired carriers, their tractors, and their drivers. Separate
+  // sheets rather than a flag on the existing ones, because they land in separate
+  // tables and because a carrier's fleet arrives as its own spreadsheet.
+  | "contractedCompanies"
+  | "contractedCompanyDocuments"
+  | "contractedEquipment"
+  | "contractedEquipmentCertifications"
+  | "contractedDrivers"
+  | "contractedDriverCertifications";
 
 export type PackRowError = {
   sheet: PackSheet;
@@ -256,6 +270,52 @@ export const EQUIPMENT_TYPES: Readonly<Record<string, "vehicle" | "trailer" | "m
   crane: "vehicle",
   trailer: "trailer",
   other: "other",
+};
+
+/**
+ * What kind of record a contracted driver's certificate is.
+ *
+ * Decides which of the three lists it lands in on the driver's file, and it is what
+ * keeps a client's site induction out of the employee ticket screens. An unlabelled
+ * row is a ticket, which is what the great majority of them are.
+ */
+export const CERTIFICATION_CATEGORIES: Readonly<Record<string, "ticket" | "orientation" | "site_access">> = {
+  ticket: "ticket",
+  tickets: "ticket",
+  certification: "ticket",
+  qualification: "ticket",
+  orientation: "orientation",
+  orientations: "orientation",
+  siteorientation: "orientation",
+  induction: "orientation",
+  siteaccess: "site_access",
+  access: "site_access",
+  badge: "site_access",
+  badges: "site_access",
+  fob: "site_access",
+};
+
+export const CONTRACTED_DRIVER_TYPES: Readonly<Record<string, "contracted" | "casual">> = {
+  contracted: "contracted",
+  contract: "contracted",
+  fulltime: "contracted",
+  regular: "contracted",
+  casual: "casual",
+  spare: "casual",
+  parttime: "casual",
+};
+
+export const CONTRACTED_STATUSES: Readonly<Record<string, "active" | "inactive" | "terminated">> = {
+  active: "active",
+  current: "active",
+  running: "active",
+  inactive: "inactive",
+  onhold: "inactive",
+  parked: "inactive",
+  terminated: "terminated",
+  ended: "terminated",
+  cancelled: "terminated",
+  sold: "terminated",
 };
 
 // TC/MC tank specification. Fleets write it a dozen ways ("406", "TC406",

@@ -16,6 +16,12 @@ const EMPTY: TenantSnapshot = {
   equipment: [],
   certifications: [],
   unitCertifications: [],
+  subcontractors: [],
+  contractedCompanyDocuments: [],
+  contractedEquipment: [],
+  contractedDrivers: [],
+  contractedEquipmentCertifications: [],
+  contractedDriverCertifications: [],
 };
 
 function employee(input: Partial<EmployeeRow> = {}): EmployeeRow {

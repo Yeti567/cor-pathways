@@ -108,10 +108,11 @@ export const SUBCONTRACTOR_SLOTS: SubcontractorSlot[] = [
     description:
       "Covers the freight itself. Record the limit and the deductible. Only relevant where the carrier hauls goods of value: a sub moving the hiring company's own equipment between its own yards has nothing to insure here.",
     dueMode: "expiry",
-    // Optional by default, and the only slot that is. Left required it sits
-    // permanently red for every carrier that does not haul freight, and a board
-    // that is always red is a board nobody reads. A company that does need it
-    // turns it on per slot under Subcontractors > Requirements.
+    // Optional by default. Left required it sits permanently red for every carrier
+    // that does not haul freight, and a board that is always red is a board nobody
+    // reads. A company that does need it turns it on per slot under Subcontractors >
+    // Requirements. The same reasoning makes articles of incorporation, proof of
+    // ownership and the telematics agreement optional further down.
     required: false,
     reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
     captures: ["policy_number", "insurer", "coverage_amount", "deductible"],
@@ -159,6 +160,40 @@ export const SUBCONTRACTOR_SLOTS: SubcontractorSlot[] = [
     required: true,
     reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
     captures: ["industry_rate", "employer_rate"],
+  },
+  {
+    key: "articles_of_incorporation",
+    label: "Articles of incorporation",
+    group: "carrier",
+    description:
+      "Proof the company exists and who owns it. Filed once and never chased: a corporation does not expire, it is dissolved.",
+    dueMode: "none",
+    // Optional by default. A sole proprietor running one truck has no articles to
+    // give, and a slot they can never satisfy sits permanently red for no reason.
+    required: false,
+    reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
+    captures: [],
+  },
+  {
+    key: "proof_of_ownership",
+    label: "Proof of company ownership",
+    group: "carrier",
+    description: "Who actually owns the company, where the articles alone do not say.",
+    dueMode: "none",
+    required: false,
+    reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
+    captures: [],
+  },
+  {
+    key: "telematics_agreement",
+    label: "Telematics agreement",
+    group: "agreement",
+    description:
+      "Their consent to run the hiring company's ELD in their truck. Worth holding because the device is the hiring company's and the hours it records are the carrier's.",
+    dueMode: "none",
+    required: false,
+    reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
+    captures: [],
   },
   {
     key: "carrier_agreement",
