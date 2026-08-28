@@ -50,6 +50,9 @@ const SUBCONTRACTORS_NAV_HREF = "/admin/subcontractors";
 // A flag of their own would only create a state where half the module works.
 const CONTRACTED_EQUIPMENT_NAV_HREF = "/admin/contracted-equipment";
 const CONTRACTED_DRIVERS_NAV_HREF = "/admin/contracted-drivers";
+// Terminal badges by driver. Rides the same carrier flag as the contracted
+// module because most of the badge holders are contractors' drivers.
+const SITE_QUALIFICATION_NAV_HREF = "/admin/site-qualification";
 
 const navItems = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
@@ -72,6 +75,7 @@ const navItems = [
   { href: SUBCONTRACTORS_NAV_HREF, label: "Subcontractors", icon: Handshake },
   { href: CONTRACTED_EQUIPMENT_NAV_HREF, label: "Contracted Equipment", icon: Truck },
   { href: CONTRACTED_DRIVERS_NAV_HREF, label: "Contracted Drivers", icon: IdCard },
+  { href: SITE_QUALIFICATION_NAV_HREF, label: "Site Qualification", icon: MapPin },
   { href: "/admin/workflows", label: "Workflow Station", icon: GitBranch },
   { href: "/admin/forms", label: "Forms", icon: ClipboardList },
   { href: "/admin/lists", label: "Managed Lists", icon: ListChecks },

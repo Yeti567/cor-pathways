@@ -1719,6 +1719,11 @@ export type Database = {
           issued_on: string | null;
           expires_on: string | null;
           attachment_path: string | null;
+          // Identifier that belongs with the credential, such as a terminal badge
+          // or rack PIN. Mirrors contracted_driver_certification.detail so a site
+          // badge reads the same whether the holder is an employee or a
+          // contractor's driver. Added by migration worker_certification_detail.
+          detail: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["certifications"]["Row"]> &
           Pick<Database["public"]["Tables"]["certifications"]["Row"], "tenant_id" | "worker_profile_id" | "name">;
