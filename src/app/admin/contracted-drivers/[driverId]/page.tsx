@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, FilePlus2, Save } from "lucide-react";
+import { ArrowLeft, Download, FilePlus2, FileText, Lock, Save, Trash2 } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { ContractedUploadField } from "@/app/admin/_components/ContractedUploadField";
 import { ContractedDriverDocumentForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedDriverDocumentForm";
@@ -9,11 +9,13 @@ import { ContractedTicketProofForm } from "@/app/admin/contracted-drivers/[drive
 import {
   createContractedDriverCertification,
   deleteContractedDriverCertification,
+  archiveContractedDriverMedicalRecord,
   deleteContractedDriverDocument,
   deleteContractedDriverObservation,
   updateContractedDriver,
+  uploadContractedDriverMedicalRecord,
 } from "@/app/admin/contracted-drivers/actions";
-import { canUseAdminPanel } from "@/lib/access-control";
+import { canManageMedicalVault, canUseAdminPanel } from "@/lib/access-control";
 import {
   contractedDriverCertificationStatuses,
   contractedDriverIdentityRecords,
@@ -214,6 +216,41 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
         }
       }),
   );
+
+  // The vault, for holders only. Kept out of the Promise.all above on purpose: a request
+  // made by somebody without the capability never carries these rows at all, rather than
+  // fetching them and hiding them in the markup.
+  const canViewVault = canManageMedicalVault(context.appUser, context.permissionProfile?.capabilities);
+
+  type VaultRecordRow = Database["public"]["Tables"]["transport_medical_record"]["Row"];
+  let vaultRecords: VaultRecordRow[] = [];
+  const vaultUrlByPath = new Map<string, string>();
+
+  if (canViewVault) {
+    const { data } = await supabase
+      .from("transport_medical_record")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("contracted_driver_id", driver.id)
+      .is("deleted_at", null)
+      .order("occurred_on", { ascending: false })
+      .returns<VaultRecordRow[]>();
+
+    vaultRecords = data ?? [];
+
+    await Promise.all(
+      vaultRecords
+        .map((record) => record.storage_path)
+        .filter((path): path is string => Boolean(path))
+        .map(async (path) => {
+          const { data: signed } = await supabase.storage.from("medical-vault").createSignedUrl(path, 10 * 60);
+
+          if (signed?.signedUrl) {
+            vaultUrlByPath.set(path, signed.signedUrl);
+          }
+        }),
+    );
+  }
 
   const missingMandatory = contractedDriverMissingTickets({ certifications: held, mandatoryTickets });
   const certificationById = new Map(held.map((certification) => [certification.id, certification]));
@@ -653,6 +690,147 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
           </div>
         </form>
       </section>
+
+      {/* --- The medical vault (restricted) ----------------------------------- */}
+      {/*
+        Rendered only for capability holders, and the data above is only fetched for
+        them. A contracted driver has no user account, so unlike an employee's file
+        there is no "the worker may read their own" case here: this is the named vault
+        holder and nobody else.
+      */}
+      {canViewVault ? (
+        <section className="mt-5 overflow-hidden rounded-lg border border-[var(--danger)] bg-[var(--surface)] shadow-sm">
+          <div className="border-b border-[var(--border)] bg-red-50 px-4 py-3">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--ink)]">
+              <Lock className="h-4 w-4 text-[var(--danger)]" aria-hidden="true" />
+              Medical vault (restricted)
+            </h2>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Health information about this driver, held apart from their compliance file. Visible only to the
+              medical vault role — not to other administrators. The dates these documents sit behind stay on the
+              file above, where the people who run the fleet can see them.
+            </p>
+          </div>
+
+          <div className="grid gap-3 px-4 py-4">
+            {vaultRecords.length > 0 ? (
+              <ul className="grid gap-2">
+                {vaultRecords.map((record) => {
+                  const signedUrl = record.storage_path ? vaultUrlByPath.get(record.storage_path) : null;
+
+                  return (
+                    <li
+                      className={`flex flex-wrap items-center justify-between gap-3 rounded-md bg-[var(--surface-muted)] px-3 py-2${record.status === "archived" ? " opacity-60" : ""}`}
+                      key={record.id}
+                    >
+                      <span className="inline-flex flex-wrap items-center gap-2 text-sm text-[var(--ink)]">
+                        <FileText className="h-4 w-4 text-[var(--danger)]" aria-hidden="true" />
+                        {record.title}
+                        <span className="text-xs uppercase tracking-wide text-[var(--ink-muted)]">
+                          {record.record_type.replaceAll("_", " ")}
+                        </span>
+                        {record.occurred_on ? (
+                          <span className="text-xs text-[var(--ink-muted)]">{record.occurred_on.slice(0, 10)}</span>
+                        ) : null}
+                        {record.status === "archived" ? (
+                          <span className="text-xs text-[var(--ink-muted)]">· archived</span>
+                        ) : null}
+                        {record.notes ? (
+                          <span className="w-full text-xs text-[var(--ink-muted)]">{record.notes}</span>
+                        ) : null}
+                      </span>
+                      <span className="flex items-center gap-3">
+                        {signedUrl ? (
+                          <a
+                            className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+                            href={signedUrl}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            <Download className="h-4 w-4" aria-hidden="true" />
+                            Open
+                          </a>
+                        ) : null}
+                        {record.status === "active" ? (
+                          <form action={archiveContractedDriverMedicalRecord}>
+                            <input name="recordId" type="hidden" value={record.id} />
+                            <input name="driverId" type="hidden" value={driver.id} />
+                            <button
+                              className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--ink-muted)] transition hover:text-[var(--danger)]"
+                              type="submit"
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                              Archive
+                            </button>
+                          </form>
+                        ) : null}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-[var(--ink-muted)]">Nothing in the vault for this driver.</p>
+            )}
+
+            <details className="rounded-md border border-[var(--border)] bg-white">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-[var(--primary)]">
+                Add to the vault
+              </summary>
+              <form action={uploadContractedDriverMedicalRecord} className="grid gap-3 px-3 pb-3 pt-1">
+                <input name="driverId" type="hidden" value={driver.id} />
+                <p className="text-xs text-[var(--ink-muted)]">
+                  The document only. If what you are filing would be useful to a dispatcher, it is a date and it
+                  belongs on the file above instead.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-[var(--ink)]">Type</span>
+                    <select className={inputClass} defaultValue="drug_alcohol" name="recordType">
+                      <option value="drug_alcohol">Drug and alcohol test</option>
+                      <option value="injury">Injury</option>
+                      <option value="medical">Medical</option>
+                      <option value="wcb">WCB claim</option>
+                      <option value="first_aid">First aid</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-[var(--ink)]">Title</span>
+                    <input className={inputClass} name="title" placeholder="Drug and alcohol test - 21 Jul 2026" />
+                  </label>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-[var(--ink)]">File</span>
+                    <input
+                      accept="application/pdf,image/png,image/jpeg,image/webp"
+                      className="block w-full text-sm text-[var(--ink)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--danger)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
+                      name="file"
+                      required
+                      type="file"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-[var(--ink)]">Date on the document</span>
+                    <input className={inputClass} name="occurredOn" type="date" />
+                  </label>
+                </div>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-[var(--ink)]">Notes</span>
+                  <input className={inputClass} name="notes" placeholder="Only read by people who can open this section" />
+                </label>
+                <div>
+                  <button className={submitClass} type="submit">
+                    <Lock className="h-4 w-4" aria-hidden="true" />
+                    File in the vault
+                  </button>
+                </div>
+              </form>
+            </details>
+          </div>
+        </section>
+      ) : null}
 
       {/* --- Driver details --------------------------------------------------- */}
       <section className={`mt-5 ${cardClass}`}>

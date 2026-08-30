@@ -4428,7 +4428,7 @@ export async function importSamsaraFleet(formData: FormData) {
   );
 }
 
-const medicalRecordTypes = new Set(["injury", "medical", "wcb", "first_aid", "other"]);
+const medicalRecordTypes = new Set(["injury", "medical", "wcb", "first_aid", "drug_alcohol", "other"]);
 
 export async function uploadMedicalVaultRecord(formData: FormData) {
   const context = await requireMedicalVaultManager();

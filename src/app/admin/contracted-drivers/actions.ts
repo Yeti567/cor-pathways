@@ -14,6 +14,7 @@ import {
   requireOwnedCarrier,
   stringValue,
 } from "@/app/admin/_lib/contracted-access";
+import { canManageMedicalVault } from "@/lib/access-control";
 import { parseUploadedContractedAttachmentPaths } from "@/lib/contracted-equipment";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -632,4 +633,140 @@ export async function deleteContractedDriverObservation(formData: FormData) {
 
   revalidatePath(driverPath(driverId));
   backTo(driverPath(driverId), "Observation removed.", "notice");
+}
+
+// --- The medical vault, for a hired carrier's driver -------------------------
+//
+// Separate from the certifications above, and gated on a different capability. What
+// belongs here is the RECORD, never the DATE: the D&A certification and its expiry stay
+// on the driver's file where the whole company can see them, and only the collector's
+// paperwork comes here, because that is a person's body chemistry.
+//
+// A contracted driver has no user account, so the "read your own file" branch of
+// authz.current_user_can_access_medical_vault can never match for them. These are
+// reachable by medical_vault_access holders and by nobody else -- tighter than for an
+// employee, and correct, since the app cannot authenticate another company's employee.
+
+const VAULT_RECORD_TYPES = ["injury", "medical", "wcb", "first_aid", "drug_alcohol", "other"] as const;
+
+/**
+ * Vault access is its own capability, not a rank.
+ *
+ * requireContractedManager is deliberately NOT enough. Everyone who can open a carrier's
+ * file can manage contracted drivers; this section is for the one person the company
+ * named. Being a super admin has not been enough since 20260826040000.
+ */
+async function requireContractedVaultManager() {
+  // Both gates, in order: the contracted module's own (admin panel, subcontractors
+  // switched on), then the vault capability on top. Either alone would be a hole.
+  const context = await requireContractedManager();
+
+  if (!canManageMedicalVault(context.appUser, context.permissionProfile?.capabilities)) {
+    backTo(CONTRACTED_DRIVERS_PATH, "That is held in the medical vault, which you do not have access to.");
+  }
+
+  return context;
+}
+
+export async function uploadContractedDriverMedicalRecord(formData: FormData) {
+  const context = await requireContractedVaultManager();
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const driver = await requireOwnedDriver(supabase, tenantId, stringValue(formData, "driverId"));
+
+  if (!driver) {
+    backTo(CONTRACTED_DRIVERS_PATH, "That driver no longer exists.");
+  }
+
+  const recordType = choiceValue(formData, "recordType", VAULT_RECORD_TYPES, "other");
+  const file = formData.get("file");
+
+  if (!(file instanceof File) || file.size === 0) {
+    backTo(driverPath(driver.id), "Choose a file.");
+  }
+
+  const title = optionalString(formData, "title") ?? file.name;
+
+  // {tenant}/{subject}/... is the shape the medical-vault storage policy parses; anything
+  // else the bucket refuses whoever is asking.
+  const storagePath = [
+    tenantId,
+    driver.id,
+    `${Date.now()}-${file.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120)}`,
+  ].join("/");
+
+  const { error: uploadError } = await supabase.storage.from("medical-vault").upload(storagePath, file, {
+    contentType: file.type || "application/octet-stream",
+    upsert: false,
+  });
+
+  if (uploadError) {
+    backTo(driverPath(driver.id), uploadError.message);
+  }
+
+  const { data: record, error } = await supabase
+    .from("transport_medical_record")
+    .insert({
+      tenant_id: tenantId,
+      driver_id: null,
+      contracted_driver_id: driver.id,
+      record_type: recordType,
+      title,
+      storage_path: storagePath,
+      occurred_on: optionalDate(formData, "occurredOn"),
+      notes: optionalString(formData, "notes"),
+      created_by: context.appUser.id,
+    })
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error || !record) {
+    // Take the object back out rather than leave a health record in the bucket that no
+    // row points at and nothing will ever list.
+    await supabase.storage.from("medical-vault").remove([storagePath]);
+    backTo(driverPath(driver.id), readableContractedWriteError(error?.message ?? "The record was not saved.", error?.code));
+  }
+
+  // The title and notes are deliberately kept out of the audit metadata: the audit log is
+  // readable by people the vault is not.
+  await auditContracted(context, {
+    action: "contracted_driver.medical_record.upload",
+    entityId: record.id,
+    entityTable: "transport_medical_record",
+    metadata: { contracted_driver_id: driver.id, record_type: recordType },
+  });
+
+  revalidatePath(driverPath(driver.id));
+  backTo(driverPath(driver.id), "Filed in the medical vault.", "notice");
+}
+
+export async function archiveContractedDriverMedicalRecord(formData: FormData) {
+  const context = await requireContractedVaultManager();
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const recordId = stringValue(formData, "recordId");
+  const driverId = stringValue(formData, "driverId");
+
+  // Archived, not deleted, and the file stays in the bucket. A health record that was
+  // filed and then withdrawn is itself something an auditor may ask about.
+  const { error } = await supabase
+    .from("transport_medical_record")
+    .update({ status: "archived" })
+    .eq("tenant_id", tenantId)
+    .eq("id", recordId)
+    .eq("contracted_driver_id", driverId);
+
+  if (error) {
+    backTo(driverPath(driverId), readableContractedWriteError(error.message, error.code));
+  }
+
+  await auditContracted(context, {
+    action: "contracted_driver.medical_record.archive",
+    entityId: recordId,
+    entityTable: "transport_medical_record",
+    metadata: { contracted_driver_id: driverId },
+  });
+
+  revalidatePath(driverPath(driverId));
+  backTo(driverPath(driverId), "Record archived.", "notice");
 }

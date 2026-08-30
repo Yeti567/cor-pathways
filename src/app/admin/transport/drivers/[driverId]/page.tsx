@@ -918,6 +918,7 @@ export default async function TransportDriverDetailPage({ params, searchParams }
                         <option value="medical">Medical</option>
                         <option value="wcb">WCB claim</option>
                         <option value="first_aid">First aid</option>
+                        <option value="drug_alcohol">Drug and alcohol test</option>
                         <option value="other">Other</option>
                       </select>
                     </label>

@@ -304,8 +304,14 @@ type TransportDocumentRow = TenantScopedRow & {
 };
 
 type TransportMedicalRecordRow = TenantScopedRow & {
-  driver_id: string;
-  record_type: "injury" | "medical" | "wcb" | "first_aid" | "other";
+  /** This company's own driver. Exactly one of this and contracted_driver_id is set. */
+  driver_id: string | null;
+  /**
+   * A hired carrier's driver. They have no user account, so the "read your own file"
+   * branch of the vault's authz can never match for them: capability holders only.
+   */
+  contracted_driver_id: string | null;
+  record_type: "injury" | "medical" | "wcb" | "first_aid" | "drug_alcohol" | "other";
   title: string;
   storage_path: string | null;
   occurred_on: string | null;
