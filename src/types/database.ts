@@ -53,7 +53,8 @@ export type TenantScopedTable =
   | "contracted_equipment_document"
   | "contracted_equipment_certification_requirement"
   | "contracted_driver"
-  | "contracted_driver_certification";
+  | "contracted_driver_certification"
+  | "contracted_driver_observation";
 
 type TenantScopedRow = {
   id: string;
@@ -554,6 +555,45 @@ type ContractedDriverDocumentRow = TenantScopedRow & {
   /** Not null: a row exists because there is a document. */
   attachment_path: string;
   created_by: string | null;
+};
+
+/** An audit is somebody watching a task; an evaluation decides what a driver may do. */
+export type ContractedDriverObservationType = "audit" | "evaluation";
+
+/** Nothing found, something written up, or the evaluation was not passed. */
+export type ContractedDriverObservationOutcome = "clear" | "deficiencies" | "failed";
+
+/** What an evaluation left the driver with at that client's site. */
+export type ContractedDriverSiteAccess = "unlimited" | "limited" | "suspended";
+
+/**
+ * What a client saw a contracted driver do.
+ *
+ * History rather than compliance. Every row stands on its own -- unlike a certification,
+ * a newer observation never supersedes an older one -- and no status calculation reads
+ * this table. See the migration for why an audit that found deficiencies must not colour
+ * the driver.
+ */
+type ContractedDriverObservationRow = TenantScopedRow & {
+  contracted_driver_id: string;
+  observation_type: ContractedDriverObservationType;
+  /** What the client called it, in their words: "PPE audit", "Driver evaluation load". */
+  title: string;
+  /** The day the work was watched, not the day the report was emailed. */
+  observed_on: string;
+  reported_on: string | null;
+  issuing_company: string | null;
+  observer: string | null;
+  location: string | null;
+  outcome: ContractedDriverObservationOutcome;
+  /** Set by an evaluation only; the database refuses it on an audit. */
+  site_access: ContractedDriverSiteAccess | null;
+  findings: string | null;
+  action_taken: string | null;
+  /** Nullable: this row is the record, so it can be written down before the PDF arrives. */
+  attachment_path: string | null;
+  created_by: string | null;
+  deleted_at: string | null;
 };
 
 type SubcontractorRow = TenantScopedRow & {
@@ -1530,6 +1570,16 @@ export type Database = {
             "tenant_id" | "contracted_driver_id" | "doc_type" | "title" | "attachment_path"
           >;
         Update: Partial<ContractedDriverDocumentRow>;
+        Relationships: [];
+      };
+      contracted_driver_observation: {
+        Row: ContractedDriverObservationRow;
+        Insert: Partial<ContractedDriverObservationRow> &
+          Pick<
+            ContractedDriverObservationRow,
+            "tenant_id" | "contracted_driver_id" | "observation_type" | "title" | "observed_on" | "outcome"
+          >;
+        Update: Partial<ContractedDriverObservationRow>;
         Relationships: [];
       };
       co_project: {

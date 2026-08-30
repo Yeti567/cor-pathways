@@ -3,10 +3,13 @@ import {
   contractedDriverCertificationStatuses,
   contractedDriverIdentityRecords,
   contractedDriverMissingTickets,
+  contractedDriverObservations,
   contractedDriverOverallTone,
+  contractedDriverSiteStandings,
   groupContractedDriverCertifications,
   type ContractedDriverCertificationInput,
   type ContractedDriverDocumentRow,
+  type ContractedDriverObservationRow,
 } from "@/lib/contracted-drivers";
 
 const NOW = new Date("2026-08-26T00:00:00.000Z");
@@ -428,5 +431,241 @@ describe("the licence, abstract and CSO scans", () => {
 
     expect(records.find((record) => record.key === "license")?.documents).toEqual([]);
     expect(records.find((record) => record.key === "license")?.mismatch).toBeNull();
+  });
+});
+
+function observation(
+  overrides: Partial<ContractedDriverObservationRow> = {},
+): ContractedDriverObservationRow {
+  return {
+    id: "obs-1",
+    tenant_id: TENANT,
+    contracted_driver_id: DRIVER,
+    observation_type: "audit",
+    title: "PPE audit",
+    observed_on: "2026-08-12",
+    reported_on: null,
+    issuing_company: "Northgate Terminals",
+    observer: null,
+    location: null,
+    outcome: "clear",
+    site_access: null,
+    findings: null,
+    action_taken: null,
+    attachment_path: "report.pdf",
+    created_by: null,
+    deleted_at: null,
+    created_at: "2026-08-14T00:00:00.000Z",
+    updated_at: "2026-08-14T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("what a client saw the driver do", () => {
+  it("orders by the day the work was watched, not the day the report arrived", () => {
+    const records = contractedDriverObservations([
+      observation({ id: "may", observed_on: "2025-05-23", created_at: "2026-08-29T00:00:00.000Z" }),
+      observation({ id: "august", observed_on: "2026-08-12", reported_on: "2026-08-14" }),
+      observation({ id: "june", observed_on: "2026-06-17" }),
+    ]);
+
+    expect(records.map((record) => record.id)).toEqual(["august", "june", "may"]);
+  });
+
+  it("keeps every audit live, because an observation is never superseded", () => {
+    // The rule this guards: certifications deliberately dim all but the newest of a
+    // name. Six PPE audits are six facts, and dimming five of them would erase the
+    // history this table exists to keep.
+    const records = contractedDriverObservations([
+      observation({ id: "old", observed_on: "2025-05-23", outcome: "deficiencies" }),
+      observation({ id: "mid", observed_on: "2025-09-23", outcome: "deficiencies" }),
+      observation({ id: "new", observed_on: "2026-08-12", outcome: "clear" }),
+    ]);
+
+    expect(records).toHaveLength(3);
+    expect(records.map((record) => record.badge.label)).toEqual([
+      "Clear",
+      "Deficiencies noted",
+      "Deficiencies noted",
+    ]);
+  });
+
+  it("reads a write-up as amber and a failed evaluation as red", () => {
+    const [audit] = contractedDriverObservations([observation({ outcome: "deficiencies" })]);
+    const [failed] = contractedDriverObservations([
+      observation({ observation_type: "evaluation", outcome: "failed" }),
+    ]);
+    const [passed] = contractedDriverObservations([
+      observation({ observation_type: "evaluation", outcome: "clear" }),
+    ]);
+
+    expect(audit.badge.tone).toBe("warning");
+    expect(failed.badge.tone).toBe("danger");
+    expect(passed.badge.label).toBe("Passed");
+  });
+
+  it("marks an observation written down with no report attached", () => {
+    const [record] = contractedDriverObservations([observation({ attachment_path: null })]);
+
+    expect(record.hasProof).toBe(false);
+  });
+
+  it("leaves out an observation that has been removed", () => {
+    const records = contractedDriverObservations([
+      observation({ id: "kept" }),
+      observation({ id: "gone", deleted_at: "2026-08-29T00:00:00.000Z" }),
+    ]);
+
+    expect(records.map((record) => record.id)).toEqual(["kept"]);
+  });
+});
+
+describe("where a driver stands at each client site", () => {
+  it("takes the newest evaluation, so a restored access replaces a limited one", () => {
+    const standings = contractedDriverSiteStandings(
+      contractedDriverObservations([
+        observation({
+          id: "limited",
+          observation_type: "evaluation",
+          title: "Driver evaluation load",
+          observed_on: "2025-05-20",
+          site_access: "limited",
+        }),
+        observation({
+          id: "restored",
+          observation_type: "evaluation",
+          title: "Driver evaluation load",
+          observed_on: "2026-06-17",
+          site_access: "unlimited",
+        }),
+      ]),
+    );
+
+    expect(standings).toHaveLength(1);
+    expect(standings[0].access).toBe("unlimited");
+    expect(standings[0].since).toBe("2026-06-17");
+  });
+
+  it("keeps one standing per client", () => {
+    const standings = contractedDriverSiteStandings(
+      contractedDriverObservations([
+        observation({
+          id: "northgate",
+          observation_type: "evaluation",
+          observed_on: "2026-06-17",
+          issuing_company: "Northgate Terminals",
+          site_access: "unlimited",
+        }),
+        observation({
+          id: "ardmore",
+          observation_type: "evaluation",
+          observed_on: "2026-01-26",
+          issuing_company: "Ardmore Energy",
+          site_access: "limited",
+        }),
+      ]),
+    );
+
+    // Sorted by client, so the list reads the same way twice running.
+    expect(standings.map((standing) => [standing.company, standing.access])).toEqual([
+      ["Ardmore Energy", "limited"],
+      ["Northgate Terminals", "unlimited"],
+    ]);
+  });
+
+  it("says nothing when no report states an access level", () => {
+    const standings = contractedDriverSiteStandings(
+      contractedDriverObservations([observation({ observed_on: "2026-08-12", outcome: "deficiencies" })]),
+    );
+
+    expect(standings).toEqual([]);
+  });
+
+  it("lets an audit restrict a driver, because one did", () => {
+    // 23 May 2025: a PPE audit cut this driver to 8am-4pm three days after an evaluation
+    // had granted him unlimited access. Reading evaluations only would show "unlimited"
+    // beside a report saying otherwise. See migration 20260829200000.
+    const standings = contractedDriverSiteStandings(
+      contractedDriverObservations([
+        observation({
+          id: "granted",
+          observation_type: "evaluation",
+          observed_on: "2025-05-20",
+          site_access: "unlimited",
+        }),
+        observation({
+          id: "restricted",
+          observation_type: "audit",
+          title: "PPE audit",
+          observed_on: "2025-05-23",
+          outcome: "deficiencies",
+          site_access: "limited",
+        }),
+      ]),
+    );
+
+    expect(standings[0].access).toBe("limited");
+    expect(standings[0].since).toBe("2025-05-23");
+  });
+
+  it("says nothing about a client an evaluation does not name", () => {
+    const standings = contractedDriverSiteStandings(
+      contractedDriverObservations([
+        observation({ observation_type: "evaluation", issuing_company: null, site_access: "unlimited" }),
+      ]),
+    );
+
+    expect(standings).toEqual([]);
+  });
+
+  it("counts write-ups since the standing, and ignores the ones before it", () => {
+    const standings = contractedDriverSiteStandings(
+      contractedDriverObservations([
+        observation({ id: "before", observed_on: "2025-09-23", outcome: "deficiencies" }),
+        observation({
+          id: "evaluation",
+          observation_type: "evaluation",
+          observed_on: "2026-06-17",
+          site_access: "unlimited",
+        }),
+        observation({ id: "after", observed_on: "2026-07-02", outcome: "deficiencies" }),
+        observation({ id: "clean", observed_on: "2026-08-12", outcome: "clear" }),
+      ]),
+    );
+
+    expect(standings[0].deficienciesSince).toBe(1);
+    expect(standings[0].latestDeficiencyOn).toBe("2026-07-02");
+  });
+
+  it("does not count the report that set the standing against itself", () => {
+    const standings = contractedDriverSiteStandings(
+      contractedDriverObservations([
+        observation({
+          observation_type: "evaluation",
+          observed_on: "2026-06-17",
+          outcome: "deficiencies",
+          site_access: "limited",
+        }),
+      ]),
+    );
+
+    expect(standings[0].deficienciesSince).toBe(0);
+  });
+});
+
+describe("observations and the driver's compliance", () => {
+  it("never colours the driver, however badly an evaluation went", () => {
+    // Structural, and deliberately so: contractedDriverOverallTone cannot see
+    // observations at all. If someone ever passes them in, this test is where the
+    // argument for not doing it is written down. An audit that found deficiencies is
+    // coaching that was recorded, not a lapsed ticket, and a carrier who learns that
+    // forwarding one turns their driver red stops forwarding them.
+    const tone = contractedDriverOverallTone({
+      identity: contractedDriverIdentityRecords({ ...NO_IDENTITY_DATES, license_expiry: "2027-09-16" }, NOW),
+      certifications: contractedDriverCertificationStatuses({ certifications: [certification()] }, NOW),
+      missingMandatory: [],
+    });
+
+    expect(tone).toBe("success");
   });
 });

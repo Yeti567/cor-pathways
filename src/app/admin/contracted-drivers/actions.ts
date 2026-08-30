@@ -497,3 +497,139 @@ export async function deleteContractedDriverCertification(formData: FormData) {
   revalidatePath(driverPath(driverId));
   backTo(driverPath(driverId), "Record removed.", "notice");
 }
+
+/** An audit is somebody watching a task; an evaluation decides what a driver may do. */
+const OBSERVATION_TYPES = ["audit", "evaluation"] as const;
+const OBSERVATION_OUTCOMES = ["clear", "deficiencies", "failed"] as const;
+const SITE_ACCESS_LEVELS = ["unlimited", "limited", "suspended"] as const;
+
+/**
+ * File what a client saw the driver do.
+ *
+ * Two things this deliberately does not do. It does not supersede anything -- every
+ * observation stands on its own, and the newest-wins rule that governs certifications
+ * would erase the history this exists to keep. And it never touches the driver's
+ * compliance state: an audit that found deficiencies is coaching that was written down,
+ * not a lapsed ticket.
+ */
+export async function createContractedDriverObservation(formData: FormData) {
+  const context = await requireContractedManager();
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const driver = await requireOwnedDriver(supabase, tenantId, stringValue(formData, "driverId"));
+
+  if (!driver) {
+    backTo(CONTRACTED_DRIVERS_PATH, "That driver no longer exists.");
+  }
+
+  const observationType = choiceValue(formData, "observationType", OBSERVATION_TYPES, "audit");
+  const title = stringValue(formData, "title");
+
+  if (!title) {
+    backTo(driverPath(driver.id), "Give this a name -- whatever the report calls it.");
+  }
+
+  // Not optionalDate with a fallback to today. The day the work was watched is the whole
+  // index of this record, and quietly stamping it with the day someone got round to
+  // typing it in would file an observation against a day the driver may not have worked.
+  const observedOn = optionalDate(formData, "observedOn");
+
+  if (!observedOn) {
+    backTo(driverPath(driver.id), "Enter the date the work was observed, as written on the report.");
+  }
+
+  const outcome = choiceValue(formData, "outcome", OBSERVATION_OUTCOMES, "clear");
+  const postedAccess = stringValue(formData, "siteAccess");
+  const siteAccess = SITE_ACCESS_LEVELS.find((level) => level === postedAccess) ?? null;
+
+  const uploaded = parseUploadedContractedAttachmentPaths(formData.getAll("uploadedAttachmentPaths"), {
+    tenantId,
+    subcontractorId: driver.subcontractor_id,
+    subjectId: driver.id,
+    scope: "contracted-drivers",
+  });
+
+  const { data, error } = await supabase
+    .from("contracted_driver_observation")
+    .insert({
+      tenant_id: tenantId,
+      contracted_driver_id: driver.id,
+      observation_type: observationType,
+      title,
+      observed_on: observedOn,
+      reported_on: optionalDate(formData, "reportedOn"),
+      issuing_company: optionalString(formData, "issuingCompany"),
+      observer: optionalString(formData, "observer"),
+      location: optionalString(formData, "location"),
+      outcome,
+      site_access: siteAccess,
+      findings: optionalString(formData, "findings"),
+      action_taken: optionalString(formData, "actionTaken"),
+      // Nullable on purpose: the row is the record, so it can be written down before the
+      // report arrives.
+      attachment_path: uploaded[0] ?? null,
+      created_by: context.appUser.id,
+    })
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error || !data) {
+    backTo(
+      driverPath(driver.id),
+      readableContractedWriteError(error?.message ?? "The observation was not saved.", error?.code),
+    );
+  }
+
+  await auditContracted(context, {
+    action: "contracted_driver.observation.create",
+    entityId: data.id,
+    entityTable: "contracted_driver_observation",
+    metadata: {
+      driver_id: driver.id,
+      observation_type: observationType,
+      outcome,
+      site_access: siteAccess,
+      has_proof: uploaded.length > 0,
+    },
+  });
+
+  revalidatePath(driverPath(driver.id));
+  backTo(driverPath(driver.id), `${title} filed.`, "notice");
+}
+
+/**
+ * Remove an observation.
+ *
+ * A soft delete, unlike the certification and identity-document rows beside it. Those
+ * describe a document that either exists or does not; this describes something that
+ * happened, and a client's write-up of a driver is exactly the kind of record where
+ * "who removed it, and when" is a question worth being able to answer later.
+ */
+export async function deleteContractedDriverObservation(formData: FormData) {
+  const context = await requireContractedManager();
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const observationId = stringValue(formData, "observationId");
+  const driverId = stringValue(formData, "driverId");
+
+  const { error } = await supabase
+    .from("contracted_driver_observation")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("tenant_id", tenantId)
+    .eq("id", observationId)
+    .is("deleted_at", null);
+
+  if (error) {
+    backTo(driverPath(driverId), readableContractedWriteError(error.message, error.code));
+  }
+
+  await auditContracted(context, {
+    action: "contracted_driver.observation.delete",
+    entityId: observationId,
+    entityTable: "contracted_driver_observation",
+    metadata: { driver_id: driverId },
+  });
+
+  revalidatePath(driverPath(driverId));
+  backTo(driverPath(driverId), "Observation removed.", "notice");
+}

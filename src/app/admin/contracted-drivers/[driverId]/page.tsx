@@ -4,11 +4,13 @@ import { ArrowLeft, FilePlus2, Save } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { ContractedUploadField } from "@/app/admin/_components/ContractedUploadField";
 import { ContractedDriverDocumentForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedDriverDocumentForm";
+import { ContractedObservationForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedObservationForm";
 import { ContractedTicketProofForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedTicketProofForm";
 import {
   createContractedDriverCertification,
   deleteContractedDriverCertification,
   deleteContractedDriverDocument,
+  deleteContractedDriverObservation,
   updateContractedDriver,
 } from "@/app/admin/contracted-drivers/actions";
 import { canUseAdminPanel } from "@/lib/access-control";
@@ -16,18 +18,30 @@ import {
   contractedDriverCertificationStatuses,
   contractedDriverIdentityRecords,
   contractedDriverMissingTickets,
+  contractedDriverObservations,
+  contractedDriverSiteStandings,
   CONTRACTED_DRIVER_CATEGORY_DESCRIPTIONS,
   CONTRACTED_DRIVER_CATEGORY_LABELS,
+  CONTRACTED_OBSERVATION_TYPE_DESCRIPTIONS,
+  CONTRACTED_OBSERVATION_TYPE_LABELS,
+  CONTRACTED_SITE_ACCESS_LABELS,
+  CONTRACTED_SITE_ACCESS_TONES,
   groupContractedDriverCertifications,
+  groupContractedDriverObservations,
   type ContractedDriverCertificationInput,
   type ContractedDriverDocumentRow,
+  type ContractedDriverObservationRow,
   type ContractedDriverRow,
 } from "@/lib/contracted-drivers";
 import { CONTRACTED_DOCUMENTS_BUCKET } from "@/lib/contracted-equipment";
 import { requireAppUser } from "@/lib/current-user";
 import { certificationStatusClass } from "@/lib/workers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { CertificationCategory, Database } from "@/types/database";
+import type {
+  CertificationCategory,
+  ContractedDriverObservationType,
+  Database,
+} from "@/types/database";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +69,10 @@ const submitClass =
 const cardClass = "rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm";
 
 const CATEGORY_ORDER: CertificationCategory[] = ["ticket", "orientation", "site_access"];
+
+// Evaluations first: what a driver is allowed to do on a site is the question people
+// come to this section to answer, and the audits are the detail behind it.
+const OBSERVATION_ORDER: ContractedDriverObservationType[] = ["evaluation", "audit"];
 
 export default async function ContractedDriverPage({ params, searchParams }: PageProps) {
   const { driverId } = await params;
@@ -92,6 +110,7 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
     { data: types },
     { data: certifications },
     { data: identityDocuments },
+    { data: observations },
   ] = await Promise.all([
     supabase
       .from("subcontractor")
@@ -125,6 +144,14 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
       .eq("tenant_id", tenantId)
       .eq("contracted_driver_id", driver.id)
       .returns<ContractedDriverDocumentRow[]>(),
+    // Soft-deleted rows are filtered in contractedDriverObservations rather than here, so
+    // one rule decides what counts as live wherever these are read.
+    supabase
+      .from("contracted_driver_observation")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("contracted_driver_id", driver.id)
+      .returns<ContractedDriverObservationRow[]>(),
   ]);
 
   const typeRows = types ?? [];
@@ -150,6 +177,9 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
   });
   const grouped = groupContractedDriverCertifications(statuses);
   const identity = contractedDriverIdentityRecords(driver, new Date(), identityDocuments ?? []);
+  const observationRecords = contractedDriverObservations(observations ?? []);
+  const groupedObservations = groupContractedDriverObservations(observationRecords);
+  const standings = contractedDriverSiteStandings(observationRecords);
 
   // Signed links for the filed scans, the same ten minute window every other document on
   // the site uses. Signed per request rather than stored: this is another company's
@@ -167,6 +197,24 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
       }
     }),
   );
+  // The same ten minute signed window, for the same reason: an audit report names the
+  // driver and describes their work, and a durable URL to one is a durable leak.
+  const observationUrls = new Map<string, string>();
+
+  await Promise.all(
+    observationRecords
+      .filter((record) => record.attachmentPath !== null)
+      .map(async (record) => {
+        const { data } = await supabase.storage
+          .from(CONTRACTED_DOCUMENTS_BUCKET)
+          .createSignedUrl(record.attachmentPath!, 10 * 60);
+
+        if (data?.signedUrl) {
+          observationUrls.set(record.id, data.signedUrl);
+        }
+      }),
+  );
+
   const missingMandatory = contractedDriverMissingTickets({ certifications: held, mandatoryTickets });
   const certificationById = new Map(held.map((certification) => [certification.id, certification]));
 
@@ -388,6 +436,150 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
           )}
         </section>
       ))}
+
+      {/* --- What clients saw them do ----------------------------------------- */}
+      <section className={`mt-5 ${cardClass}`}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+          Site standing and observations
+        </h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          What a client&apos;s own people wrote down after watching this driver work. Kept as history: a later
+          report never replaces an earlier one, and none of it counts against the driver&apos;s compliance.
+        </p>
+
+        {standings.length > 0 ? (
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {standings.map((standing) => (
+              <li className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3" key={standing.company}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-[var(--ink)]">{standing.company}</p>
+                  <span
+                    className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wide ${certificationStatusClass(CONTRACTED_SITE_ACCESS_TONES[standing.access])}`}
+                  >
+                    {CONTRACTED_SITE_ACCESS_LABELS[standing.access]}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+                  Since {standing.since} · {standing.title}
+                </p>
+                {/*
+                  A write-up that says nothing about access has not changed it, but
+                  showing the standing without mentioning it would be telling half the
+                  story.
+                */}
+                {standing.deficienciesSince > 0 ? (
+                  <p className="mt-2 text-xs text-[var(--warning)]">
+                    {standing.deficienciesSince} write-up
+                    {standing.deficienciesSince === 1 ? "" : "s"} since, most recent {standing.latestDeficiencyOn}.
+                    None of them changed the access above.
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : observationRecords.length > 0 ? (
+          <p className="mt-3 text-sm text-[var(--ink-muted)]">
+            No report names both a client and an access level, so there is no site standing to work out yet.
+          </p>
+        ) : null}
+
+        {OBSERVATION_ORDER.map((observationType) => (
+          <div className="mt-4" key={observationType}>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+              {CONTRACTED_OBSERVATION_TYPE_LABELS[observationType]}
+            </h3>
+            <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+              {CONTRACTED_OBSERVATION_TYPE_DESCRIPTIONS[observationType]}
+            </p>
+
+            {groupedObservations[observationType].length === 0 ? (
+              <p className="mt-2 text-sm text-[var(--ink-muted)]">Nothing filed yet.</p>
+            ) : (
+              <ul className="mt-2 divide-y divide-[var(--border)]">
+                {groupedObservations[observationType].map((record) => {
+                  const url = observationUrls.get(record.id);
+
+                  return (
+                    // Not dimmed, and no "earlier record" note. Every observation stands
+                    // on its own: six audits are six facts, not one live one and five
+                    // superseded.
+                    <li className="py-3" key={record.id}>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[var(--ink)]">
+                            {url ? (
+                              <a
+                                className="text-[var(--primary)] hover:underline"
+                                href={url}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                {record.title}
+                              </a>
+                            ) : (
+                              record.title
+                            )}
+                          </p>
+                          <p className="text-xs text-[var(--ink-muted)]">
+                            Observed {record.observedOn}
+                            {record.reportedOn && record.reportedOn !== record.observedOn
+                              ? ` · reported ${record.reportedOn}`
+                              : ""}
+                            {record.issuingCompany ? ` · ${record.issuingCompany}` : ""}
+                            {record.observer ? ` · ${record.observer}` : ""}
+                            {record.location ? ` · ${record.location}` : ""}
+                          </p>
+                          {record.siteAccess ? (
+                            <p className="mt-0.5 text-xs font-semibold text-[var(--ink)]">
+                              {CONTRACTED_SITE_ACCESS_LABELS[record.siteAccess]}
+                            </p>
+                          ) : null}
+                          {record.findings ? (
+                            <p className="mt-1 text-xs text-[var(--ink)]">{record.findings}</p>
+                          ) : null}
+                          {record.actionTaken ? (
+                            <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+                              Action taken: {record.actionTaken}
+                            </p>
+                          ) : null}
+                          {!record.hasProof ? (
+                            <p className="mt-1 text-xs text-[var(--warning)]">
+                              Written down, but the report itself is not attached.
+                            </p>
+                          ) : null}
+                        </div>
+                        <span
+                          className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wide ${certificationStatusClass(record.badge.tone)}`}
+                        >
+                          {record.badge.label}
+                        </span>
+                      </div>
+                      <form action={deleteContractedDriverObservation} className="mt-1 inline-block">
+                        <input name="observationId" type="hidden" value={record.id} />
+                        <input name="driverId" type="hidden" value={driver.id} />
+                        <button
+                          className="text-xs font-semibold text-[var(--ink-muted)] underline transition hover:text-[var(--danger)]"
+                          type="submit"
+                        >
+                          Remove
+                        </button>
+                      </form>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        ))}
+
+        <ContractedObservationForm
+          driverId={driver.id}
+          inputClass={inputClass}
+          subcontractorId={driver.subcontractor_id}
+          submitClass={submitClass}
+          tenantId={tenantId}
+        />
+      </section>
 
       {/* --- File a record ---------------------------------------------------- */}
       <section className={`mt-5 ${cardClass}`}>

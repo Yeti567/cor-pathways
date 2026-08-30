@@ -9,10 +9,17 @@
 
 import type { ContractedStorageLocation } from "@/lib/contracted-equipment";
 import { hasAttachedProof } from "@/lib/proof-status";
-import { certificationStatus, type CertificationStatus } from "@/lib/workers";
+import {
+  certificationStatus,
+  type CertificationStatus,
+  type CertificationStatusTone,
+} from "@/lib/workers";
 import type {
   CertificationCategory,
   ContractedDriverDocumentType,
+  ContractedDriverObservationOutcome,
+  ContractedDriverObservationType,
+  ContractedDriverSiteAccess,
   Database,
 } from "@/types/database";
 
@@ -21,6 +28,8 @@ export type ContractedDriverCertificationRow =
   Database["public"]["Tables"]["contracted_driver_certification"]["Row"];
 export type ContractedDriverDocumentRow =
   Database["public"]["Tables"]["contracted_driver_document"]["Row"];
+export type ContractedDriverObservationRow =
+  Database["public"]["Tables"]["contracted_driver_observation"]["Row"];
 
 export const CONTRACTED_DRIVER_CATEGORY_LABELS: Record<CertificationCategory, string> = {
   ticket: "Tickets and certifications",
@@ -433,4 +442,220 @@ export function contractedDriverOverallTone(input: {
   }
 
   return tones.length > 0 ? "success" : "neutral";
+}
+
+// --- What a client saw the driver do ----------------------------------------
+//
+// Audits and evaluations. Read the migration before changing anything here: these are
+// HISTORY, not compliance. Nothing in this section may be wired into
+// contractedDriverOverallTone, and a newer observation never supersedes an older one --
+// that supersession rule belongs to certifications and would erase the record here.
+
+export const CONTRACTED_OBSERVATION_TYPE_LABELS: Record<ContractedDriverObservationType, string> = {
+  evaluation: "Evaluations and site access",
+  audit: "Observations and audits",
+};
+
+export const CONTRACTED_OBSERVATION_TYPE_DESCRIPTIONS: Record<ContractedDriverObservationType, string> = {
+  evaluation:
+    "A formal assessment by a client of whether the driver may work on their site.",
+  audit:
+    "Somebody watched a task and wrote it up. It records coaching and good work, and it never counts against the driver's compliance -- though a site observer can and does restrict access from one.",
+};
+
+export const CONTRACTED_SITE_ACCESS_LABELS: Record<ContractedDriverSiteAccess, string> = {
+  unlimited: "Unlimited access",
+  limited: "Limited access",
+  suspended: "Access suspended",
+};
+
+/**
+ * How a site standing reads at a glance.
+ *
+ * Presentation only, like observationBadge. Limited access is amber rather than red
+ * because it is a real working arrangement -- the driver can still load, under
+ * supervision -- and colouring it as a failure would misdescribe it.
+ */
+export const CONTRACTED_SITE_ACCESS_TONES: Record<ContractedDriverSiteAccess, CertificationStatusTone> = {
+  unlimited: "success",
+  limited: "warning",
+  suspended: "danger",
+};
+
+/**
+ * How one observation reads.
+ *
+ * Called a badge and not a status on purpose. It is presentation: a colour beside a row
+ * so the eye finds the write-ups in a long list. It is not a compliance state, nothing
+ * aggregates it, and it must never be passed to contractedDriverOverallTone.
+ */
+function observationBadge(
+  type: ContractedDriverObservationType,
+  outcome: ContractedDriverObservationOutcome,
+): CertificationStatus {
+  if (outcome === "failed") {
+    return { label: "Not passed", tone: "danger" };
+  }
+
+  if (outcome === "deficiencies") {
+    // Amber, not red. Something was written up and usually closed on the spot; calling it
+    // a deficiency in the compliance sense would be a different and wrong claim.
+    return { label: "Deficiencies noted", tone: "warning" };
+  }
+
+  return { label: type === "evaluation" ? "Passed" : "Clear", tone: "success" };
+}
+
+export type ContractedDriverObservationRecord = {
+  id: string;
+  type: ContractedDriverObservationType;
+  title: string;
+  observedOn: string;
+  reportedOn: string | null;
+  issuingCompany: string | null;
+  observer: string | null;
+  location: string | null;
+  outcome: ContractedDriverObservationOutcome;
+  siteAccess: ContractedDriverSiteAccess | null;
+  findings: string | null;
+  actionTaken: string | null;
+  hasProof: boolean;
+  attachmentPath: string | null;
+  badge: CertificationStatus;
+};
+
+/**
+ * One driver's observations, most recent work first.
+ *
+ * Ordered by the day the work was watched rather than by when the report arrived or when
+ * the row was created: a report emailed two days late still describes the day it
+ * describes, and a batch loaded in one afternoon would otherwise come out in file order.
+ */
+export function contractedDriverObservations(
+  rows: readonly ContractedDriverObservationRow[],
+): ContractedDriverObservationRecord[] {
+  return [...rows]
+    .filter((row) => row.deleted_at === null)
+    .sort((left, right) => {
+      if (left.observed_on !== right.observed_on) {
+        return left.observed_on < right.observed_on ? 1 : -1;
+      }
+
+      return left.created_at < right.created_at ? 1 : -1;
+    })
+    .map((row) => ({
+      id: row.id,
+      type: row.observation_type,
+      title: row.title,
+      observedOn: row.observed_on,
+      reportedOn: row.reported_on,
+      issuingCompany: row.issuing_company,
+      observer: row.observer,
+      location: row.location,
+      outcome: row.outcome,
+      siteAccess: row.site_access,
+      findings: row.findings,
+      actionTaken: row.action_taken,
+      hasProof: hasAttachedProof(row.attachment_path),
+      attachmentPath: row.attachment_path,
+      badge: observationBadge(row.observation_type, row.outcome),
+    }));
+}
+
+export function groupContractedDriverObservations(
+  records: readonly ContractedDriverObservationRecord[],
+): Record<ContractedDriverObservationType, ContractedDriverObservationRecord[]> {
+  return {
+    evaluation: records.filter((record) => record.type === "evaluation"),
+    audit: records.filter((record) => record.type === "audit"),
+  };
+}
+
+export type ContractedDriverSiteStanding = {
+  company: string;
+  access: ContractedDriverSiteAccess;
+  /** The day the evaluation that set this standing was carried out. */
+  since: string;
+  title: string;
+  observationId: string;
+  /**
+   * Observations at the same company written up AFTER the report that set the standing.
+   *
+   * Shown as a caveat rather than folded into the standing. A write-up that says nothing
+   * about access has not changed it -- but reading "unlimited since June" with no hint
+   * that there is a deficiency from August would be the app telling half the story.
+   */
+  deficienciesSince: number;
+  latestDeficiencyOn: string | null;
+};
+
+/**
+ * Where the driver stands at each client site today.
+ *
+ * The newest observation per issuing company that STATES an access level, whatever kind
+ * of report it was. This is the question the company was answering out of a mailbox
+ * before this table existed: one client's March email said a driver had to redo his
+ * training loads, and a June evaluation restored his unlimited access.
+ *
+ * Not evaluations only, and that was a correction. The first batch held a PPE audit that
+ * limited a driver to 8am-4pm on the spot, three days after an evaluation had granted him
+ * unlimited access. Reading only evaluations would have shown "unlimited" beside a report
+ * saying otherwise. See migration 20260829200000.
+ *
+ * Only the newest speaks, because that is genuinely how site access works: unlike a
+ * ticket, an older decision is not history that still counts, it is a decision that has
+ * been replaced.
+ *
+ * Observations with no issuing company are skipped: a standing has to be at somewhere.
+ */
+export function contractedDriverSiteStandings(
+  records: readonly ContractedDriverObservationRecord[],
+): ContractedDriverSiteStanding[] {
+  const standings = new Map<string, ContractedDriverSiteStanding>();
+
+  // records arrive newest first, so the first access-stating report seen for a company
+  // is its current one.
+  for (const record of records) {
+    if (!record.issuingCompany || !record.siteAccess) {
+      continue;
+    }
+
+    const key = record.issuingCompany.trim().toLowerCase();
+
+    if (standings.has(key)) {
+      continue;
+    }
+
+    standings.set(key, {
+      company: record.issuingCompany,
+      access: record.siteAccess,
+      since: record.observedOn,
+      title: record.title,
+      observationId: record.id,
+      deficienciesSince: 0,
+      latestDeficiencyOn: null,
+    });
+  }
+
+  for (const record of records) {
+    if (record.outcome === "clear" || !record.issuingCompany) {
+      continue;
+    }
+
+    const standing = standings.get(record.issuingCompany.trim().toLowerCase());
+
+    // Strictly after: the report that set the standing does not count against itself,
+    // even when it was the thing that recorded the deficiency -- and one of them was.
+    if (!standing || record.observedOn <= standing.since) {
+      continue;
+    }
+
+    standing.deficienciesSince += 1;
+    standing.latestDeficiencyOn =
+      standing.latestDeficiencyOn && standing.latestDeficiencyOn > record.observedOn
+        ? standing.latestDeficiencyOn
+        : record.observedOn;
+  }
+
+  return [...standings.values()].sort((left, right) => left.company.localeCompare(right.company));
 }
