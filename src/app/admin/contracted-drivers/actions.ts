@@ -23,6 +23,15 @@ type DriverRow = Database["public"]["Tables"]["contracted_driver"]["Row"];
 const DRIVER_TYPES = ["contracted", "casual"] as const;
 const STATUSES = ["active", "inactive", "terminated"] as const;
 
+/** The three identity documents that are columns on the driver rather than tickets. */
+const DRIVER_DOCUMENT_TYPES = ["license", "abstract", "cso"] as const;
+
+const DRIVER_DOCUMENT_LABELS: Record<(typeof DRIVER_DOCUMENT_TYPES)[number], string> = {
+  license: "Driver's licence",
+  abstract: "Commercial driver abstract",
+  cso: "Common Safety Orientation",
+};
+
 function driverPath(driverId: string) {
   return `${CONTRACTED_DRIVERS_PATH}/${driverId}`;
 }
@@ -343,6 +352,120 @@ export async function attachContractedDriverCertificationProof(formData: FormDat
   revalidatePath(driverPath(driver.id));
   revalidatePath(CONTRACTED_DRIVERS_PATH);
   backTo(driverPath(driver.id), uploaded.length > 0 ? "Document attached." : "Dates updated.", "notice");
+}
+
+/**
+ * File the scan behind a licence, an abstract or a CSO.
+ *
+ * Always an insert, never an update. These documents come in series -- an abstract is
+ * pulled every year, a licence is renewed every five -- and the newest one replacing the
+ * last in place would throw away the record an auditor asks for when they want to see
+ * that the carrier has been pulling them. The newest reads as live and the rest as
+ * history, the same way a renewed ticket does.
+ *
+ * The dates asked for here are the ones printed ON THE DOCUMENT, which is why this does
+ * not touch the driver's own columns. Those stay the tracked value and are edited under
+ * Driver details; when the two disagree the file says so rather than quietly picking one.
+ */
+export async function attachContractedDriverDocument(formData: FormData) {
+  const context = await requireContractedManager();
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const driver = await requireOwnedDriver(supabase, tenantId, stringValue(formData, "driverId"));
+
+  if (!driver) {
+    backTo(CONTRACTED_DRIVERS_PATH, "That driver no longer exists.");
+  }
+
+  // Deliberately not choiceValue, which falls back to a default when the value is not in
+  // the list. A silent fallback here would file a CSO as a driver's licence, which is a
+  // worse outcome than refusing the save.
+  const posted = stringValue(formData, "docType");
+  const docType = DRIVER_DOCUMENT_TYPES.find((type) => type === posted);
+
+  if (!docType) {
+    backTo(driverPath(driver.id), "Choose which document this is.");
+  }
+
+  const uploaded = parseUploadedContractedAttachmentPaths(formData.getAll("uploadedAttachmentPaths"), {
+    tenantId,
+    subcontractorId: driver.subcontractor_id,
+    subjectId: driver.id,
+    scope: "contracted-drivers",
+  });
+
+  // The table's attachment_path is not null on purpose: the dates already live on the
+  // driver row, so a row here with nothing attached would carry no information at all.
+  if (uploaded.length === 0) {
+    backTo(driverPath(driver.id), "Choose a file to attach.");
+  }
+
+  const { data, error } = await supabase
+    .from("contracted_driver_document")
+    .insert({
+      tenant_id: tenantId,
+      contracted_driver_id: driver.id,
+      doc_type: docType,
+      title: optionalString(formData, "title") ?? DRIVER_DOCUMENT_LABELS[docType],
+      issued_date: optionalDate(formData, "issuedDate"),
+      // Null is a real answer: a CSO prints "EXPIRES: N/A", and an abstract carries no
+      // expiry at all.
+      expiry_date: optionalDate(formData, "expiryDate"),
+      attachment_path: uploaded[0],
+      created_by: context.appUser.id,
+    })
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error || !data) {
+    backTo(
+      driverPath(driver.id),
+      readableContractedWriteError(error?.message ?? "The document was not saved.", error?.code),
+    );
+  }
+
+  await auditContracted(context, {
+    action: "contracted_driver.document.attach",
+    entityId: data.id,
+    entityTable: "contracted_driver_document",
+    metadata: { driver_id: driver.id, doc_type: docType },
+  });
+
+  revalidatePath(driverPath(driver.id));
+  revalidatePath(CONTRACTED_DRIVERS_PATH);
+  backTo(driverPath(driver.id), `${DRIVER_DOCUMENT_LABELS[docType]} filed.`, "notice");
+}
+
+/**
+ * Remove one filed document. Hard delete, matching the certification rows on the same
+ * screen: the two behave the same way or the difference becomes a trap.
+ */
+export async function deleteContractedDriverDocument(formData: FormData) {
+  const context = await requireContractedManager();
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const documentId = stringValue(formData, "documentId");
+  const driverId = stringValue(formData, "driverId");
+
+  const { error } = await supabase
+    .from("contracted_driver_document")
+    .delete()
+    .eq("tenant_id", tenantId)
+    .eq("id", documentId);
+
+  if (error) {
+    backTo(driverPath(driverId), readableContractedWriteError(error.message, error.code));
+  }
+
+  await auditContracted(context, {
+    action: "contracted_driver.document.delete",
+    entityId: documentId,
+    entityTable: "contracted_driver_document",
+    metadata: { driver_id: driverId },
+  });
+
+  revalidatePath(driverPath(driverId));
+  backTo(driverPath(driverId), "Document removed.", "notice");
 }
 
 export async function deleteContractedDriverCertification(formData: FormData) {

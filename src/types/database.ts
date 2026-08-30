@@ -531,6 +531,31 @@ type ContractedDriverCertificationRow = TenantScopedRow & {
   attachment_path: string | null;
 };
 
+/**
+ * The three identity documents that are columns on contracted_driver rather than rows in
+ * contracted_driver_certification.
+ */
+export type ContractedDriverDocumentType = "license" | "abstract" | "cso";
+
+/**
+ * The scan behind a contracted driver's licence, abstract or CSO.
+ *
+ * Evidence, not the fact. The authoritative dates stay on contracted_driver and every
+ * status calculation keeps reading them; the dates here are what the document itself
+ * prints, carried so the two can be compared. Several rows of one doc_type are history.
+ */
+type ContractedDriverDocumentRow = TenantScopedRow & {
+  contracted_driver_id: string;
+  doc_type: ContractedDriverDocumentType;
+  title: string;
+  issued_date: string | null;
+  /** Null where the document carries no expiry: a CSO prints N/A, an abstract goes stale. */
+  expiry_date: string | null;
+  /** Not null: a row exists because there is a document. */
+  attachment_path: string;
+  created_by: string | null;
+};
+
 type SubcontractorRow = TenantScopedRow & {
   legal_name: string;
   operating_name: string | null;
@@ -1495,6 +1520,16 @@ export type Database = {
         Insert: Partial<ContractedDriverCertificationRow> &
           Pick<ContractedDriverCertificationRow, "tenant_id" | "contracted_driver_id" | "name">;
         Update: Partial<ContractedDriverCertificationRow>;
+        Relationships: [];
+      };
+      contracted_driver_document: {
+        Row: ContractedDriverDocumentRow;
+        Insert: Partial<ContractedDriverDocumentRow> &
+          Pick<
+            ContractedDriverDocumentRow,
+            "tenant_id" | "contracted_driver_id" | "doc_type" | "title" | "attachment_path"
+          >;
+        Update: Partial<ContractedDriverDocumentRow>;
         Relationships: [];
       };
       co_project: {

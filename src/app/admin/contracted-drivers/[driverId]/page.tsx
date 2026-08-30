@@ -3,10 +3,12 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, FilePlus2, Save } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { ContractedUploadField } from "@/app/admin/_components/ContractedUploadField";
+import { ContractedDriverDocumentForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedDriverDocumentForm";
 import { ContractedTicketProofForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedTicketProofForm";
 import {
   createContractedDriverCertification,
   deleteContractedDriverCertification,
+  deleteContractedDriverDocument,
   updateContractedDriver,
 } from "@/app/admin/contracted-drivers/actions";
 import { canUseAdminPanel } from "@/lib/access-control";
@@ -18,8 +20,10 @@ import {
   CONTRACTED_DRIVER_CATEGORY_LABELS,
   groupContractedDriverCertifications,
   type ContractedDriverCertificationInput,
+  type ContractedDriverDocumentRow,
   type ContractedDriverRow,
 } from "@/lib/contracted-drivers";
+import { CONTRACTED_DOCUMENTS_BUCKET } from "@/lib/contracted-equipment";
 import { requireAppUser } from "@/lib/current-user";
 import { certificationStatusClass } from "@/lib/workers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -82,7 +86,13 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
     notFound();
   }
 
-  const [{ data: carrier }, { data: units }, { data: types }, { data: certifications }] = await Promise.all([
+  const [
+    { data: carrier },
+    { data: units },
+    { data: types },
+    { data: certifications },
+    { data: identityDocuments },
+  ] = await Promise.all([
     supabase
       .from("subcontractor")
       .select("id, legal_name")
@@ -109,6 +119,12 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
       .eq("tenant_id", tenantId)
       .eq("contracted_driver_id", driver.id)
       .returns<CertificationRow[]>(),
+    supabase
+      .from("contracted_driver_document")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("contracted_driver_id", driver.id)
+      .returns<ContractedDriverDocumentRow[]>(),
   ]);
 
   const typeRows = types ?? [];
@@ -133,7 +149,24 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
     mandatoryTicketTypeIds: mandatoryTickets.map((ticket) => ticket.id),
   });
   const grouped = groupContractedDriverCertifications(statuses);
-  const identity = contractedDriverIdentityRecords(driver);
+  const identity = contractedDriverIdentityRecords(driver, new Date(), identityDocuments ?? []);
+
+  // Signed links for the filed scans, the same ten minute window every other document on
+  // the site uses. Signed per request rather than stored: this is another company's
+  // employees' identity documents, and a durable URL to one is a durable leak.
+  const documentUrls = new Map<string, string>();
+
+  await Promise.all(
+    (identityDocuments ?? []).map(async (document) => {
+      const { data } = await supabase.storage
+        .from(CONTRACTED_DOCUMENTS_BUCKET)
+        .createSignedUrl(document.attachment_path, 10 * 60);
+
+      if (data?.signedUrl) {
+        documentUrls.set(document.id, data.signedUrl);
+      }
+    }),
+  );
   const missingMandatory = contractedDriverMissingTickets({ certifications: held, mandatoryTickets });
   const certificationById = new Map(held.map((certification) => [certification.id, certification]));
 
@@ -174,26 +207,103 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
         <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">Licence and abstract</h2>
         <ul className="mt-3 divide-y divide-[var(--border)]">
           {identity.map((record) => (
-            <li className="flex flex-wrap items-center justify-between gap-2 py-3" key={record.key}>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-[var(--ink)]">{record.label}</p>
-                <p className="text-xs text-[var(--ink-muted)]">{record.description}</p>
-                {record.date ? (
-                  <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
-                    {record.tracksExpiry ? "Expires" : "Dated"} {record.date}
-                  </p>
-                ) : null}
+            <li className="py-3" key={record.key}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[var(--ink)]">{record.label}</p>
+                  <p className="text-xs text-[var(--ink-muted)]">{record.description}</p>
+                  {record.date ? (
+                    <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+                      {record.tracksExpiry ? "Expires" : "Dated"} {record.date}
+                    </p>
+                  ) : null}
+                </div>
+                <span
+                  className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wide ${certificationStatusClass(record.status.tone)}`}
+                >
+                  {record.status.label}
+                </span>
               </div>
-              <span
-                className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wide ${certificationStatusClass(record.status.tone)}`}
-              >
-                {record.status.label}
-              </span>
+
+              {/*
+                The document disagrees with what is being tracked. Said plainly rather
+                than resolved: the app cannot know which is right, and a record sitting
+                beside a scan that contradicts it, saying nothing, reads as an app that
+                has not noticed.
+              */}
+              {record.mismatch ? (
+                <p className="mt-2 rounded-md border border-[var(--warning)] bg-amber-50 p-2 text-xs text-[var(--ink)]">
+                  The filed document says <strong>{record.mismatch.onDocument}</strong>, but{" "}
+                  <strong>{record.mismatch.tracked}</strong> is what is tracked. Check which is right and correct
+                  it under Driver details.
+                </p>
+              ) : null}
+
+              {record.documents.length > 0 ? (
+                <ul className="mt-2 space-y-1">
+                  {record.documents.map((document, index) => {
+                    const url = documentUrls.get(document.id);
+                    // Only the newest speaks for the driver. The rest are dimmed rather
+                    // than hidden, the same way a replaced ticket is.
+                    const superseded = index > 0;
+
+                    return (
+                      <li
+                        className={`flex flex-wrap items-center gap-2 text-xs${superseded ? " opacity-60" : ""}`}
+                        key={document.id}
+                      >
+                        {url ? (
+                          <a
+                            className="font-semibold text-[var(--primary)] hover:underline"
+                            href={url}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {document.title}
+                          </a>
+                        ) : (
+                          <span className="font-semibold text-[var(--ink)]">{document.title}</span>
+                        )}
+                        <span className="text-[var(--ink-muted)]">
+                          {document.expiry_date
+                            ? `expires ${document.expiry_date}`
+                            : document.issued_date
+                              ? `dated ${document.issued_date}`
+                              : "no date on the document"}
+                          {superseded ? " · earlier document" : ""}
+                        </span>
+                        <form action={deleteContractedDriverDocument} className="inline-block">
+                          <input name="documentId" type="hidden" value={document.id} />
+                          <input name="driverId" type="hidden" value={driver.id} />
+                          <button
+                            className="font-semibold text-[var(--ink-muted)] underline transition hover:text-[var(--danger)]"
+                            type="submit"
+                          >
+                            Remove
+                          </button>
+                        </form>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+
+              <ContractedDriverDocumentForm
+                docType={record.key}
+                driverId={driver.id}
+                hasProof={record.documents.length > 0}
+                inputClass={inputClass}
+                label={record.label}
+                subcontractorId={driver.subcontractor_id}
+                submitClass={submitClass}
+                tenantId={tenantId}
+                trackedDate={record.date}
+              />
             </li>
           ))}
         </ul>
         <p className="mt-2 text-xs text-[var(--ink-muted)]">
-          Edit these under Driver details below.
+          The dates are edited under Driver details below. The documents here are the proof behind them.
         </p>
       </section>
 

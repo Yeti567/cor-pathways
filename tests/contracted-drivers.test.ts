@@ -6,6 +6,7 @@ import {
   contractedDriverOverallTone,
   groupContractedDriverCertifications,
   type ContractedDriverCertificationInput,
+  type ContractedDriverDocumentRow,
 } from "@/lib/contracted-drivers";
 
 const NOW = new Date("2026-08-26T00:00:00.000Z");
@@ -36,6 +37,33 @@ function certification(
     ...overrides,
   };
 }
+
+function identityDocument(
+  overrides: Partial<ContractedDriverDocumentRow> = {},
+): ContractedDriverDocumentRow {
+  return {
+    id: "doc-1",
+    tenant_id: TENANT,
+    contracted_driver_id: DRIVER,
+    doc_type: "license",
+    title: "Alberta Class 1 licence",
+    issued_date: null,
+    expiry_date: null,
+    attachment_path: "scan.pdf",
+    created_by: null,
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+const NO_IDENTITY_DATES = {
+  license_expiry: null,
+  license_province: null,
+  abstract_expiry: null,
+  abstract_issued: null,
+  cso_completed: null,
+};
 
 describe("a contracted driver's records", () => {
   it("sorts a ticket, an orientation and a badge into their own sections", () => {
@@ -307,5 +335,98 @@ describe("renewal history", () => {
     );
 
     expect(statuses.filter((entry) => entry.superseded)).toEqual([]);
+  });
+});
+
+describe("the licence, abstract and CSO scans", () => {
+  it("hangs a filed document off the record it proves", () => {
+    const records = contractedDriverIdentityRecords(
+      { ...NO_IDENTITY_DATES, license_expiry: "2027-02-26", license_province: "AB" },
+      NOW,
+      [identityDocument({ expiry_date: "2027-02-26" })],
+    );
+
+    expect(records.find((record) => record.key === "license")?.documents).toHaveLength(1);
+  });
+
+  it("says so when the document disagrees with the date being tracked", () => {
+    // The case this was built for: an SGI abstract states a licence expiry ten days
+    // later than the carrier's sheet recorded, and the app had been carrying the
+    // sheet's version. Showing the difference is the whole point of keeping the
+    // document's own dates.
+    const records = contractedDriverIdentityRecords(
+      { ...NO_IDENTITY_DATES, license_expiry: "2027-10-21" },
+      NOW,
+      [identityDocument({ expiry_date: "2027-10-31" })],
+    );
+
+    expect(records.find((record) => record.key === "license")?.mismatch).toEqual({
+      tracked: "2027-10-21",
+      onDocument: "2027-10-31",
+    });
+  });
+
+  it("is quiet when the document agrees", () => {
+    const records = contractedDriverIdentityRecords(
+      { ...NO_IDENTITY_DATES, license_expiry: "2027-02-26" },
+      NOW,
+      [identityDocument({ expiry_date: "2027-02-26" })],
+    );
+
+    expect(records.find((record) => record.key === "license")?.mismatch).toBeNull();
+  });
+
+  it("compares an abstract on its issue date, not on an expiry it does not have", () => {
+    // An abstract carries no expiry at all. Comparing one would compare against null and
+    // report every filed abstract as agreeing, whatever it says.
+    const records = contractedDriverIdentityRecords(
+      { ...NO_IDENTITY_DATES, abstract_issued: "2024-04-09" },
+      NOW,
+      [identityDocument({ doc_type: "abstract", issued_date: "2025-04-11", expiry_date: null })],
+    );
+
+    expect(records.find((record) => record.key === "abstract")?.mismatch).toEqual({
+      tracked: "2024-04-09",
+      onDocument: "2025-04-11",
+    });
+  });
+
+  it("puts the newest document first and keeps the older one as history", () => {
+    const records = contractedDriverIdentityRecords(
+      { ...NO_IDENTITY_DATES, license_expiry: "2028-06-30" },
+      NOW,
+      [
+        identityDocument({ id: "old", expiry_date: "2023-06-30" }),
+        identityDocument({ id: "current", expiry_date: "2028-06-30" }),
+      ],
+    );
+
+    expect(records.find((record) => record.key === "license")?.documents.map((doc) => doc.id)).toEqual([
+      "current",
+      "old",
+    ]);
+  });
+
+  it("shows an abstract that has been filed even when no date is recorded against the driver", () => {
+    // The abstract and CSO rows are only built when the driver carries that date, so a
+    // scan filed against an empty column would otherwise never be drawn at all.
+    const records = contractedDriverIdentityRecords(NO_IDENTITY_DATES, NOW, [
+      identityDocument({ doc_type: "abstract", issued_date: "2025-04-11" }),
+    ]);
+
+    const abstract = records.find((record) => record.key === "abstract");
+
+    expect(abstract?.documents).toHaveLength(1);
+    expect(abstract?.date).toBeNull();
+  });
+
+  it("leaves every existing caller alone when no documents are passed", () => {
+    const records = contractedDriverIdentityRecords(
+      { ...NO_IDENTITY_DATES, license_expiry: "2027-02-26" },
+      NOW,
+    );
+
+    expect(records.find((record) => record.key === "license")?.documents).toEqual([]);
+    expect(records.find((record) => record.key === "license")?.mismatch).toBeNull();
   });
 });

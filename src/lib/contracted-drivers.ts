@@ -10,11 +10,17 @@
 import type { ContractedStorageLocation } from "@/lib/contracted-equipment";
 import { hasAttachedProof } from "@/lib/proof-status";
 import { certificationStatus, type CertificationStatus } from "@/lib/workers";
-import type { CertificationCategory, Database } from "@/types/database";
+import type {
+  CertificationCategory,
+  ContractedDriverDocumentType,
+  Database,
+} from "@/types/database";
 
 export type ContractedDriverRow = Database["public"]["Tables"]["contracted_driver"]["Row"];
 export type ContractedDriverCertificationRow =
   Database["public"]["Tables"]["contracted_driver_certification"]["Row"];
+export type ContractedDriverDocumentRow =
+  Database["public"]["Tables"]["contracted_driver_document"]["Row"];
 
 export const CONTRACTED_DRIVER_CATEGORY_LABELS: Record<CertificationCategory, string> = {
   ticket: "Tickets and certifications",
@@ -56,14 +62,59 @@ export function contractedDriverStorageLocation(input: {
  * reads as one list instead of two that age by different rules.
  */
 export type ContractedDriverIdentityRecord = {
-  key: "license" | "abstract" | "cso";
+  key: ContractedDriverDocumentType;
   label: string;
   description: string;
   date: string | null;
   /** Whether the date is an expiry. The CSO and the abstract issue date are not. */
   tracksExpiry: boolean;
   status: CertificationStatus;
+  /**
+   * The filed scans of this document, newest first. The first is the live one and the
+   * rest are history, exactly as a renewed ticket's earlier records are.
+   */
+  documents: readonly ContractedDriverDocumentRow[];
+  /**
+   * Set when the newest filed document prints a different date from the one the driver
+   * row carries.
+   *
+   * Shown rather than resolved, because the app cannot know which is right: a carrier's
+   * sheet can be mistyped, and so can a hand-entered document date. What it must not do
+   * is display a record beside a scan that contradicts it and say nothing -- that reads
+   * as an app that has not noticed, which is worse than either version being wrong.
+   */
+  mismatch: { tracked: string; onDocument: string } | null;
 };
+
+/** Which of the document's own dates is the one to compare against the driver row. */
+function governingDocumentDate(
+  key: ContractedDriverDocumentType,
+  document: ContractedDriverDocumentRow,
+): string | null {
+  // A licence is identified by when it runs out; an abstract and a CSO by when they were
+  // produced. An abstract carries no expiry at all, so comparing one would compare null.
+  return key === "license" ? document.expiry_date : document.issued_date;
+}
+
+/**
+ * Newest first: by whichever date the document type is governed by, then by when the row
+ * was created so two documents dated the same day still order predictably.
+ */
+function sortDocumentsNewestFirst(
+  key: ContractedDriverDocumentType,
+  documents: readonly ContractedDriverDocumentRow[],
+): ContractedDriverDocumentRow[] {
+  return [...documents].sort((a, b) => {
+    const left = governingDocumentDate(key, a) ?? "";
+    const right = governingDocumentDate(key, b) ?? "";
+
+    if (left !== right) {
+      return left < right ? 1 : -1;
+    }
+
+    return a.created_at < b.created_at ? 1 : -1;
+  });
+}
 
 export function contractedDriverIdentityRecords(
   driver: Pick<
@@ -71,8 +122,12 @@ export function contractedDriverIdentityRecords(
     "license_expiry" | "license_province" | "abstract_expiry" | "abstract_issued" | "cso_completed"
   >,
   now = new Date(),
+  // Third rather than second so every existing caller and test keeps working unchanged.
+  // A caller that only needs the status -- the roster, which shows a light per driver --
+  // passes nothing and gets exactly what it got before.
+  documents: readonly ContractedDriverDocumentRow[] = [],
 ): ContractedDriverIdentityRecord[] {
-  const records: ContractedDriverIdentityRecord[] = [
+  const records: Omit<ContractedDriverIdentityRecord, "documents" | "mismatch">[] = [
     {
       key: "license",
       label: driver.license_province
@@ -123,7 +178,55 @@ export function contractedDriverIdentityRecords(
     });
   }
 
-  return records;
+  const filed = records.map((record) => {
+    const forKey = sortDocumentsNewestFirst(
+      record.key,
+      documents.filter((document) => document.doc_type === record.key),
+    );
+    const newest = forKey[0];
+    const onDocument = newest ? governingDocumentDate(record.key, newest) : null;
+
+    // The licence row compares against its expiry; the abstract and CSO rows are keyed
+    // off when they were produced, so those compare against the driver's issue dates
+    // rather than against whatever the record happens to be displaying.
+    const tracked =
+      record.key === "license"
+        ? driver.license_expiry
+        : record.key === "abstract"
+          ? driver.abstract_issued
+          : driver.cso_completed;
+
+    return {
+      ...record,
+      documents: forKey,
+      mismatch:
+        tracked && onDocument && tracked !== onDocument ? { tracked, onDocument } : null,
+    };
+  });
+
+  // A scan whose driver column is empty would otherwise be invisible: the abstract and
+  // CSO rows are only built when the driver carries that date. Surface it rather than
+  // filing a document into a row that is never drawn.
+  const shown = new Set(filed.map((record) => record.key));
+
+  for (const key of ["abstract", "cso"] as const) {
+    const orphaned = documents.filter((document) => document.doc_type === key);
+
+    if (orphaned.length > 0 && !shown.has(key)) {
+      filed.push({
+        key,
+        label: key === "abstract" ? "Commercial driver abstract" : "Common Safety Orientation",
+        description: "Filed, but no date is recorded against the driver. Add it below.",
+        date: null,
+        tracksExpiry: false,
+        status: { label: "On file", tone: "neutral" },
+        documents: sortDocumentsNewestFirst(key, orphaned),
+        mismatch: null,
+      });
+    }
+  }
+
+  return filed;
 }
 
 export type ContractedDriverCertificationStatus = {

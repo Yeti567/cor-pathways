@@ -215,7 +215,7 @@ const TENANT_TABLES = [
   "certifications", "change_order", "change_order_approval", "change_order_attachment",
   "change_order_line", "change_order_markup", "co_project", "company_settings",
   "consultant_access", "consultant_audit_log", "contracted_driver",
-  "contracted_driver_certification", "contracted_equipment",
+  "contracted_driver_certification", "contracted_driver_document", "contracted_equipment",
   "contracted_equipment_certification_requirement", "contracted_equipment_document",
   "document_control_register", "dti_inspection", "dti_inspection_item", "eld_connection",
   "eld_device", "eld_driver_event", "eld_driver_link", "eld_driver_performance",
