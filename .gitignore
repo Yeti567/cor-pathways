@@ -66,3 +66,6 @@ supabase/.temp
 
 # Local dev server output (see the local Supabase runbook)
 dev-local.log
+
+# gstack local session state (holds a terminal token - never commit)
+.gstack/
