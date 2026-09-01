@@ -14,9 +14,14 @@ import {
   type CertificationStatus,
   type CertificationStatusTone,
 } from "@/lib/workers";
+import {
+  CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS,
+  CONTRACTED_DRIVER_GENERAL_DOCUMENT_TYPES,
+} from "@/types/database";
 import type {
   CertificationCategory,
-  ContractedDriverDocumentType,
+  ContractedDriverGeneralDocumentType,
+  ContractedDriverIdentityDocumentType,
   ContractedDriverObservationOutcome,
   ContractedDriverObservationType,
   ContractedDriverSiteAccess,
@@ -71,7 +76,7 @@ export function contractedDriverStorageLocation(input: {
  * reads as one list instead of two that age by different rules.
  */
 export type ContractedDriverIdentityRecord = {
-  key: ContractedDriverDocumentType;
+  key: ContractedDriverIdentityDocumentType;
   label: string;
   description: string;
   date: string | null;
@@ -97,7 +102,7 @@ export type ContractedDriverIdentityRecord = {
 
 /** Which of the document's own dates is the one to compare against the driver row. */
 function governingDocumentDate(
-  key: ContractedDriverDocumentType,
+  key: ContractedDriverIdentityDocumentType,
   document: ContractedDriverDocumentRow,
 ): string | null {
   // A licence is identified by when it runs out; an abstract and a CSO by when they were
@@ -110,7 +115,7 @@ function governingDocumentDate(
  * was created so two documents dated the same day still order predictably.
  */
 function sortDocumentsNewestFirst(
-  key: ContractedDriverDocumentType,
+  key: ContractedDriverIdentityDocumentType,
   documents: readonly ContractedDriverDocumentRow[],
 ): ContractedDriverDocumentRow[] {
   return [...documents].sort((a, b) => {
@@ -236,6 +241,62 @@ export function contractedDriverIdentityRecords(
   }
 
   return filed;
+}
+
+/**
+ * One group of a driver's general documents: the ones that pair with no date column.
+ *
+ * Kept apart from the identity records on purpose. contractedDriverIdentityRecords builds
+ * a row per tracked date and hangs the scans off it, and everything downstream reads those
+ * rows for a status. A hiring form or a fob photo has no date to track and proves nothing,
+ * so putting it through the same shape would lend it a status vocabulary it has no right
+ * to: an "On file" tick beside a licence expiry reads as compliance.
+ */
+export type ContractedDriverGeneralDocumentGroup = {
+  key: ContractedDriverGeneralDocumentType;
+  label: string;
+  description: string;
+  /** Newest first by whatever date the document carries, then by when it was filed. */
+  documents: readonly ContractedDriverDocumentRow[];
+};
+
+/**
+ * The driver's documents that are not one of the three identity types, grouped by kind.
+ *
+ * Only groups that hold something are returned: an empty shelf is not worth a heading.
+ */
+export function contractedDriverGeneralDocuments(
+  documents: readonly ContractedDriverDocumentRow[] = [],
+): ContractedDriverGeneralDocumentGroup[] {
+  return CONTRACTED_DRIVER_GENERAL_DOCUMENT_TYPES.flatMap((key) => {
+    const forKey = documents.filter((document) => document.doc_type === key);
+
+    if (forKey.length === 0) {
+      return [];
+    }
+
+    const sorted = [...forKey].sort((a, b) => {
+      // No governing date here, so whichever date the document carries orders it, and the
+      // day it was filed breaks the tie.
+      const left = a.expiry_date ?? a.issued_date ?? "";
+      const right = b.expiry_date ?? b.issued_date ?? "";
+
+      if (left !== right) {
+        return left < right ? 1 : -1;
+      }
+
+      return a.created_at < b.created_at ? 1 : -1;
+    });
+
+    return [
+      {
+        key,
+        label: CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS[key].label,
+        description: CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS[key].description,
+        documents: sorted,
+      },
+    ];
+  });
 }
 
 export type ContractedDriverCertificationStatus = {

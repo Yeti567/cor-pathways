@@ -17,6 +17,10 @@ import {
 import { canManageMedicalVault } from "@/lib/access-control";
 import { parseUploadedContractedAttachmentPaths } from "@/lib/contracted-equipment";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS,
+  CONTRACTED_DRIVER_GENERAL_DOCUMENT_TYPES,
+} from "@/types/database";
 import type { Database } from "@/types/database";
 
 type DriverRow = Database["public"]["Tables"]["contracted_driver"]["Row"];
@@ -24,13 +28,25 @@ type DriverRow = Database["public"]["Tables"]["contracted_driver"]["Row"];
 const DRIVER_TYPES = ["contracted", "casual"] as const;
 const STATUSES = ["active", "inactive", "terminated"] as const;
 
-/** The three identity documents that are columns on the driver rather than tickets. */
-const DRIVER_DOCUMENT_TYPES = ["license", "abstract", "cso"] as const;
+/**
+ * Everything that can be filed against a driver: the three identity documents that are
+ * columns on the driver, and the general paperwork that is a column on nothing.
+ */
+const DRIVER_DOCUMENT_TYPES = [
+  "license",
+  "abstract",
+  "cso",
+  ...CONTRACTED_DRIVER_GENERAL_DOCUMENT_TYPES,
+] as const;
 
 const DRIVER_DOCUMENT_LABELS: Record<(typeof DRIVER_DOCUMENT_TYPES)[number], string> = {
   license: "Driver's licence",
   abstract: "Commercial driver abstract",
   cso: "Common Safety Orientation",
+  other: CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS.other.label,
+  personnel_file: CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS.personnel_file.label,
+  site_access: CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS.site_access.label,
+  training_record: CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS.training_record.label,
 };
 
 function driverPath(driverId: string) {

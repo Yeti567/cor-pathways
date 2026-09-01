@@ -18,6 +18,7 @@ import {
 import { canManageMedicalVault, canUseAdminPanel } from "@/lib/access-control";
 import {
   contractedDriverCertificationStatuses,
+  contractedDriverGeneralDocuments,
   contractedDriverIdentityRecords,
   contractedDriverMissingTickets,
   contractedDriverObservations,
@@ -39,6 +40,10 @@ import { CONTRACTED_DOCUMENTS_BUCKET } from "@/lib/contracted-equipment";
 import { requireAppUser } from "@/lib/current-user";
 import { certificationStatusClass } from "@/lib/workers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS,
+  CONTRACTED_DRIVER_GENERAL_DOCUMENT_TYPES,
+} from "@/types/database";
 import type {
   CertificationCategory,
   ContractedDriverObservationType,
@@ -179,6 +184,7 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
   });
   const grouped = groupContractedDriverCertifications(statuses);
   const identity = contractedDriverIdentityRecords(driver, new Date(), identityDocuments ?? []);
+  const generalDocuments = contractedDriverGeneralDocuments(identityDocuments ?? []);
   const observationRecords = contractedDriverObservations(observations ?? []);
   const groupedObservations = groupContractedDriverObservations(observationRecords);
   const standings = contractedDriverSiteStandings(observationRecords);
@@ -390,6 +396,85 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
         <p className="mt-2 text-xs text-[var(--ink-muted)]">
           The dates are edited under Driver details below. The documents here are the proof behind them.
         </p>
+      </section>
+
+      {/* --- Other documents --------------------------------------------------
+        Paperwork that belongs to the driver and proves nothing: the carrier's hiring
+        form, a photo of a gate fob, a client's competency card for a course this tenant
+        does not track. It carries no status badge on purpose. A tick here would read as
+        compliance, and none of it is.
+      */}
+      <section className={`mt-5 ${cardClass}`}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">Other documents</h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Paperwork kept on the driver&rsquo;s file. Nothing here is tracked or expires, and none of it counts
+          towards the driver&rsquo;s status.
+        </p>
+
+        {generalDocuments.length > 0 ? (
+          <ul className="mt-3 divide-y divide-[var(--border)]">
+            {generalDocuments.map((group) => (
+              <li className="py-3" key={group.key}>
+                <p className="text-sm font-semibold text-[var(--ink)]">{group.label}</p>
+                <p className="text-xs text-[var(--ink-muted)]">{group.description}</p>
+                <ul className="mt-2 space-y-1">
+                  {group.documents.map((document) => {
+                    const url = documentUrls.get(document.id);
+
+                    return (
+                      <li className="flex flex-wrap items-center gap-2 text-xs" key={document.id}>
+                        {url ? (
+                          <a
+                            className="font-semibold text-[var(--primary)] hover:underline"
+                            href={url}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {document.title}
+                          </a>
+                        ) : (
+                          <span className="font-semibold text-[var(--ink)]">{document.title}</span>
+                        )}
+                        <span className="text-[var(--ink-muted)]">
+                          {document.issued_date ? `dated ${document.issued_date}` : "no date on the document"}
+                        </span>
+                        <form action={deleteContractedDriverDocument} className="inline-block">
+                          <input name="documentId" type="hidden" value={document.id} />
+                          <input name="driverId" type="hidden" value={driver.id} />
+                          <button
+                            className="font-semibold text-[var(--ink-muted)] underline transition hover:text-[var(--danger)]"
+                            type="submit"
+                          >
+                            Remove
+                          </button>
+                        </form>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-xs text-[var(--ink-muted)]">Nothing filed yet.</p>
+        )}
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {CONTRACTED_DRIVER_GENERAL_DOCUMENT_TYPES.map((docType) => (
+            <ContractedDriverDocumentForm
+              docType={docType}
+              driverId={driver.id}
+              hasProof={false}
+              inputClass={inputClass}
+              key={docType}
+              label={CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS[docType].label}
+              subcontractorId={driver.subcontractor_id}
+              submitClass={submitClass}
+              tenantId={tenantId}
+              trackedDate={null}
+            />
+          ))}
+        </div>
       </section>
 
       {/* --- Tickets, orientations, badges ------------------------------------ */}

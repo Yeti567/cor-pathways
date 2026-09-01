@@ -542,14 +542,68 @@ type ContractedDriverCertificationRow = TenantScopedRow & {
  * The three identity documents that are columns on contracted_driver rather than rows in
  * contracted_driver_certification.
  */
-export type ContractedDriverDocumentType = "license" | "abstract" | "cso";
+export type ContractedDriverIdentityDocumentType = "license" | "abstract" | "cso";
 
 /**
- * The scan behind a contracted driver's licence, abstract or CSO.
+ * Paperwork in a driver's file that pairs with no date column and drives nothing.
  *
- * Evidence, not the fact. The authoritative dates stay on contracted_driver and every
- * status calculation keeps reading them; the dates here are what the document itself
- * prints, carried so the two can be compared. Several rows of one doc_type are history.
+ * A carrier pack carries more than the three identity documents: the carrier's own hiring
+ * form, a photo of a gate fob, a client's competency card for a course this tenant does
+ * not track. These are filed and listed, and that is all -- see the note on
+ * ContractedDriverDocumentRow.
+ */
+export type ContractedDriverGeneralDocumentType =
+  | "personnel_file"
+  | "site_access"
+  | "training_record"
+  | "other";
+
+export type ContractedDriverDocumentType =
+  | ContractedDriverIdentityDocumentType
+  | ContractedDriverGeneralDocumentType;
+
+export const CONTRACTED_DRIVER_GENERAL_DOCUMENT_TYPES = [
+  "personnel_file",
+  "site_access",
+  "training_record",
+  "other",
+] as const;
+
+/** How each general document type is named wherever it is shown. */
+export const CONTRACTED_DRIVER_GENERAL_DOCUMENT_LABELS: Record<
+  ContractedDriverGeneralDocumentType,
+  { label: string; description: string }
+> = {
+  other: {
+    label: "Other document",
+    description: "Anything else in the driver's file worth keeping.",
+  },
+  personnel_file: {
+    label: "Personnel file",
+    description:
+      "The carrier's own hiring paperwork. Often carries a SIN or a date of birth, so file it only when it is asked for.",
+  },
+  site_access: {
+    label: "Site access",
+    description: "A gate fob, badge or access card. The PIN or fob number belongs on the certification record.",
+  },
+  training_record: {
+    label: "Training record",
+    description: "A course certificate with no matching certification type. Filed as paper; no date is tracked from it.",
+  },
+};
+
+/**
+ * The scan behind a contracted driver's paperwork.
+ *
+ * Evidence, not the fact. For the three identity types the authoritative dates stay on
+ * contracted_driver and every status calculation keeps reading them; the dates here are
+ * what the document itself prints, carried so the two can be compared. Several rows of
+ * one doc_type are history.
+ *
+ * The general types are authoritative over nothing at all. Nothing may compute a status,
+ * a tone or a reminder from them: a hiring form is not evidence that anybody is
+ * qualified, and a row here must never be able to turn a light green.
  */
 type ContractedDriverDocumentRow = TenantScopedRow & {
   contracted_driver_id: string;

@@ -59,7 +59,18 @@ function loadEnv(): void {
 
 const BUCKET = "subcontractor-documents";
 
-const DOC_TYPES = ["license", "abstract", "cso"] as const;
+// The three identity documents, plus the paperwork that pairs with no date column at
+// all -- a carrier hiring form, a gate fob photo, a course certificate this tenant has no
+// certification type for. Those four file and list; nothing computes a status from them.
+const DOC_TYPES = [
+  "license",
+  "abstract",
+  "cso",
+  "personnel_file",
+  "site_access",
+  "training_record",
+  "other",
+] as const;
 type DocType = (typeof DOC_TYPES)[number];
 
 // Matches CONTRACTED_ATTACHMENT_MIME_TYPES and the bucket's own allow-list. A type the

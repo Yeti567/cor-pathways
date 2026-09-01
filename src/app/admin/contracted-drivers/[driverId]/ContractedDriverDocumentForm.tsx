@@ -45,6 +45,10 @@ export function ContractedDriverDocumentForm({
   // invent a date to fill it.
   const tracksExpiry = docType === "license";
 
+  // The three identity documents sit beside a date on the driver row. The general ones sit
+  // beside nothing, so the copy about disagreeing with a tracked date would be nonsense.
+  const tracksDriverDate = docType === "license" || docType === "abstract" || docType === "cso";
+
   if (!open) {
     return (
       <button
@@ -68,8 +72,9 @@ export function ContractedDriverDocumentForm({
       <input name="docType" type="hidden" value={docType} />
 
       <p className="text-xs text-[var(--ink-muted)]">
-        Enter the dates as they are printed on the document. They are kept beside the tracked date rather than
-        replacing it, so a disagreement shows up instead of being overwritten.
+        {tracksDriverDate
+          ? "Enter the dates as they are printed on the document. They are kept beside the tracked date rather than replacing it, so a disagreement shows up instead of being overwritten."
+          : "Nothing is tracked from this document and it does not expire. The date is only so the file reads in order."}
       </p>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
