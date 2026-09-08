@@ -47,7 +47,7 @@ import {
   Zap,
 } from "lucide-react";
 import { demoLogin } from "@/app/login/actions";
-import { isDemoLoginEnabled } from "@/lib/demo";
+import { getDemoSiteUrl, isDemoLoginEnabled } from "@/lib/demo";
 
 const PHONE_DISPLAY = "780-832-5158";
 const PHONE_HREF = "tel:+17808325158";
@@ -320,6 +320,7 @@ function Check() {
 
 export default function LandingPage() {
   const demoEnabled = isDemoLoginEnabled();
+  const demoSiteUrl = getDemoSiteUrl();
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--ink)]">
       <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
@@ -413,6 +414,16 @@ export default function LandingPage() {
                   Try the live demo
                 </button>
               </form>
+            ) : demoSiteUrl ? (
+              <a
+                className="inline-flex h-11 items-center gap-2 rounded-md border border-[var(--primary)] bg-white px-5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"
+                href={demoSiteUrl}
+                rel="noopener"
+                target="_blank"
+              >
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                Try the live demo
+              </a>
             ) : null}
             <Link
               className="inline-flex h-11 items-center gap-2 rounded-md border border-[var(--border)] bg-white px-5 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"

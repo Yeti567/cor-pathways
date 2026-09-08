@@ -30,6 +30,16 @@ export function isDemoLoginEnabled(): boolean {
   return getDemoLoginCredentials() !== null;
 }
 
+// The marketing site does not host the demo itself; it points at a separate
+// throwaway deployment that does. Set NEXT_PUBLIC_DEMO_SITE_URL on a deployment
+// and its landing page offers a link there. Leave it unset (every client fork)
+// and nothing renders. A deployment with DEMO_LOGIN_* set is the demo, so the
+// one-click sign-in wins over the link.
+export function getDemoSiteUrl(): string | null {
+  const url = process.env.NEXT_PUBLIC_DEMO_SITE_URL?.trim();
+  return url ? url : null;
+}
+
 // A demo tenant is a shared, public "try it" tenant. Uploads into it are blocked
 // at storage (see the 20260724040000 / 20260724050000 migrations); this is the
 // matching gate for outbound email, so a demo visitor cannot send invites or
