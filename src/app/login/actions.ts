@@ -90,7 +90,11 @@ export async function demoLogin() {
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  // Straight into the admin panel rather than the surface picker on "/". Somebody
+  // trying the demo wants to see the app with data already in it, and asking them
+  // to choose between Desktop and Web first is a click that explains nothing. The
+  // picker is still one tap away under the account menu.
+  redirect("/admin");
 }
 
 export async function loginWithSso(formData: FormData) {

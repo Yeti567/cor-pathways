@@ -568,6 +568,7 @@ export type Database = {
           inventory_enabled: boolean;
           subcontractors_enabled: boolean;
           demo_mode: boolean;
+          demo_uploads_enabled: boolean;
           default_labor_rate: number;
           country: "CA" | "US";
           emr_rate: number | null;
