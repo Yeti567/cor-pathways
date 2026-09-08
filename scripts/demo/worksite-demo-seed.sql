@@ -352,9 +352,25 @@ revoke execute on function "public"."reset_worksite_demo"() from "public", "anon
 select public.reset_worksite_demo();
 
 -- ---------------------------------------------------------------------------
--- Nightly schedule (one-time setup; safe to re-run).
+-- Reset schedule (one-time setup; safe to re-run).
 --   create extension if not exists pg_cron;
---   select cron.schedule('worksite-demo-nightly-reset', '0 9 * * *',
+--   select cron.schedule('worksite-demo-reset', '0 9 */6 * *',
 --     $$select public.reset_worksite_demo();$$);
+--
 -- 09:00 UTC is the small hours in Alberta, so a reset never interrupts a live demo.
+--
+-- Every SIX days, not seven, and the six is doing two jobs. It is long enough that
+-- whatever a visitor adds is still there a few days later when they come back to
+-- look, and it is short enough to stay inside the seven-day window after which a
+-- Supabase project on the free plan pauses itself. A weekly reset sits exactly on
+-- that boundary; six days leaves a day of margin.
+--
+-- `*/6` in the day-of-month field fires on the 1st, 7th, 13th, 19th, 25th and 31st,
+-- so the longest gap between runs is six days and the count restarts each month.
+-- Cron has no way to say "every six days" outright.
+--
+-- Worth knowing: whether an internal pg_cron run counts as activity for Supabase's
+-- idle-pause check is NOT documented, and the pause heuristic has historically
+-- keyed on external requests. If the project ever pauses despite this, the reliable
+-- fix is an external request on a schedule, not a shorter cron interval here.
 -- ---------------------------------------------------------------------------
