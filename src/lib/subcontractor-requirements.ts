@@ -19,6 +19,22 @@
 // slice and falls back to the defaults here.
 
 import { getEquipmentDocumentStatus } from "@/lib/equipment";
+import {
+  normaliseWcbJurisdictions,
+  WCB_JURISDICTIONS,
+  wcbClearanceSlotKey,
+  wcbJurisdictionFromSlotKey,
+  type WcbJurisdiction,
+} from "@/lib/wcb-jurisdictions";
+
+/**
+ * The jurisdiction-less clearance slot that predates per-province tracking.
+ *
+ * Kept, not deleted. Thirty-one carriers already have a clearance date filed under this
+ * key and nothing in the row records which board issued it. Dropping the slot would
+ * orphan those dates; renaming the key would lose them outright.
+ */
+export const LEGACY_WCB_CLEARANCE_SLOT = "wcb_clearance";
 
 /**
  * How a slot's due date is arrived at.
@@ -140,16 +156,41 @@ export const SUBCONTRACTOR_SLOTS: SubcontractorSlot[] = [
     captures: ["nsc_number"],
   },
   {
-    key: "wcb_clearance",
-    label: "WCB clearance certificate",
+    key: LEGACY_WCB_CLEARANCE_SLOT,
+    label: "WCB clearance certificate (province not recorded)",
     group: "wcb",
     description:
-      "Confirms their account is in good standing. Without it the hiring employer can be held liable for their premiums.",
+      "A clearance letter filed before the app tracked which board issued it. It still proves an account was in good standing somewhere, but not where. Say which jurisdictions this carrier operates in and file the letter against the province it names; this slot then stops being chased.",
     dueMode: "expiry",
+    // Required only while the carrier has no jurisdiction list. See
+    // resolveSubcontractorSlots: the moment somebody says which boards this carrier holds
+    // coverage with, the per-jurisdiction slots take over and this one retires itself
+    // rather than sitting beside them asking for a seventh copy.
     required: true,
     reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
     captures: ["wcb_account"],
   },
+  // One clearance slot per jurisdiction, generated rather than typed out six times so
+  // the list and its labels have exactly one home.
+  //
+  // These have to be SEPARATE SLOT KEYS, not one slot holding six rows.
+  // summariseSubcontractorCompliance groups documents by slot key and keeps the
+  // longest-running one, so a single shared key would let a current Alberta letter
+  // satisfy the requirement while British Columbia was missing and nothing would say so.
+  // Separate keys are what let each jurisdiction go red on its own.
+  ...WCB_JURISDICTIONS.map<SubcontractorSlot>((jurisdiction) => ({
+    key: wcbClearanceSlotKey(jurisdiction.code),
+    label: `WCB clearance - ${jurisdiction.label}`,
+    group: "wcb",
+    description: `Confirms their ${jurisdiction.board} account is in good standing. Without it the hiring employer can be held liable for their premiums on work done in ${jurisdiction.label}.`,
+    dueMode: "expiry",
+    // Off for everyone by default, switched on per carrier by wcb_jurisdictions. Most
+    // hired carriers run Alberta only, and requiring all six of everybody would put
+    // nearly every carrier into red for coverage they neither need nor can produce.
+    required: false,
+    reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
+    captures: ["wcb_account"],
+  })),
   {
     key: "wcb_rate_statement",
     label: "WCB rate statement",
@@ -430,6 +471,16 @@ export type ResolvedSubcontractorSlot = SubcontractorSlot & {
 };
 
 /**
+ * The bits of a carrier that change which slots apply to it.
+ *
+ * Deliberately not the whole subcontractor row: this module is pure and testable, and a
+ * row type would drag the database shape into it for one array.
+ */
+export type SubcontractorSlotCarrierContext = {
+  wcbJurisdictions: readonly string[] | null | undefined;
+};
+
+/**
  * Fold the tenant's overrides into the slot list.
  *
  * Everything downstream, the checklist, the rollup, the reminder job, works from the
@@ -439,18 +490,43 @@ export type ResolvedSubcontractorSlot = SubcontractorSlot & {
  */
 export function resolveSubcontractorSlots(
   settings: SubcontractorRequirementSetting[] = [],
+  carrier: SubcontractorSlotCarrierContext | null = null,
 ): ResolvedSubcontractorSlot[] {
   const bySlot = new Map(settings.map((setting) => [setting.slotKey, setting]));
+  const jurisdictions = normaliseWcbJurisdictions(carrier?.wcbJurisdictions);
+  const hasJurisdictions = jurisdictions.length > 0;
+  const wanted = new Set<WcbJurisdiction>(jurisdictions);
 
   return SUBCONTRACTOR_SLOTS.filter((slot) => bySlot.get(slot.key)?.enabled !== false).map((slot) => {
     const setting = bySlot.get(slot.key);
+    const jurisdiction = wcbJurisdictionFromSlotKey(slot.key);
+
+    // Whether a jurisdiction slot applies is a fact about THIS carrier, so the
+    // per-carrier list wins over both the shipped default and the tenant override. A
+    // company-wide "require WCB clearance" cannot sensibly mean "require Yukon coverage
+    // from a carrier that never leaves Alberta", and letting it say so would create a
+    // slot the carrier can never satisfy.
+    //
+    // Without a carrier in hand -- the tenant requirements editor, the reminder job's
+    // slot list -- no jurisdiction can be required, because nothing here knows which
+    // ones apply. Every caller that rolls up a specific carrier passes its context.
+    let required = setting?.required ?? slot.required;
+
+    if (jurisdiction) {
+      required = wanted.has(jurisdiction);
+    } else if (slot.key === LEGACY_WCB_CLEARANCE_SLOT && hasJurisdictions) {
+      // Superseded for this carrier. The per-jurisdiction slots now carry the
+      // requirement, and leaving this one required as well would ask for a seventh
+      // letter that does not exist. Existing rows still render; they just stop counting.
+      required = false;
+    }
 
     return {
       ...slot,
       intervalMonths: setting?.intervalMonths ?? slot.intervalMonths,
       minimumCoverageAmount: slotCaptures(slot, "coverage_amount") ? (setting?.minimumCoverageAmount ?? null) : null,
       reminderLeadDays: setting?.reminderLeadDays ?? slot.reminderLeadDays,
-      required: setting?.required ?? slot.required,
+      required,
     };
   });
 }

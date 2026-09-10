@@ -5,6 +5,7 @@ import { requireSubcontractorUser } from "@/lib/current-user";
 import {
   getSubcontractorDocumentStatus,
   resolveSubcontractorSlots,
+  LEGACY_WCB_CLEARANCE_SLOT,
   slotCaptures,
   summariseSubcontractorCompliance,
   SUBCONTRACTOR_SLOT_GROUPS,
@@ -12,6 +13,7 @@ import {
   type SubcontractorRequirementSetting,
 } from "@/lib/subcontractor-requirements";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { wcbJurisdictionFromSlotKey } from "@/lib/wcb-jurisdictions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -261,7 +263,13 @@ export default async function SubcontractorPortalPage({ searchParams }: PageProp
               required: row.required,
               slotKey: row.slot_key,
             }));
-          const slots = resolveSubcontractorSlots(carrierSettings);
+          // Resolved against THIS carrier: the WCB jurisdictions they are expected to
+          // cover decide which clearance slots their own checklist asks for. Without the
+          // context the portal would show a different list from the one the hiring
+          // company sees, which is the one thing this page must never do.
+          const slots = resolveSubcontractorSlots(carrierSettings, {
+            wcbJurisdictions: carrier.wcb_jurisdictions,
+          });
           const carrierDocuments = documentRows.filter((row) => row.subcontractor_id === carrier.id);
           const summary = summariseSubcontractorCompliance(
             carrierDocuments.map((document) => ({
@@ -326,7 +334,29 @@ export default async function SubcontractorPortalPage({ searchParams }: PageProp
               </section>
 
               {SUBCONTRACTOR_SLOT_GROUPS.map((group) => {
-                const groupSlots = slots.filter((slot) => slot.group === group.key);
+                const groupSlots = slots.filter((slot) => {
+                  if (slot.group !== group.key) {
+                    return false;
+                  }
+
+                  // A WCB clearance slot for a province this carrier does not run in is
+                  // not something to ask them for. Six jurisdictions rendered blindly
+                  // would put six upload panels in front of an Alberta-only carrier and
+                  // five of them would be work they can never do. Shown when it counts,
+                  // or when they have already sent one.
+                  if (wcbJurisdictionFromSlotKey(slot.key) !== null) {
+                    return slot.required || liveBySlot.has(slot.key) || pendingBySlot.has(slot.key);
+                  }
+
+                  // Same for the jurisdiction-less legacy slot: once their jurisdictions
+                  // are set it stops being required, and an empty "province not
+                  // recorded" panel is only confusing.
+                  if (slot.key === LEGACY_WCB_CLEARANCE_SLOT) {
+                    return slot.required || liveBySlot.has(slot.key) || pendingBySlot.has(slot.key);
+                  }
+
+                  return true;
+                });
 
                 if (groupSlots.length === 0) {
                   return null;

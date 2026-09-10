@@ -8,6 +8,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import {
   getSubcontractorDocumentStatus,
+  resolveSubcontractorSlots,
   summariseSubcontractorCompliance,
   SUBCONTRACTOR_STATE_LABELS,
   subcontractorStateTone,
@@ -98,7 +99,7 @@ export default async function SubcontractorsPage({ searchParams }: PageProps) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const [{ data: subcontractors }, { data: documents }, { slots }] = await Promise.all([
+  const [{ data: subcontractors }, { data: documents }, { settings, slots }] = await Promise.all([
     supabase
       .from("subcontractor")
       .select("*")
@@ -131,6 +132,10 @@ export default async function SubcontractorsPage({ searchParams }: PageProps) {
     }
   }
 
+  // Resolved per carrier, not once for the list. Which WCB jurisdictions are required is
+  // a fact about the individual carrier, so a single shared slot list would either
+  // require every province of everybody or none of anybody, and the counts in this table
+  // would disagree with the carrier's own page.
   const summaries = subcontractorRows.map((subcontractor) => ({
     subcontractor,
     summary: summariseSubcontractorCompliance(
@@ -140,7 +145,7 @@ export default async function SubcontractorsPage({ searchParams }: PageProps) {
         reviewStatus: document.review_status,
         slotKey: document.slot_key,
       })),
-      slots,
+      resolveSubcontractorSlots(settings, { wcbJurisdictions: subcontractor.wcb_jurisdictions }),
     ),
   }));
 

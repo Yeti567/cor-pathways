@@ -2,6 +2,7 @@ import {
   resolveSubcontractorSlots,
   type ResolvedSubcontractorSlot,
   type SubcontractorRequirementSetting,
+  type SubcontractorSlotCarrierContext,
 } from "@/lib/subcontractor-requirements";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -22,6 +23,16 @@ type SettingRow = Database["public"]["Tables"]["subcontractor_requirement_settin
 export async function loadResolvedSubcontractorSlots(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   tenantId: string,
+  /**
+   * The carrier the slots are being resolved FOR, when there is one.
+   *
+   * Which WCB jurisdictions apply is a per-carrier fact, so a screen showing one
+   * carrier has to say who it means. Callers with no single carrier in view (the
+   * tenant requirements editor, the upload action's validity check) leave it out and
+   * get the jurisdiction slots as available-but-not-required, which is the only honest
+   * answer when nothing knows which provinces are in play.
+   */
+  carrier: SubcontractorSlotCarrierContext | null = null,
 ): Promise<{ settings: SubcontractorRequirementSetting[]; slots: ResolvedSubcontractorSlot[] }> {
   const { data } = await supabase
     .from("subcontractor_requirement_setting")
@@ -38,5 +49,5 @@ export async function loadResolvedSubcontractorSlots(
     slotKey: row.slot_key,
   }));
 
-  return { settings, slots: resolveSubcontractorSlots(settings) };
+  return { settings, slots: resolveSubcontractorSlots(settings, carrier) };
 }

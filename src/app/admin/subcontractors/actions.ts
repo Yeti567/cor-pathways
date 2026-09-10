@@ -14,8 +14,10 @@ import {
   SUBCONTRACTOR_MONITORING_STATUSES,
   SUBCONTRACTOR_SAFETY_RATINGS,
   SUBCONTRACTOR_SLOTS,
+  LEGACY_WCB_CLEARANCE_SLOT,
   type SubcontractorSlot,
 } from "@/lib/subcontractor-requirements";
+import { normaliseWcbJurisdictions } from "@/lib/wcb-jurisdictions";
 import { inviteSubcontractorContact } from "@/lib/subcontractor-invite";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -166,7 +168,20 @@ function subcontractorFieldsFromForm(formData: FormData) {
     broker_email: optionalString(formData, "brokerEmail"),
     broker_phone: optionalString(formData, "brokerPhone"),
     notes: optionalString(formData, "notes"),
+    wcb_jurisdictions: wcbJurisdictionsFromForm(formData),
   };
+}
+
+/**
+ * The WCB jurisdictions ticked on the carrier form.
+ *
+ * Normalised rather than trusted: the checkboxes post whatever the browser sends, and an
+ * unrecognised code would create a required slot with no upload form behind it -- the
+ * carrier would sit non-compliant with nothing to click. Canonical order also keeps the
+ * stored array stable, so an audit diff shows a real change rather than a reshuffle.
+ */
+function wcbJurisdictionsFromForm(formData: FormData): string[] {
+  return normaliseWcbJurisdictions(formData.getAll("wcbJurisdictions").map((value) => String(value)));
 }
 
 export async function createSubcontractor(formData: FormData) {
@@ -527,7 +542,16 @@ function parentPatchFromCaptures(slot: SubcontractorSlot, fields: Record<string,
     patch.monitoring_status = fields.monitoring_status;
   }
 
-  if (slotCaptures(slot, "wcb_account") && fields.wcb_account) {
+  // Only the jurisdiction-less legacy slot copies its account number up to the carrier.
+  // Each board issues its OWN account number, so with six jurisdictions filing into
+  // subcontractor.wcb_account_number the parent would end up holding whichever province
+  // happened to be filed last, presented as though it were the carrier's one account.
+  // The per-jurisdiction number lives on its own document row, where it is unambiguous.
+  if (
+    slot.key === LEGACY_WCB_CLEARANCE_SLOT &&
+    slotCaptures(slot, "wcb_account") &&
+    fields.wcb_account
+  ) {
     patch.wcb_account_number = fields.wcb_account;
   }
 

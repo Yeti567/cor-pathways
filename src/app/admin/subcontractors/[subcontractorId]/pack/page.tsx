@@ -8,6 +8,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import {
   getSubcontractorDocumentStatus,
+  resolveSubcontractorSlots,
   summariseSubcontractorCompliance,
   SUBCONTRACTOR_SLOT_GROUPS,
   SUBCONTRACTOR_STATE_LABELS,
@@ -69,7 +70,7 @@ export default async function SubcontractorPackPage({ params }: PackPageProps) {
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
 
-  const [{ data: subcontractor }, { data: documents }, { slots }, { data: companySettings }, { data: printSettings }] =
+  const [{ data: subcontractor }, { data: documents }, { settings }, { data: companySettings }, { data: printSettings }] =
     await Promise.all([
       supabase
         .from("subcontractor")
@@ -94,6 +95,11 @@ export default async function SubcontractorPackPage({ params }: PackPageProps) {
   if (!subcontractor) {
     notFound();
   }
+
+  // Re-resolved now the carrier is known: which WCB jurisdictions this one has to cover
+  // decides which clearance slots the pack lists and counts. Resolving without it would
+  // print a checklist that disagrees with the carrier's own page.
+  const slots = resolveSubcontractorSlots(settings, { wcbJurisdictions: subcontractor.wcb_jurisdictions });
 
   const documentRows = documents ?? [];
   const summary = summariseSubcontractorCompliance(

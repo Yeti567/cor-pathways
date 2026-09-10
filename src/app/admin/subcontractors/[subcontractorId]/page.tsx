@@ -11,6 +11,7 @@ import {
 } from "@/app/admin/subcontractors/actions";
 import { loadResolvedSubcontractorSlots } from "@/app/admin/subcontractors/_lib/settings";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
+import { WcbClearancePanel } from "@/app/admin/subcontractors/_components/WcbClearancePanel";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import {
@@ -23,8 +24,10 @@ import {
   SUBCONTRACTOR_SLOT_GROUPS,
   SUBCONTRACTOR_STATE_LABELS,
   subcontractorStateTone,
+  LEGACY_WCB_CLEARANCE_SLOT,
   type ResolvedSubcontractorSlot,
 } from "@/lib/subcontractor-requirements";
+import { normaliseWcbJurisdictions, WCB_JURISDICTIONS, wcbJurisdictionFromSlotKey } from "@/lib/wcb-jurisdictions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -228,7 +231,7 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
   }
 
   const supabase = await createSupabaseServerClient();
-  const [{ data: subcontractor }, { data: documents }, { slots }, { data: portalAccess }] = await Promise.all([
+  const [{ data: subcontractor }, { data: documents }, { data: portalAccess }] = await Promise.all([
     supabase
       .from("subcontractor")
       .select("*")
@@ -244,7 +247,6 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .returns<DocumentRow[]>(),
-    loadResolvedSubcontractorSlots(supabase, context.appUser.tenant_id),
     supabase
       .from("subcontractor_user_access")
       .select("id, allowed, invited_at, subcontractor_user_id, subcontractor_user(email, full_name, active, last_seen_at)")
@@ -257,6 +259,14 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
   if (!subcontractor) {
     notFound();
   }
+
+  // Resolved after the carrier loads, not alongside it: which WCB jurisdictions are
+  // required is a fact about this carrier, so the slot list cannot be built until we
+  // know who we are looking at.
+  const { slots } = await loadResolvedSubcontractorSlots(supabase, context.appUser.tenant_id, {
+    wcbJurisdictions: subcontractor.wcb_jurisdictions,
+  });
+  const carrierJurisdictions = normaliseWcbJurisdictions(subcontractor.wcb_jurisdictions);
 
   const documentRows = documents ?? [];
   const summary = summariseSubcontractorCompliance(
@@ -499,9 +509,27 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_380px]">
         <div className="min-w-0 space-y-5">
           {SUBCONTRACTOR_SLOT_GROUPS.map((group) => {
-            const groupSlots = slots.filter((slot) => slot.group === group.key);
+            // The six jurisdiction slots come out of the normal per-slot loop and render
+            // as one panel with a dropdown instead. See WcbClearancePanel for why.
+            const jurisdictionSlots =
+              group.key === "wcb" ? slots.filter((slot) => wcbJurisdictionFromSlotKey(slot.key) !== null) : [];
 
-            if (groupSlots.length === 0) {
+            const groupSlots = slots.filter(
+              (slot) =>
+                slot.group === group.key &&
+                wcbJurisdictionFromSlotKey(slot.key) === null &&
+                // The jurisdiction-less legacy slot is worth a row only while it still
+                // means something: it is still being chased, or an old letter sits under
+                // it. Once a carrier's jurisdictions are set and the letter has been
+                // refiled against its province, it stops appearing rather than sitting
+                // there permanently as an empty "province not recorded".
+                (slot.key !== LEGACY_WCB_CLEARANCE_SLOT ||
+                  slot.required ||
+                  liveBySlot.has(slot.key) ||
+                  (historyBySlot.get(slot.key)?.length ?? 0) > 0),
+            );
+
+            if (groupSlots.length === 0 && jurisdictionSlots.length === 0) {
               return null;
             }
 
@@ -514,6 +542,14 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
                   {group.label}
                 </h2>
                 <div className="divide-y divide-[var(--border)]">
+                  <WcbClearancePanel
+                    historyBySlot={historyBySlot}
+                    jurisdictionSlots={jurisdictionSlots}
+                    liveBySlot={liveBySlot}
+                    reusableFiles={reusableFiles}
+                    signedUrlByPath={signedUrlByPath}
+                    subcontractorId={subcontractor.id}
+                  />
                   {groupSlots.map((slot) => {
                     const live = liveBySlot.get(slot.key) ?? null;
                     const history = historyBySlot.get(slot.key) ?? [];
@@ -822,6 +858,41 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
                 />
               </label>
             </div>
+
+            <fieldset className="grid gap-3 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3">
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                WCB jurisdictions
+              </legend>
+              <p className="text-xs text-[var(--ink-muted)]">
+                Where this carrier runs, and so which clearance letters we chase. Workers&rsquo; compensation is
+                provincial: a letter from one board says nothing about any other, and the hiring company&rsquo;s
+                liability for unpaid premiums follows the province the work was done in. Tick only the ones they
+                actually operate in, or every carrier reads as short of coverage they never needed.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {WCB_JURISDICTIONS.map((jurisdiction) => (
+                  <label className="flex items-start gap-2" key={jurisdiction.code}>
+                    <input
+                      className={checkboxClass}
+                      defaultChecked={carrierJurisdictions.includes(jurisdiction.code)}
+                      name="wcbJurisdictions"
+                      type="checkbox"
+                      value={jurisdiction.code}
+                    />
+                    <span className="text-sm text-[var(--ink)]">
+                      {jurisdiction.label}
+                      <span className="block text-xs text-[var(--ink-muted)]">{jurisdiction.board}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {carrierJurisdictions.length === 0 ? (
+                <p className="text-xs text-[var(--ink-muted)]">
+                  None set. Until one is ticked, the older jurisdiction-less clearance slot keeps being chased instead,
+                  so nothing stops being tracked while this is decided.
+                </p>
+              ) : null}
+            </fieldset>
 
             <fieldset className="grid gap-3 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3">
               <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">

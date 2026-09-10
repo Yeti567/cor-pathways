@@ -664,6 +664,8 @@ type SubcontractorRow = TenantScopedRow & {
   contact_phone: string | null;
   nsc_number: string | null;
   wcb_account_number: string | null;
+  /** Canada Post codes for the WCB boards this carrier is expected to hold clearance in. */
+  wcb_jurisdictions: string[];
   cra_business_number: string | null;
   broker_name: string | null;
   broker_email: string | null;

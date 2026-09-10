@@ -375,6 +375,15 @@ describe("which subcontractor files are required by default", () => {
     // relevant where the hiring company's device is in the carrier's truck.
     expect(optional).toEqual([
       "cargo_insurance",
+      // The six WCB jurisdictions ship optional and are switched on per carrier by
+      // subcontractor.wcb_jurisdictions. Requiring all six of everybody would put
+      // nearly every carrier into red for coverage they neither need nor can produce.
+      "wcb_clearance_ab",
+      "wcb_clearance_bc",
+      "wcb_clearance_sk",
+      "wcb_clearance_mb",
+      "wcb_clearance_yt",
+      "wcb_clearance_nt",
       "articles_of_incorporation",
       "proof_of_ownership",
       "telematics_agreement",
@@ -386,6 +395,10 @@ describe("which subcontractor files are required by default", () => {
 
     // Liability shield: hire a sub whose WCB account is in arrears without a
     // clearance and the hiring employer can be pursued for their premiums.
+    // The jurisdiction-less slot stays required as shipped, which is what keeps the
+    // carriers whose provinces nobody has recorded yet from silently losing their WCB
+    // requirement. resolveSubcontractorSlots retires it per carrier once their
+    // jurisdictions are set.
     expect(byKey.get("wcb_clearance")?.required).toBe(true);
     // Never expires, so it never nags, and it is the first thing an insurer asks
     // for after an incident.
