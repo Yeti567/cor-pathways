@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, FilePlus2, Save } from "lucide-react";
+import { ArrowLeft, FilePlus2, Paperclip, Save } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { ContractedUploadField } from "@/app/admin/_components/ContractedUploadField";
 import { ContractedDocumentProofForm } from "@/app/admin/contracted-equipment/[unitId]/ContractedDocumentProofForm";
@@ -12,6 +12,8 @@ import {
 } from "@/app/admin/contracted-equipment/actions";
 import { canUseAdminPanel } from "@/lib/access-control";
 import {
+  CONTRACTED_DOCUMENTS_BUCKET,
+  contractedUnitOtherDocuments,
   summarizeContractedUnit,
   type ContractedEquipmentDocumentRow,
   type ContractedEquipmentRow,
@@ -117,6 +119,26 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
   });
 
   const typeNameById = new Map(certificationTypes.map((type) => [type.id, type.name]));
+
+  // One-off paperwork, and short-lived links to read it back. Signed rather than public
+  // because this is a hired carrier's material in a private bucket; ten minutes is the
+  // same window the contracted driver page uses.
+  const otherDocuments = contractedUnitOtherDocuments(documentRows);
+  const otherDocumentUrls = new Map<string, string>();
+
+  await Promise.all(
+    otherDocuments.flatMap((document) =>
+      document.attachment_ids.map(async (path) => {
+        const { data } = await supabase.storage
+          .from(CONTRACTED_DOCUMENTS_BUCKET)
+          .createSignedUrl(path, 10 * 60);
+
+        if (data?.signedUrl) {
+          otherDocumentUrls.set(path, data.signedUrl);
+        }
+      }),
+    ),
+  );
 
   return (
     <AdminShell
@@ -333,6 +355,94 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
         </form>
       </section>
 
+      {/* --- Other documents --------------------------------------------------
+        The one-off paperwork a truck accumulates: the signed haul contract, the Samsara
+        agreement, a meter calibration, a plate photo, a decibel reading. No badge on any
+        of it, on purpose -- see contractedUnitOtherDocuments. A tick beside a signed
+        contract would read as compliance, and it says nothing about whether the unit is
+        legal to run today.
+      */}
+      <section className={`mt-5 ${cardClass}`}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">Other documents</h2>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Anything else kept on this unit&rsquo;s file. Nothing here is tracked or counts towards the unit&rsquo;s
+          status. Use it for the one-offs that have no row of their own, and give each one a name you would
+          recognise on a filing cabinet.
+        </p>
+
+        {otherDocuments.length > 0 ? (
+          <ul className="mt-3 divide-y divide-[var(--border)]">
+            {otherDocuments.map((document) => (
+              <li className="py-3" key={document.id}>
+                <p className="text-sm font-semibold text-[var(--ink)]">{document.title}</p>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  {document.issued_date ? `Dated ${document.issued_date}` : "No date on the document"}
+                  {document.expiry_date ? ` · expires ${document.expiry_date}` : ""}
+                </p>
+
+                {document.attachment_ids.length > 0 ? (
+                  <ul className="mt-1 flex flex-wrap gap-2">
+                    {document.attachment_ids.map((path, index) => {
+                      const url = otherDocumentUrls.get(path);
+
+                      return (
+                        <li key={path}>
+                          {url ? (
+                            <a
+                              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-white px-2 py-1 text-xs font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
+                              href={url}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <Paperclip className="h-3.5 w-3.5 text-[var(--primary)]" aria-hidden="true" />
+                              {document.attachment_ids.length > 1 ? `Scan ${index + 1}` : "Open scan"}
+                            </a>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs font-semibold text-[var(--ink-muted)]">
+                              <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+                              Scan unavailable
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-[var(--warning)]">No scan filed yet.</p>
+                )}
+
+                <ContractedDocumentProofForm
+                  documentId={document.id}
+                  expiryDate={document.expiry_date}
+                  hasProof={document.attachment_ids.length > 0}
+                  inputClass={inputClass}
+                  issuedDate={document.issued_date}
+                  subcontractorId={unit.subcontractor_id}
+                  submitClass={submitClass}
+                  tenantId={tenantId}
+                  title={document.title}
+                  unitId={unit.id}
+                />
+                <form action={deleteContractedEquipmentDocument} className="mt-1 inline-block">
+                  <input name="documentId" type="hidden" value={document.id} />
+                  <input name="unitId" type="hidden" value={unit.id} />
+                  <button
+                    className="text-xs font-semibold text-[var(--ink-muted)] underline transition hover:text-[var(--danger)]"
+                    type="submit"
+                  >
+                    Remove
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-xs text-[var(--ink-muted)]">
+            Nothing filed yet. Add one below with document type <strong>Other</strong>.
+          </p>
+        )}
+      </section>
+
       {/* --- Add a document -------------------------------------------------- */}
       <section className={`mt-5 ${cardClass}`}>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--ink-muted)]">Add a document</h2>
@@ -347,9 +457,18 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
             <input
               className={inputClass}
               name="title"
-              placeholder="Product hose (spare), Fire extinguisher 20 lb"
+              placeholder="Signed contract, Samsara agreement, Calibration"
               required
             />
+            {/*
+              Free text, and the only name this document will ever have. With type Other
+              it is also the whole record, so it is worth naming the way it would be
+              labelled in a filing cabinet rather than "scan 2".
+            */}
+            <span className="block text-xs text-[var(--ink-muted)]">
+              Whatever you would call it. For a one-off with no row of its own, name it here and choose type
+              Other.
+            </span>
           </label>
           <label className="space-y-2">
             <span className="text-sm font-medium text-[var(--ink)]">Document type</span>
@@ -363,7 +482,7 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
               <option value="cvip">CVIP</option>
               <option value="permit">Permit</option>
               <option value="certification">Certification / inspection</option>
-              <option value="other">Other</option>
+              <option value="other">Other (name it above)</option>
             </select>
           </label>
           <label className="space-y-2">

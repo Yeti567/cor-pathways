@@ -3,6 +3,7 @@ import {
   contractedStoragePrefix,
   contractedUnitCertificationStatuses,
   contractedUnitFileStatuses,
+  contractedUnitOtherDocuments,
   contractedUnitOverallState,
   parseUploadedContractedAttachmentPaths,
   rollUpContractedFleet,
@@ -281,5 +282,58 @@ describe("upload paths are not trusted", () => {
     // can_access_subcontractor_storage_path reads folder[2] as the carrier. If that ever
     // stops being a carrier uuid, a portal login would reach the wrong company's scans.
     expect(contractedStoragePrefix(LOCATION).split("/").slice(0, 2)).toEqual([TENANT, CARRIER]);
+  });
+});
+
+describe("contracted unit other documents", () => {
+  // The bug this section was built for: 'other' is not in VEHICLE_FILE_REQUIREMENTS and
+  // is not a certification, so the unit page rendered neither, and a document filed as
+  // Other was written to the table and then displayed nowhere at all.
+  it("returns the one-off documents the fixed rows and the tick list both skip", () => {
+    const rows = [
+      document({ id: "reg", doc_type: "registration", title: "Registration" }),
+      document({ id: "cert", doc_type: "certification", title: "Product hose" }),
+      document({ id: "contract", doc_type: "other", title: "Signed contract", expiry_date: null }),
+    ];
+
+    expect(contractedUnitFileStatuses({ category: "vehicle", documents: rows }, NOW).map((s) => s.docType)).not.toContain(
+      "other",
+    );
+    expect(contractedUnitOtherDocuments(rows).map((row) => row.id)).toEqual(["contract"]);
+  });
+
+  it("keeps a one-off out of the unit's overall state", () => {
+    // A signed contract with no scan must not paint the truck red. It was never a
+    // requirement, so it cannot be a deficiency.
+    const summary = summarizeContractedUnit(
+      {
+        category: "vehicle",
+        certificationTypes: TYPES,
+        requiredTypeIds: [],
+        documents: [
+          document({ id: "reg", doc_type: "registration", title: "Registration", attachment_ids: ["reg.pdf"] }),
+          document({ id: "cvip", doc_type: "cvip", title: "CVIP", attachment_ids: ["cvip.pdf"] }),
+          document({ id: "calibration", doc_type: "other", title: "Calibration", expiry_date: null }),
+        ],
+      },
+      NOW,
+    );
+
+    // The unit is clean on the strength of its registration and CVIP alone. The
+    // calibration sheet has no scan and no date and changes none of it.
+    expect(summary.gaps).toHaveLength(0);
+    expect(summary.awaitingProof).toHaveLength(0);
+    expect(summary.overallState).toBe("on_file");
+  });
+
+  it("orders newest first and drops inactive and deleted rows", () => {
+    const rows = [
+      document({ id: "old", doc_type: "other", title: "Old", issued_date: "2024-01-01", expiry_date: null }),
+      document({ id: "new", doc_type: "other", title: "New", issued_date: "2026-05-01", expiry_date: null }),
+      document({ id: "gone", doc_type: "other", title: "Removed", deleted_at: "2026-08-01T00:00:00.000Z" }),
+      document({ id: "off", doc_type: "other", title: "Inactive", is_active: false }),
+    ];
+
+    expect(contractedUnitOtherDocuments(rows).map((row) => row.id)).toEqual(["new", "old"]);
   });
 });

@@ -43,6 +43,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { buildContractedStoragePath, CONTRACTED_DOCUMENTS_BUCKET } from "../src/lib/contracted-equipment";
+import { sanitizeStorageFilename } from "../src/lib/document-control";
 import type { Database } from "../src/types/database";
 
 /** Minimal .env.local reader, matching load-client-pack.ts. Never echoes a value. */
@@ -202,8 +203,29 @@ async function main(): Promise<void> {
       continue;
     }
 
-    if (document.attachment_ids.length > 0) {
-      planned.push(`  = ${label}: already has ${document.attachment_ids.length} scan(s), left alone`);
+    // Is THIS file already on the row, or merely some file?
+    //
+    // The guard here used to be "the row has at least one scan, leave it alone". That
+    // made the script replay-safe and it also made it wrong: a row can legitimately need
+    // several objects -- the front and back of one extinguisher tag, the two test sheets
+    // behind a bypass valve certificate -- and under the old rule whichever file the
+    // manifest happened to list first claimed the row and the rest were dropped in
+    // silence. On the September 2026 truck load that cost six files, and put a licence
+    // plate photograph on one unit's registration row while the registration
+    // certificate itself went nowhere.
+    //
+    // Matching on the sanitised FILE NAME keeps the replay safety that mattered -- the
+    // same manifest run twice still uploads nothing the second time, because the name is
+    // already there -- while letting a genuine second page through. The stored path is
+    // <stamp>-<index>-<sanitised name>, so the name is the part after the index and the
+    // timestamp cannot be compared.
+    const sanitizedName = sanitizeStorageFilename(basename(entry.file));
+    const alreadyAttached = document.attachment_ids.some((existing) =>
+      existing.endsWith(`-${sanitizedName}`),
+    );
+
+    if (alreadyAttached) {
+      planned.push(`  = ${label}: ${basename(entry.file)} is already filed here, left alone`);
       continue;
     }
 

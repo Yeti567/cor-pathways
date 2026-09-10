@@ -302,3 +302,48 @@ export function rollUpContractedFleet(
     clean: summaries.length - deficient - awaitingProof,
   };
 }
+
+/**
+ * The unit's one-off paperwork: everything filed as doc_type 'other'.
+ *
+ * WHY THIS EXISTS. A tractor's file is not only the documents that expire. It also
+ * carries the signed haul contract, the Samsara ELD agreement, a meter calibration
+ * sheet, a photo of the plate, a pressure-safety-switch test, a decibel reading. None
+ * of those is a fixed compliance row and none of them is an inspection on the tick
+ * list, so before this the unit page rendered exactly two families -- the required
+ * files and the ticked certifications -- and an 'other' document was accepted by the
+ * form, written to the table, and then displayed nowhere. It could be filed and never
+ * read back.
+ *
+ * THE POINT OF THE FREE-TEXT TITLE. These arrive one at a time and rarely twice: a
+ * decibel reading on one truck, a bypass retest on another. Giving each its own
+ * certification type would mean a migration every time a client is asked for a document
+ * nobody anticipated. The title is whatever the person filing it types, so a new kind
+ * of paperwork needs no code change and no phone call.
+ *
+ * NOTHING HERE CARRIES A STATUS, and that is deliberate rather than unfinished. A
+ * badge beside a document reads as compliance, and a signed contract proves nothing
+ * about whether the truck is legal to run today. Same rule the contracted driver page
+ * applies to its own Other documents section, and the same reason: an "On file" tick
+ * next to paperwork that was never a requirement invents a standard nobody set. These
+ * rows are excluded from contractedUnitFileStatuses by construction -- 'other' is not
+ * in VEHICLE_FILE_REQUIREMENTS -- so they cannot reach the unit's overall state.
+ */
+export function contractedUnitOtherDocuments(
+  documents: readonly ContractedEquipmentDocumentRow[] = [],
+): ContractedEquipmentDocumentRow[] {
+  return documents
+    .filter((document) => document.doc_type === "other" && document.is_active && document.deleted_at === null)
+    .sort((a, b) => {
+      // No governing date on this family, so whichever date the document happens to
+      // carry orders it, newest first, and the day it was filed breaks the tie.
+      const left = a.expiry_date ?? a.issued_date ?? "";
+      const right = b.expiry_date ?? b.issued_date ?? "";
+
+      if (left !== right) {
+        return left < right ? 1 : -1;
+      }
+
+      return a.created_at < b.created_at ? 1 : -1;
+    });
+}
