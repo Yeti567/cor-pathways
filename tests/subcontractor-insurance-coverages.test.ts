@@ -162,6 +162,67 @@ describe("non-owned trailer and pollution coverage", () => {
     ]);
   });
 
+  // The company sets the bar it wants its subcontractors to carry, per coverage, under
+  // Subcontractors > Requirements. The screen renders a "Minimum limit" box for any slot
+  // that captures a coverage amount, so pollution and non-owned trailers each get their
+  // own - a fleet can reasonably want $5,000,000 of pollution cover and $200,000 on a
+  // trailer, and one shared number could not say that.
+  it("lets the company set its own minimum limit per coverage", () => {
+    const settings: SubcontractorRequirementSetting[] = [
+      { ...required("pollution_liability", true), minimumCoverageAmount: 5_000_000 },
+      { ...required("non_owned_trailer_insurance", true), minimumCoverageAmount: 200_000 },
+    ];
+
+    const slots = resolveSubcontractorSlots(settings);
+
+    expect(slots.find((slot) => slot.key === "pollution_liability")?.minimumCoverageAmount).toBe(5_000_000);
+    expect(slots.find((slot) => slot.key === "non_owned_trailer_insurance")?.minimumCoverageAmount).toBe(200_000);
+  });
+
+  it("flags a certificate that carries less than the company requires", () => {
+    const settings: SubcontractorRequirementSetting[] = [
+      { ...required("pollution_liability", true), minimumCoverageAmount: 5_000_000 },
+    ];
+
+    const summary = summariseSubcontractorCompliance(
+      [{ coverageAmount: 1_000_000, dueDate: "2027-09-30", reviewStatus: "approved", slotKey: "pollution_liability" }],
+      resolveSubcontractorSlots(settings),
+      NOW,
+    );
+
+    expect(summary.underLimit.map((entry) => entry.slot.key)).toEqual(["pollution_liability"]);
+    expect(summary.state).toBe("non_compliant");
+  });
+
+  // A certificate whose limit nobody recorded cannot be shown to meet the bar, so it does
+  // not meet it. Reading a blank as "probably fine" is how an under-insured carrier
+  // stays green.
+  it("flags a certificate whose limit was never recorded", () => {
+    const settings: SubcontractorRequirementSetting[] = [
+      { ...required("pollution_liability", true), minimumCoverageAmount: 5_000_000 },
+    ];
+
+    const summary = summariseSubcontractorCompliance(
+      [approved("pollution_liability", "2027-09-30")],
+      resolveSubcontractorSlots(settings),
+      NOW,
+    );
+
+    expect(summary.underLimit.map((entry) => entry.slot.key)).toEqual(["pollution_liability"]);
+  });
+
+  // No minimum set means no opinion, not a bar of zero. Until the company types a number
+  // the coverage is tracked for expiry only.
+  it("does not judge the limit until the company sets one", () => {
+    const summary = summariseSubcontractorCompliance(
+      [{ coverageAmount: 25_000, dueDate: "2027-09-30", reviewStatus: "approved", slotKey: "pollution_liability" }],
+      resolveSubcontractorSlots([required("pollution_liability", true)]),
+      NOW,
+    );
+
+    expect(summary.underLimit).toEqual([]);
+  });
+
   // A lapsed pollution extension is the case that matters: the liability policy behind it
   // can still be current, so nothing else on the certificate looks wrong.
   it("goes red on a lapsed coverage even when the rest of the certificate is current", () => {

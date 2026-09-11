@@ -12,6 +12,7 @@ import {
   SUBCONTRACTOR_SLOTS,
   type SubcontractorRequirementSetting,
 } from "@/lib/subcontractor-requirements";
+import { wcbJurisdictionFromSlotKey } from "@/lib/wcb-jurisdictions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -127,17 +128,30 @@ export default async function SubcontractorRequirementsPage({ searchParams }: Pa
                           />
                           <span className="text-sm text-[var(--ink)]">Collect this</span>
                         </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            className={checkboxClass}
-                            defaultChecked={required}
-                            name={`required__${slot.key}`}
-                            type="checkbox"
-                          />
-                          <span className="text-sm text-[var(--ink)]">
-                            Missing it makes the carrier non-compliant
-                          </span>
-                        </label>
+                        {wcbJurisdictionFromSlotKey(slot.key) === null ? (
+                          <label className="flex items-center gap-2">
+                            <input
+                              className={checkboxClass}
+                              defaultChecked={required}
+                              name={`required__${slot.key}`}
+                              type="checkbox"
+                            />
+                            <span className="text-sm text-[var(--ink)]">
+                              Missing it makes the carrier non-compliant
+                            </span>
+                          </label>
+                        ) : (
+                          // No tick box here on purpose. Which provinces a carrier needs
+                          // clearance in is a fact about that carrier, so it is set on
+                          // their own record and resolveSubcontractorSlots lets the
+                          // per-carrier list win over this screen. A tick box here would
+                          // be a control that silently changes nothing, which is worse
+                          // than no control at all.
+                          <p className="text-sm text-[var(--ink-muted)]">
+                            Set per carrier, on their own record. A company-wide setting cannot say which provinces a
+                            given carrier runs in.
+                          </p>
+                        )}
                       </div>
 
                       <div className="mt-3 grid gap-3 sm:grid-cols-3">
