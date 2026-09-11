@@ -375,6 +375,11 @@ describe("which subcontractor files are required by default", () => {
     // relevant where the hiring company's device is in the carrier's truck.
     expect(optional).toEqual([
       "cargo_insurance",
+      // Both ship optional and are turned on per company under Requirements. They only
+      // mean anything where the hiring company owns the trailers its subs pull, and
+      // where the load is the kind that can spill.
+      "non_owned_trailer_insurance",
+      "pollution_liability",
       // The six WCB jurisdictions ship optional and are switched on per carrier by
       // subcontractor.wcb_jurisdictions. Requiring all six of everybody would put
       // nearly every carrier into red for coverage they neither need nor can produce.

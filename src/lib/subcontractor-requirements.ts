@@ -134,6 +134,34 @@ export const SUBCONTRACTOR_SLOTS: SubcontractorSlot[] = [
     captures: ["policy_number", "insurer", "coverage_amount", "deductible"],
   },
   {
+    key: "non_owned_trailer_insurance",
+    label: "Non-owned trailer insurance",
+    group: "insurance",
+    description:
+      "Covers the hiring company's OWN trailers while this carrier is pulling them. Record the limit and the deductible: the limit is what the trailer is worth to you if it burns, and these run far lower than a liability limit.",
+    dueMode: "expiry",
+    // Optional by default for the same reason as cargo, and turned on per company under
+    // Subcontractors > Requirements. It only means anything where the hiring company owns
+    // trailers that subcontractors pull. A company whose subs bring their own equipment
+    // has nothing here to insure, and a slot they can never satisfy sits permanently red.
+    required: false,
+    reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
+    captures: ["policy_number", "insurer", "coverage_amount", "deductible"],
+  },
+  {
+    key: "pollution_liability",
+    label: "Pollution liability",
+    group: "insurance",
+    description:
+      "Covers a spill. Usually an extension of the carrier's general liability rather than a policy of its own, so it often shares that policy number and dates while carrying its own limit.",
+    dueMode: "expiry",
+    // Optional by default, turned on per company. Standard where the load is oil,
+    // produced water or condensate and beside the point where it is gravel.
+    required: false,
+    reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
+    captures: ["policy_number", "insurer", "coverage_amount", "deductible"],
+  },
+  {
     key: "carrier_profile",
     label: "Carrier profile",
     group: "carrier",
