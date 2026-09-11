@@ -4,7 +4,13 @@ import {
   getSubcontractorDocumentStatus,
   type ResolvedSubcontractorSlot,
 } from "@/lib/subcontractor-requirements";
-import { WCB_JURISDICTIONS, wcbClearanceSlotKey, wcbJurisdictionFromSlotKey, wcbJurisdictionLabel } from "@/lib/wcb-jurisdictions";
+import {
+  WCB_JURISDICTIONS,
+  wcbClearanceRowTone,
+  wcbClearanceSlotKey,
+  wcbJurisdictionFromSlotKey,
+  wcbJurisdictionLabel,
+} from "@/lib/wcb-jurisdictions";
 import type { Database } from "@/types/database";
 
 type DocumentRow = Database["public"]["Tables"]["subcontractor_document"]["Row"];
@@ -87,19 +93,11 @@ export function WcbClearancePanel({
               ? getSubcontractorDocumentStatus({ dueDate: live.due_date, reminderLeadDays: slot.reminderLeadDays })
               : null;
 
-            // A required jurisdiction with nothing filed is a real gap and reads red.
-            // One that is merely on file for a province they do not run in is not a
-            // deficiency, so it stays muted rather than inventing a requirement.
-            const tone =
-              status?.tone === "red"
-                ? "red"
-                : status?.tone === "amber"
-                  ? "amber"
-                  : live
-                    ? "green"
-                    : slot.required
-                      ? "red"
-                      : "muted";
+            const tone = wcbClearanceRowTone({
+              hasDocument: live !== null,
+              required: slot.required,
+              statusTone: status?.tone ?? null,
+            });
 
             const signedUrl = live?.storage_path ? signedUrlByPath.get(live.storage_path) : undefined;
 

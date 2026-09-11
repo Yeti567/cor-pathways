@@ -13,7 +13,7 @@ import {
   type SubcontractorRequirementSetting,
 } from "@/lib/subcontractor-requirements";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { wcbJurisdictionFromSlotKey } from "@/lib/wcb-jurisdictions";
+import { wcbClearanceRowTone, wcbJurisdictionFromSlotKey } from "@/lib/wcb-jurisdictions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -385,17 +385,32 @@ export default async function SubcontractorPortalPage({ searchParams }: PageProp
                         // A slot with something awaiting review says so, whatever else is
                         // true of it, because that is the state the carrier most needs to
                         // read correctly: sent, not yet accepted, nothing to do but wait.
+                        // A WCB province this carrier was never ticked for is not
+                        // something they have to act on, whatever the letter they sent
+                        // says. Colouring a lapsed one red here would tell them to renew
+                        // paperwork the hiring company is not asking for - and it would
+                        // disagree with the rollup above, which correctly ignores it.
+                        const jurisdictionTone =
+                          wcbJurisdictionFromSlotKey(slot.key) === null
+                            ? null
+                            : wcbClearanceRowTone({
+                                hasDocument: live !== null,
+                                required: slot.required,
+                                statusTone: status?.tone ?? null,
+                              });
+
                         const tone = pending
                           ? "amber"
-                          : underLimit
-                            ? "red"
-                            : status?.tone === "red"
+                          : (jurisdictionTone ??
+                            (underLimit
                               ? "red"
-                              : status?.tone === "amber"
-                                ? "amber"
-                                : live
-                                  ? "green"
-                                  : "muted";
+                              : status?.tone === "red"
+                                ? "red"
+                                : status?.tone === "amber"
+                                  ? "amber"
+                                  : live
+                                    ? "green"
+                                    : "muted"));
 
                         return (
                           <article aria-label={slot.label} className="px-4 py-4" key={slot.key}>

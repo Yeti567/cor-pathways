@@ -79,6 +79,46 @@ export function wcbJurisdictionFromSlotKey(slotKey: string): WcbJurisdiction | n
   return isWcbJurisdiction(code) ? code : null;
 }
 
+/**
+ * What colour a jurisdiction's clearance row reads, and the one rule behind it.
+ *
+ * **A province is only ever an error when the carrier was ticked for it and the letter is
+ * not there or has run out.** Not every subcontractor runs in every province, so a
+ * jurisdiction nobody claimed for this carrier cannot be a deficiency no matter what is
+ * or is not filed against it.
+ *
+ * This exists as a function because the screens had it backwards. Reading the document's
+ * expiry first meant a lapsed Manitoba letter went red on a carrier who does not run in
+ * Manitoba - an alarm about paperwork nobody needs, sitting next to a compliance rollup
+ * that correctly ignored it. The screen and the rollup have to agree, so the rule lives
+ * in one place and is tested rather than repeated in JSX twice.
+ *
+ * A letter kept for a province they do not run in stays visible and readable. It is
+ * simply never coloured, because there is nothing to act on.
+ */
+export function wcbClearanceRowTone(input: {
+  /** Is this jurisdiction on the carrier's list? */
+  required: boolean;
+  /** Is there a live document filed against it? */
+  hasDocument: boolean;
+  /** What the document's own due date says, when there is one. */
+  statusTone?: "green" | "amber" | "red" | null;
+}): "green" | "amber" | "red" | "muted" {
+  if (!input.required) {
+    return "muted";
+  }
+
+  if (!input.hasDocument) {
+    return "red";
+  }
+
+  if (input.statusTone === "red" || input.statusTone === "amber") {
+    return input.statusTone;
+  }
+
+  return "green";
+}
+
 /** Keep a stored list in the canonical order and drop anything unrecognised. */
 export function normaliseWcbJurisdictions(input: readonly string[] | null | undefined): WcbJurisdiction[] {
   if (!input || input.length === 0) {

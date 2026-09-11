@@ -9,6 +9,7 @@ import {
 import {
   normaliseWcbJurisdictions,
   WCB_JURISDICTION_CODES,
+  wcbClearanceRowTone,
   wcbClearanceSlotKey,
   wcbJurisdictionFromSlotKey,
 } from "@/lib/wcb-jurisdictions";
@@ -59,6 +60,40 @@ describe("wcb jurisdiction slot keys", () => {
     expect(normaliseWcbJurisdictions(["SK", "ON", "ab", "QC"])).toEqual(["AB", "SK"]);
     expect(normaliseWcbJurisdictions([])).toEqual([]);
     expect(normaliseWcbJurisdictions(null)).toEqual([]);
+  });
+});
+
+// Blake, 2026-09-10: "The only way it should show up as an error is if the client ticked
+// off that province and hasn't submitted the WCB paperwork. Not every subcontractor is
+// going to have all of the provinces."
+describe("when a province is allowed to read as an error", () => {
+  it("is red only when the province is ticked and nothing is filed", () => {
+    expect(wcbClearanceRowTone({ hasDocument: false, required: true, statusTone: null })).toBe("red");
+  });
+
+  it("is red when the province is ticked and the letter has run out", () => {
+    expect(wcbClearanceRowTone({ hasDocument: true, required: true, statusTone: "red" })).toBe("red");
+  });
+
+  // The case the screens had backwards. A carrier who does not run in Manitoba should
+  // never be shown a Manitoba alarm, whatever is or is not filed there - and the
+  // compliance rollup already ignored it, so a red badge disagreed with the count beside
+  // it.
+  it("is never coloured for a province the carrier was not ticked for", () => {
+    for (const statusTone of ["red", "amber", "green", null] as const) {
+      expect(wcbClearanceRowTone({ hasDocument: true, required: false, statusTone })).toBe("muted");
+      expect(wcbClearanceRowTone({ hasDocument: false, required: false, statusTone })).toBe("muted");
+    }
+  });
+
+  it("warns before a ticked province's letter runs out, and is green while it is good", () => {
+    expect(wcbClearanceRowTone({ hasDocument: true, required: true, statusTone: "amber" })).toBe("amber");
+    expect(wcbClearanceRowTone({ hasDocument: true, required: true, statusTone: "green" })).toBe("green");
+  });
+
+  // A letter with no expiry recorded still counts as filed rather than reading as a gap.
+  it("counts a ticked province as covered when a letter is filed with no expiry", () => {
+    expect(wcbClearanceRowTone({ hasDocument: true, required: true, statusTone: null })).toBe("green");
   });
 });
 
