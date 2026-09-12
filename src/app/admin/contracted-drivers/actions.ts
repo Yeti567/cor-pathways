@@ -187,6 +187,11 @@ export async function updateContractedDriver(formData: FormData) {
     .update({
       full_name: stringValue(formData, "fullName") || driver.full_name,
       contracted_equipment_id: unitId,
+      // Lower-cased on the way in, so one mailbox typed two ways is one value. The shape
+      // check lives on the column; this only normalises. Blank clears it back to null,
+      // which reads as "nobody has told us" rather than "we asked and got nothing".
+      email: optionalString(formData, "email")?.toLowerCase() ?? null,
+      phone: optionalString(formData, "phone"),
       license_province: optionalString(formData, "licenseProvince"),
       license_expiry: optionalDate(formData, "licenseExpiry"),
       abstract_issued: optionalDate(formData, "abstractIssued"),

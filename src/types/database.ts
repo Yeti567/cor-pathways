@@ -511,6 +511,11 @@ type ContractedDriverRow = TenantScopedRow & {
   subcontractor_id: string;
   full_name: string;
   contracted_equipment_id: string | null;
+  // Contact detail, not credentials. The email is NOT a login -- a portal account is a
+  // subcontractor_user row -- and neither column is unique, because small carriers
+  // routinely run every driver off one office mailbox.
+  email: string | null;
+  phone: string | null;
   license_province: string | null;
   license_expiry: string | null;
   abstract_issued: string | null;

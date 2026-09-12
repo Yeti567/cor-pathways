@@ -927,6 +927,17 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
             <input className={inputClass} defaultValue={driver.full_name} name="fullName" required />
           </label>
           <label className="space-y-2">
+            <span className="text-sm font-medium text-[var(--ink)]">Email</span>
+            <input className={inputClass} defaultValue={driver.email ?? ""} name="email" type="email" />
+            <span className="block text-xs text-[var(--ink-muted)]">
+              How to reach this driver. Not a login, and nothing is sent here automatically.
+            </span>
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-[var(--ink)]">Phone</span>
+            <input className={inputClass} defaultValue={driver.phone ?? ""} name="phone" type="tel" />
+          </label>
+          <label className="space-y-2">
             <span className="text-sm font-medium text-[var(--ink)]">Unit</span>
             <select
               className={inputClass}
