@@ -132,6 +132,7 @@ import { addMonths, dateInputValue as toDateInputValue } from "@/lib/document-re
 import { createOverdueWorkflowStepReminderNotification } from "@/lib/workflow-reminders";
 import { parseWorkerImportCsv, type WorkerImportRow } from "@/lib/worker-import";
 import { buildEmergencyContacts, normalizePhone } from "@/lib/workers";
+import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
 import type { Database, Json } from "@/types/database";
 
 const appAccessValues = new Set(appAccessOptions.map((item) => item.value));
@@ -6686,23 +6687,10 @@ export async function sendOverdueWorkReminders() {
     redirect("/admin/workflows?notice=No%20overdue%20assigned%20work%20needs%20a%20reminder.");
   }
 
-  const titles = Array.from(new Set(notificationPayloads.map((notification) => notification.title ?? ""))).filter(Boolean);
-  const { data: existingNotifications } =
-    titles.length > 0
-      ? await supabase
-          .from("notifications")
-          .select("body, title, user_id")
-          .eq("tenant_id", context.appUser.tenant_id)
-          .gte("created_at", todayStart.toISOString())
-          .in("title", titles)
-          .returns<Pick<Database["public"]["Tables"]["notifications"]["Row"], "body" | "title" | "user_id">[]>()
-      : { data: [] as Pick<Database["public"]["Tables"]["notifications"]["Row"], "body" | "title" | "user_id">[] };
-  const existingKeys = new Set(
-    (existingNotifications ?? []).map((notification) => `${notification.user_id ?? ""}|${notification.title}|${notification.body}`),
-  );
-  const newNotifications = notificationPayloads.filter(
-    (notification) => !existingKeys.has(`${notification.user_id ?? ""}|${notification.title}|${notification.body}`),
-  );
+  const { keys: existingKeys } = await existingNotificationKeys(supabase, context.appUser.tenant_id, notificationPayloads, {
+    since: todayStart.toISOString(),
+  });
+  const newNotifications = notificationPayloads.filter((notification) => !existingKeys.has(notificationKey(notification)));
 
   if (newNotifications.length === 0) {
     redirect("/admin/workflows?notice=Overdue%20reminders%20were%20already%20sent%20today.");

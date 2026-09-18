@@ -1,6 +1,7 @@
 import { isPowerAtLeast } from "@/lib/access-control";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
+import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
 import type { Database } from "@/types/database";
 
 type DocumentReminderClient = Pick<Awaited<ReturnType<typeof createSupabaseServerClient>>, "from">;
@@ -191,27 +192,13 @@ export async function sendDocumentReviewNotifications(
     return { auditError: null, created: 0, error: null, skipped: 0 };
   }
 
-  const titles = Array.from(new Set(candidateNotifications.map((notification) => notification.title ?? ""))).filter(Boolean);
-  const { data: existingNotifications, error: existingError } =
-    titles.length > 0
-      ? await supabase
-          .from("notifications")
-          .select("body, title, user_id")
-          .eq("tenant_id", tenantId)
-          .in("title", titles)
-          .returns<Pick<Database["public"]["Tables"]["notifications"]["Row"], "body" | "title" | "user_id">[]>()
-      : { data: [], error: null };
+  const { error: existingError, keys: existingKeys } = await existingNotificationKeys(supabase, tenantId, candidateNotifications);
 
   if (existingError) {
-    return { auditError: null, created: 0, error: existingError.message, skipped: 0 };
+    return { auditError: null, created: 0, error: existingError, skipped: 0 };
   }
 
-  const existingKeys = new Set(
-    (existingNotifications ?? []).map((notification) => `${notification.user_id ?? ""}|${notification.title}|${notification.body}`),
-  );
-  const newNotifications = candidateNotifications.filter(
-    (notification) => !existingKeys.has(`${notification.user_id ?? ""}|${notification.title}|${notification.body}`),
-  );
+  const newNotifications = candidateNotifications.filter((notification) => !existingKeys.has(notificationKey(notification)));
 
   if (newNotifications.length === 0) {
     return { auditError: null, created: 0, error: null, skipped: candidateNotifications.length };
