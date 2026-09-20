@@ -14,7 +14,6 @@ import {
   statusesAwaitingProof,
   unitCertificationGaps,
   expectedCertificationTypesForUnit,
-  unitExpectsCertifications,
   vehicleFileGaps,
   vehicleFileStateClass,
   VEHICLE_FILE_STATE_LABELS,

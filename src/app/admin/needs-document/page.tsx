@@ -10,7 +10,6 @@ import {
   certificationTypeNameMap,
   statusesAwaitingProof,
   expectedCertificationTypesForUnit,
-  unitExpectsCertifications,
 } from "@/lib/equipment";
 import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";

@@ -8594,8 +8594,13 @@ export async function attachEquipmentDocumentProof(formData: FormData) {
     tenantId: context.appUser.tenant_id,
   });
   const attachmentIds = Array.from(new Set([...(existing.attachment_ids ?? []), ...clientAttachmentPaths]));
-  const expiryDate = dateOnlyValue(formData, "expiryDate") ?? existing.expiry_date;
-  const issuedDate = dateOnlyValue(formData, "issuedDate") ?? existing.issued_date;
+  // A date field the form actually posted is taken literally, so clearing it CLEARS
+  // the date - that is how a document already carrying an expiry is changed to one
+  // that does not expire. Falling back to the stored value whenever the parse comes
+  // back null would make that impossible: emptying the box would silently keep the
+  // old date. A field the form did not post at all still falls back.
+  const expiryDate = formData.has("expiryDate") ? dateOnlyValue(formData, "expiryDate") : existing.expiry_date;
+  const issuedDate = formData.has("issuedDate") ? dateOnlyValue(formData, "issuedDate") : existing.issued_date;
 
   // No expiry is a legitimate answer - the document does not expire and the scan is
   // the proof - so this form asks only that something actually changed.

@@ -34,6 +34,26 @@ export type ContractedEquipmentRequirementRow =
   Database["public"]["Tables"]["contracted_equipment_certification_requirement"]["Row"];
 
 /**
+ * The columns the two status helpers below actually read.
+ *
+ * Narrower than the full row on purpose. A caller that selects only what it needs -
+ * a report script, a targeted query - can then be typed honestly instead of cast to
+ * any, and a full row still satisfies it. A signature demanding every column is a
+ * signature that lies about its inputs, and the cast that follows hides real faults.
+ */
+export type ContractedEquipmentDocumentFields = Pick<
+  ContractedEquipmentDocumentRow,
+  | "attachment_ids"
+  | "certification_type_id"
+  | "deleted_at"
+  | "doc_type"
+  | "expiry_date"
+  | "is_active"
+  | "reminder_lead_days"
+  | "title"
+>;
+
+/**
  * Storage prefix for one contracted unit's scans.
  *
  * Bucket is subcontractor-documents, not tenant-documents: this is another company's
@@ -132,7 +152,7 @@ const CONTRACTED_EXCLUDED_DOC_TYPES: ReadonlySet<string> = new Set(["insurance"]
 export function contractedUnitFileStatuses(
   input: {
     category: string;
-    documents: readonly ContractedEquipmentDocumentRow[];
+    documents: readonly ContractedEquipmentDocumentFields[];
   },
   now = new Date(),
 ): VehicleFileStatus[] {
@@ -164,7 +184,7 @@ export function contractedUnitCertificationStatuses(
     certificationTypes: readonly UnitCertificationTypeInput[];
     /** Ticked type ids for this unit, or null when nobody has chosen yet. */
     requiredTypeIds: readonly string[] | null;
-    documents: readonly ContractedEquipmentDocumentRow[];
+    documents: readonly ContractedEquipmentDocumentFields[];
   },
   now = new Date(),
 ): UnitCertificationStatus[] {
@@ -245,7 +265,7 @@ export function summarizeContractedUnit(
     category: string;
     certificationTypes: readonly UnitCertificationTypeInput[];
     requiredTypeIds: readonly string[] | null;
-    documents: readonly ContractedEquipmentDocumentRow[];
+    documents: readonly ContractedEquipmentDocumentFields[];
   },
   now = new Date(),
 ): ContractedUnitSummary {

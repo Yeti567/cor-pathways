@@ -6,7 +6,7 @@ import { buildWorkerInviteEmail, createWorkerAccount, sendWorkerInviteByEmail } 
 
 const ACTION_LINK = "https://iasq.supabase.co/auth/v1/verify?token=abc&type=invite&redirect_to=https://corpathway360.com/auth/confirm";
 const HASHED_TOKEN = "hashed-token-abc";
-const EXPECTED_INVITE_LINK = "https://corpathway360.com/auth/confirm?token_hash=hashed-token-abc&type=invite";
+const INVITE_TYPED_LINK = "https://corpathway360.com/auth/confirm?token_hash=hashed-token-abc&type=invite";
 const EXPECTED_MAGIC_LINK = "https://corpathway360.com/auth/confirm?token_hash=hashed-token-abc&type=magiclink";
 
 function adminClientWithGenerateLink(impl: () => Promise<unknown>): SupabaseClient<Database> {
@@ -167,6 +167,11 @@ describe("sendWorkerInviteByEmail", () => {
     // never at Supabase's verify endpoint.
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body.text).toContain(EXPECTED_MAGIC_LINK);
+    // And never the invite-typed one. createWorkerAccount mints an invite link and
+    // throws it away; if one ever reached an inbox it would be redeemed as the wrong
+    // flow and the recipient would land on a dead link.
+    expect(body.text).not.toContain(INVITE_TYPED_LINK);
+    expect(body.html ?? "").not.toContain(INVITE_TYPED_LINK);
     expect(body.text).not.toContain("supabase.co");
   });
 

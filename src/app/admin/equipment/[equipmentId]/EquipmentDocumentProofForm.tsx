@@ -69,6 +69,9 @@ export function EquipmentDocumentProofForm({
         <label className="space-y-2">
           <span className="text-xs font-medium text-[var(--ink)]">Expiry date</span>
           <input className={inputClass} defaultValue={expiryDate ?? ""} name="expiryDate" type="date" />
+          <span className="block text-xs text-[var(--ink-muted)]">
+            Clear it if this document does not expire.
+          </span>
         </label>
       </div>
 
