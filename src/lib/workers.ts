@@ -95,14 +95,26 @@ export type CertificationStatus = {
  * Only the fully-current case is downgraded. An expired ticket is a deficiency with
  * or without a scan, and one expiring inside the month needs renewing, which is the
  * more useful thing for the badge to say.
+ *
+ * `typeExpires` is the tenant's own answer for this kind of ticket, from
+ * certification_types.expires. When it is false the ticket never goes out of date:
+ * the card on file is the entire requirement, there is no date to ask for, and it
+ * reads green instead of sitting in a grey "No expiry" that looks like a gap.
  */
 export function certificationStatus(
   expiresOn: string | null | undefined,
   now = new Date(),
   hasProof?: boolean,
+  typeExpires?: boolean,
 ): CertificationStatus {
   const daysUntilExpiry = daysUntilCertificationExpiry(expiresOn, now);
   const unproven = hasProof === false;
+
+  if (typeExpires === false) {
+    return unproven
+      ? { label: AWAITING_PROOF_LABEL, tone: "unproven" }
+      : { label: "On file", tone: "success" };
+  }
 
   if (daysUntilExpiry === null) {
     // No expiry and no document is the emptiest a ticket can be while still

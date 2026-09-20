@@ -185,6 +185,12 @@ export type EquipmentDueStatus = {
 
 export type EquipmentDocumentStatusInput = {
   expiryDate: string | null;
+  /**
+   * Whether a file is actually attached. Only consulted when there is no expiry date,
+   * where the attachment is the entire proof. Optional: a caller that cannot know
+   * leaves it out and the document is taken at its word.
+   */
+  hasProof?: boolean;
   isActive: boolean;
   reminderLeadDays: number | null;
 };
@@ -657,9 +663,48 @@ function mostUrgent(statuses: EquipmentDueStatus[]) {
   }, currentStatus());
 }
 
+/**
+ * How one equipment document reads right now.
+ *
+ * A document with NO expiry date does not expire - a continuous trailer registration,
+ * a certificate of compliance. There is no renewal to chase, so the only question is
+ * whether the paperwork is actually on file:
+ *
+ *   file attached  -> current, and it says "Does not expire" rather than a date
+ *   nothing behind -> a gap, because an empty record proves nothing at all
+ *
+ * The gap deliberately reports `due_soon` rather than a fourth state. Every caller
+ * already treats anything that is not `current` as needing attention, so a document
+ * with no date and no scan lands in the same lists as one that is about to run out -
+ * which is where it belongs.
+ *
+ * `hasProof` is optional so that callers reading from a query that does not select
+ * attachments keep working; leaving it out means "do not gate", the older behaviour.
+ * Prefer to pass it.
+ */
 export function getEquipmentDocumentStatus(document: EquipmentDocumentStatusInput, now = new Date()) {
   if (!document.isActive) {
     return currentStatus();
+  }
+
+  if (!document.expiryDate) {
+    if (document.hasProof === false) {
+      return {
+        daysUntilDue: null,
+        label: "Needs a document",
+        meterRemaining: null,
+        state: "due_soon",
+        tone: "amber",
+      } satisfies EquipmentDueStatus;
+    }
+
+    return {
+      daysUntilDue: null,
+      label: "Does not expire",
+      meterRemaining: null,
+      state: "current",
+      tone: "green",
+    } satisfies EquipmentDueStatus;
   }
 
   return statusByDays(daysUntil(document.expiryDate, now), document.reminderLeadDays ?? 30);

@@ -56,7 +56,8 @@ export type OfflineEquipmentDocumentSummary = {
   attachmentUrls: Record<string, string | null>;
   docType: string;
   equipmentId: string;
-  expiryDate: string;
+  /** Null means the document does not expire; the attachment is the whole proof. */
+  expiryDate: string | null;
   id: string;
   isActive: boolean;
   reminderLeadDays: number;
@@ -1804,6 +1805,7 @@ export function getOfflineEquipmentDocumentStatus(document: OfflineEquipmentDocu
   return getEquipmentDocumentStatus(
     {
       expiryDate: document.expiryDate,
+      hasProof: document.attachmentIds.length > 0,
       isActive: document.isActive,
       reminderLeadDays: document.reminderLeadDays,
     },

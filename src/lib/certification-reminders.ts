@@ -10,7 +10,7 @@ type CertificationReminderClient = Pick<Awaited<ReturnType<typeof createSupabase
 
 type CertificationReminderCertification = Pick<
   Database["public"]["Tables"]["certifications"]["Row"],
-  "expires_on" | "id" | "name" | "tenant_id" | "worker_profile_id"
+  "certification_type_id" | "expires_on" | "id" | "name" | "tenant_id" | "worker_profile_id"
 >;
 type CertificationReminderProfile = Pick<Database["public"]["Tables"]["worker_profiles"]["Row"], "id" | "title" | "user_id">;
 type CertificationReminderUser = Pick<
@@ -286,17 +286,35 @@ export async function sendCertificationExpiryNotifications(
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const createdAt = now.toISOString();
   const thirtyDaysFromNow = dateInputValue(addDays(today, 30));
-  const { data: certifications, error: certificationError } = await supabase
-    .from("certifications")
-    .select("id, tenant_id, worker_profile_id, name, expires_on")
-    .eq("tenant_id", tenantId)
-    .not("expires_on", "is", null)
-    .lte("expires_on", thirtyDaysFromNow)
-    .order("expires_on", { ascending: true })
-    .limit(1000)
-    .returns<CertificationReminderCertification[]>();
+  const [{ data: allCertifications, error: certificationError }, { data: nonExpiringTypes }] = await Promise.all([
+    supabase
+      .from("certifications")
+      .select("id, tenant_id, worker_profile_id, name, expires_on, certification_type_id")
+      .eq("tenant_id", tenantId)
+      .not("expires_on", "is", null)
+      .lte("expires_on", thirtyDaysFromNow)
+      .order("expires_on", { ascending: true })
+      .limit(1000)
+      .returns<CertificationReminderCertification[]>(),
+    // Types the tenant has marked as never going out of date. Read-only: this runs
+    // from cron and must not seed anything.
+    supabase
+      .from("certification_types")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("expires", false)
+      .returns<{ id: string }[]>(),
+  ]);
 
-  if (certificationError || !certifications?.length) {
+  // A ticket of a non-expiring type is not tracked by date, so a leftover date on one
+  // must not raise a reminder. The card on file is the whole requirement.
+  const neverExpires = new Set((nonExpiringTypes ?? []).map((type) => type.id));
+  const certifications = (allCertifications ?? []).filter(
+    (certification) =>
+      !certification.certification_type_id || !neverExpires.has(certification.certification_type_id),
+  );
+
+  if (certificationError || !certifications.length) {
     return { auditError: null, created: 0, error: certificationError?.message ?? null, skipped: 0 };
   }
 

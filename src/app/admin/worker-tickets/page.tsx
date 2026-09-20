@@ -21,7 +21,7 @@ type WorkerTicketsPageProps = {
 };
 
 type CertificationRow = Database["public"]["Tables"]["certifications"]["Row"];
-type CertificationTypeRow = Pick<Database["public"]["Tables"]["certification_types"]["Row"], "id" | "name">;
+type CertificationTypeRow = Pick<Database["public"]["Tables"]["certification_types"]["Row"], "expires" | "id" | "name">;
 type WorkerProfileRow = Pick<Database["public"]["Tables"]["worker_profiles"]["Row"], "id" | "user_id">;
 type WorkerUserRow = Pick<Database["public"]["Tables"]["users"]["Row"], "active" | "email" | "full_name" | "id">;
 
@@ -118,7 +118,7 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
         // belong to contracted drivers, and dropping seventy of them into an employee
         // ticket picker would bury the handful that apply to the crew.
         .from("certification_types")
-        .select("id, name")
+        .select("id, name, expires")
         .eq("tenant_id", context.appUser.tenant_id)
         .eq("category", "ticket")
         .order("name")
@@ -156,7 +156,12 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
     const workerId = workerIdByProfileId.get(ticket.worker_profile_id) ?? null;
     const worker = workerId ? workerById.get(workerId) ?? null : null;
     const certificationType = ticket.certification_type_id ? certificationTypeById.get(ticket.certification_type_id) ?? null : null;
-    const status = certificationStatus(ticket.expires_on, undefined, hasAttachedProof(ticket.attachment_path));
+    const status = certificationStatus(
+      ticket.expires_on,
+      undefined,
+      hasAttachedProof(ticket.attachment_path),
+      certificationType?.expires,
+    );
 
     return {
       attachmentUrl: signedPathUrl(signedUrls, ticket.attachment_path),

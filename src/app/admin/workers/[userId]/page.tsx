@@ -613,6 +613,11 @@ export default async function WorkerDetailPage({ params, searchParams }: WorkerD
                     certification.expires_on,
                     undefined,
                     hasAttachedProof(certification.attachment_path),
+                    certification.certification_type_id
+                      ? (certificationTypes ?? []).find(
+                          (type) => type.id === certification.certification_type_id,
+                        )?.expires
+                      : undefined,
                   );
                   const attachmentUrl = signedPathUrl(signedUrls, certification.attachment_path);
                   const showImagePreview = attachmentUrl && isImageAttachmentPath(certification.attachment_path);

@@ -451,6 +451,7 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
     ...(documents ?? []).map((document) =>
       getEquipmentDocumentStatus({
         expiryDate: document.expiry_date,
+        hasProof: document.attachment_ids.length > 0,
         isActive: document.is_active,
         reminderLeadDays: document.reminder_lead_days,
       }),
@@ -1437,7 +1438,11 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm font-medium text-[var(--ink)]">Expiry date</span>
-                  <input className={inputClass} name="expiryDate" required type="date" />
+                  <input className={inputClass} name="expiryDate" type="date" />
+                  <span className="block text-xs text-[var(--ink-muted)]">
+                    Leave blank if it never expires, like a continuous registration. The
+                    file you attach is then the whole proof.
+                  </span>
                 </label>
               </div>
               <label className="space-y-2">
@@ -1466,6 +1471,7 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                 {(documents ?? []).map((document) => {
                   const status = getEquipmentDocumentStatus({
                     expiryDate: document.expiry_date,
+                    hasProof: document.attachment_ids.length > 0,
                     isActive: document.is_active,
                     reminderLeadDays: document.reminder_lead_days,
                   });
@@ -1481,7 +1487,9 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
                             : null) ?? document.doc_type.replaceAll("_", " ")}
                         </p>
                       </div>
-                      <p className="text-sm text-[var(--ink-muted)]">{formatDate(document.expiry_date)}</p>
+                      <p className="text-sm text-[var(--ink-muted)]">
+                        {document.expiry_date ? formatDate(document.expiry_date) : "Does not expire"}
+                      </p>
                       <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${equipmentDueStatusClass(status)}`}>
                         {dueDetail(status)}
                       </span>

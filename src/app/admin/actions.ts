@@ -8422,7 +8422,10 @@ export async function createEquipmentDocument(formData: FormData) {
     tenantId: context.appUser.tenant_id,
   });
 
-  if (!equipmentId || !expiryDate) {
+  // The expiry is optional. Leaving it blank says this document does not expire - a
+  // continuous registration, a certificate of compliance - and it is then proven by
+  // the file attached to it rather than by a date.
+  if (!equipmentId) {
     redirect("/admin/equipment?error=Choose%20equipment%20and%20enter%20document%20details.");
   }
 
@@ -8594,10 +8597,8 @@ export async function attachEquipmentDocumentProof(formData: FormData) {
   const expiryDate = dateOnlyValue(formData, "expiryDate") ?? existing.expiry_date;
   const issuedDate = dateOnlyValue(formData, "issuedDate") ?? existing.issued_date;
 
-  if (!expiryDate) {
-    redirectEquipmentError(equipmentId, "documents", "Enter an expiry date.");
-  }
-
+  // No expiry is a legitimate answer - the document does not expire and the scan is
+  // the proof - so this form asks only that something actually changed.
   if (clientAttachmentPaths.length === 0 && expiryDate === existing.expiry_date && issuedDate === existing.issued_date) {
     redirectEquipmentError(equipmentId, "documents", "Choose a scan to upload, or change a date.");
   }

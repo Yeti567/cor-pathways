@@ -1548,17 +1548,15 @@ export type Database = {
           deleted_at: string | null;
           doc_type: "registration" | "insurance" | "cvip" | "permit" | "certification" | "other";
           equipment_id: string;
-          expiry_date: string;
+          /** NULL means the document does not expire; the attached file is the proof. */
+          expiry_date: string | null;
           is_active: boolean;
           issued_date: string | null;
           reminder_lead_days: number;
           title: string;
         };
         Insert: Partial<Database["public"]["Tables"]["equipment_document"]["Row"]> &
-          Pick<
-            Database["public"]["Tables"]["equipment_document"]["Row"],
-            "tenant_id" | "equipment_id" | "expiry_date" | "title"
-          >;
+          Pick<Database["public"]["Tables"]["equipment_document"]["Row"], "tenant_id" | "equipment_id" | "title">;
         Update: Partial<Database["public"]["Tables"]["equipment_document"]["Row"]>;
         Relationships: [];
       };

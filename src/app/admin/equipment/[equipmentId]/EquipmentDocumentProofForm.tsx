@@ -68,7 +68,7 @@ export function EquipmentDocumentProofForm({
         </label>
         <label className="space-y-2">
           <span className="text-xs font-medium text-[var(--ink)]">Expiry date</span>
-          <input className={inputClass} defaultValue={expiryDate ?? ""} name="expiryDate" required type="date" />
+          <input className={inputClass} defaultValue={expiryDate ?? ""} name="expiryDate" type="date" />
         </label>
       </div>
 

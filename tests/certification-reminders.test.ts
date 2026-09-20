@@ -4,7 +4,7 @@ import type { Database } from "@/types/database";
 
 type Certification = Pick<
   Database["public"]["Tables"]["certifications"]["Row"],
-  "expires_on" | "id" | "name" | "tenant_id" | "worker_profile_id"
+  "certification_type_id" | "expires_on" | "id" | "name" | "tenant_id" | "worker_profile_id"
 >;
 type Profile = Pick<Database["public"]["Tables"]["worker_profiles"]["Row"], "id" | "title" | "user_id">;
 type User = Pick<
@@ -38,6 +38,7 @@ const profile: Profile = {
 
 function certification(expiresOn: string): Certification {
   return {
+    certification_type_id: null,
     expires_on: expiresOn,
     id: `cert-${expiresOn}`,
     name: "First Aid",
