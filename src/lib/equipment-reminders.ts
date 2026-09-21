@@ -173,7 +173,13 @@ export function buildEquipmentAttentionNotifications({
   tenantId: string;
   users: EquipmentReminderUser[];
 }) {
-  const equipmentById = new Map(equipment.filter((unit) => !unit.deleted_at).map((unit) => [unit.id, unit]));
+  // A sold or retired unit keeps its history but is no longer ours to renew, so it
+  // raises no reminders. The compliance page excludes the same two statuses.
+  const equipmentById = new Map(
+    equipment
+      .filter((unit) => !unit.deleted_at && unit.status !== "sold" && unit.status !== "retired")
+      .map((unit) => [unit.id, unit]),
+  );
   const notifications: EquipmentReminderNotification[] = [];
 
   for (const service of scheduledServices) {

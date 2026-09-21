@@ -132,6 +132,22 @@ describe("equipment reminders", () => {
     });
   });
 
+  it("raises nothing for a sold or retired unit", () => {
+    for (const status of ["sold", "retired"] as const) {
+      const notifications = buildEquipmentAttentionNotifications({
+        createdAt: "2026-05-24T12:00:00.000Z",
+        documents: [document()],
+        equipment: [{ ...equipment, status }],
+        now: new Date("2026-05-24T12:00:00.000Z"),
+        scheduledServices: [service()],
+        tenantId: "tenant-1",
+        users: [worker, manager],
+      });
+
+      expect(notifications).toHaveLength(0);
+    }
+  });
+
   it("names an expiring certification from the tenant's live type list", () => {
     const notifications = buildEquipmentAttentionNotifications({
       // The stored title is what the type was called when the certificate was filed.
