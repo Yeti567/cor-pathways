@@ -1404,6 +1404,16 @@ function attentionSortValue(status: EquipmentDueStatus) {
   return Number.MAX_SAFE_INTEGER;
 }
 
+/**
+ * A unit whose renewals are still ours to chase. A sold or retired unit keeps its history
+ * and still shows in the register with its badge, but nothing on it is due any more, so it
+ * must not count as overdue, expiring or needing attention anywhere. The reminder job, the
+ * compliance page and the data-quality scanner apply the same two statuses.
+ */
+export function isUnitInService(unit: { deleted_at?: string | null; status?: string | null }) {
+  return !unit.deleted_at && unit.status !== "sold" && unit.status !== "retired";
+}
+
 export function buildEquipmentAttentionItems(input: {
   documents: EquipmentInventoryDocumentRow[];
   equipment: EquipmentInventoryEquipmentRow[];
@@ -1412,7 +1422,7 @@ export function buildEquipmentAttentionItems(input: {
   scheduledServices: EquipmentInventoryScheduleRow[];
 }) {
   const equipmentById = new Map(
-    input.equipment.filter((equipment) => !equipment.deleted_at).map((equipment) => [equipment.id, equipment]),
+    input.equipment.filter(isUnitInService).map((equipment) => [equipment.id, equipment]),
   );
   const now = input.now ?? new Date();
   const items: EquipmentAttentionItem[] = [];
@@ -1526,7 +1536,7 @@ export function buildFleetRenewalWindows(input: {
 }): FleetRenewalWindows {
   const now = input.now ?? new Date();
   const liveUnitIds = new Set(
-    input.equipment.filter((equipment) => !equipment.deleted_at).map((equipment) => equipment.id),
+    input.equipment.filter(isUnitInService).map((equipment) => equipment.id),
   );
 
   const documentCounts = { expired: 0, within15: 0, within30: 0, within45: 0, within60: 0 };
@@ -1588,7 +1598,7 @@ export function buildEquipmentDashboardCounts(input: {
   scheduledServices: EquipmentInventoryScheduleRow[];
 }): EquipmentDashboardCounts {
   const equipmentById = new Map(
-    input.equipment.filter((equipment) => !equipment.deleted_at).map((equipment) => [equipment.id, equipment]),
+    input.equipment.filter(isUnitInService).map((equipment) => [equipment.id, equipment]),
   );
   const now = input.now ?? new Date();
   let overdueService = 0;
@@ -1858,11 +1868,15 @@ export function buildEquipmentInventoryRows(input: {
       const location = equipment.location_id ? locationById.get(equipment.location_id) : undefined;
       const user = equipment.assigned_to ? userById.get(equipment.assigned_to) : undefined;
       const serviceIndicator = getEquipmentServiceIndicator(
-        {
-          currentMeter: equipment.current_meter,
-          documents: documentsByEquipmentId.get(equipment.id) ?? [],
-          scheduledServices: schedulesByEquipmentId.get(equipment.id) ?? [],
-        },
+        // A sold or retired unit stays in the list with its badge, but carries no due
+        // indicator, so it never lands in the attention panel or the attention count.
+        isUnitInService(equipment)
+          ? {
+              currentMeter: equipment.current_meter,
+              documents: documentsByEquipmentId.get(equipment.id) ?? [],
+              scheduledServices: schedulesByEquipmentId.get(equipment.id) ?? [],
+            }
+          : { currentMeter: equipment.current_meter, documents: [], scheduledServices: [] },
         input.now,
       );
 

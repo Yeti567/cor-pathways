@@ -1715,6 +1715,7 @@ export async function queueOfflineScheduledServiceCompletion(input: {
 }
 
 export async function cacheOfflineEquipmentLibrary(input: OfflineEquipmentLibrary & { expiresAt: string | null }) {
+  await pruneUnitsNoLongerServed(input.equipment);
   await Promise.all([
     ...input.equipment.map((equipment) => cacheOfflineEquipmentSummary(equipment, input.expiresAt)),
     ...input.services.map((service) => cacheOfflineScheduledServiceSummary(service, input.expiresAt)),
@@ -1756,6 +1757,33 @@ export async function cacheOfflineEquipmentLibrary(input: OfflineEquipmentLibrar
   ]);
 }
 
+/**
+ * The server only hands a device the units still in service. A unit that was cached and
+ * has since been sold or retired is simply absent from the fresh list, so without this it
+ * would sit on the phone forever and keep turning up in the unit picker whenever the page
+ * falls back to the cache. Only runs on a non-empty list: an empty one means "offline",
+ * not "the fleet is gone".
+ */
+async function pruneUnitsNoLongerServed(fresh: OfflineEquipmentSummary[]) {
+  if (fresh.length === 0) {
+    return;
+  }
+
+  const tenantId = fresh[0].tenantId;
+  const keep = new Set(fresh.map((equipment) => equipmentRecordKey(equipment.id)));
+  const db = getOfflineDatabase();
+  const cached = await db.cachedRecords.where("[table+tenantId]").equals(["equipment", tenantId]).toArray();
+  const stale = cached.filter((record) => !keep.has(record.id)).map((record) => record.key);
+
+  if (stale.length > 0) {
+    await db.cachedRecords.bulkDelete(stale);
+  }
+}
+
+function isServedStatus(status: string) {
+  return status !== "sold" && status !== "retired";
+}
+
 export async function getCachedOfflineEquipmentLibrary(tenantId: string): Promise<OfflineEquipmentLibrary> {
   const db = getOfflineDatabase();
   const [
@@ -1785,7 +1813,9 @@ export async function getCachedOfflineEquipmentLibrary(tenantId: string): Promis
       left.fullName.localeCompare(right.fullName),
     ),
     documents: mapRecords(documentRecords, documentFromPayload),
-    equipment: mapRecords(equipmentRecords, equipmentFromPayload).sort(compareOfflineEquipmentOrder),
+    equipment: mapRecords(equipmentRecords, equipmentFromPayload)
+      .filter((equipment) => isServedStatus(equipment.status))
+      .sort(compareOfflineEquipmentOrder),
     locations: mapRecords(locationRecords, locationFromPayload).sort((left, right) => left.name.localeCompare(right.name)),
     maintenance: mapRecords(maintenanceRecords, maintenanceFromPayload).sort((left, right) =>
       right.performedAt.localeCompare(left.performedAt),

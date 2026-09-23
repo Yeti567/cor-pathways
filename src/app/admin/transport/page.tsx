@@ -204,6 +204,10 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         .eq("tenant_id", tenantId)
         .in("category", [...FLEET_CATEGORIES])
         .is("deleted_at", null)
+        // Sold and retired units have nothing left to renew. Vehicle Files, which these
+        // counters link to, excludes the same two, so the numbers match on click-through.
+        .neq("status", "sold")
+        .neq("status", "retired")
         .returns<FleetEquipmentRow[]>(),
       supabase
         .from("equipment_scheduled_service")
