@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { mergeCarrierProfileRead, readCarrierProfileFile } from "@/lib/carrier-profile-read";
 import { sanitizeStorageFilename } from "@/lib/document-control";
 import { requireSubcontractorUser } from "@/lib/current-user";
 import {
@@ -94,8 +95,29 @@ export async function submitSubcontractorDocument(formData: FormData) {
     backToPortal("Choose a file to upload.");
   }
 
-  const issuedDate = optionalDate(formData, "issuedDate");
+  let issuedDate = optionalDate(formData, "issuedDate");
   const expiryDate = optionalDate(formData, "expiryDate");
+
+  // The carrier still does not get to STATE its rating. What goes on the row here is what
+  // the app read off the province's own document, and the reviewer sees it, can change
+  // it, and has to accept it before it counts for anything.
+  let profileFields: Record<string, string> = {};
+
+  if (slot.key === "carrier_profile") {
+    const { read } = await readCarrierProfileFile(file);
+    const merged = mergeCarrierProfileRead(
+      read,
+      { issuedDate, monitoringStatus: null, nscNumber: null, safetyRating: null },
+      new Date().toISOString().slice(0, 10),
+    );
+
+    issuedDate = merged.issuedDate;
+    profileFields = {
+      ...merged.extraFields,
+      ...(merged.safetyRating ? { safety_rating: merged.safetyRating } : {}),
+      ...(merged.monitoringStatus ? { monitoring_status: merged.monitoringStatus } : {}),
+    };
+  }
 
   if (slot.dueMode === "expiry" && !expiryDate) {
     backToPortal(`${slot.label} needs the expiry date printed on it.`);
@@ -140,6 +162,8 @@ export async function submitSubcontractorDocument(formData: FormData) {
     },
     { intervalMonths: resolveIntervalMonths(slot, null) },
   );
+
+  write.fields = { ...write.fields, ...profileFields };
 
   const { data, error } = await supabase
     .from("subcontractor_document")

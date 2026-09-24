@@ -171,7 +171,9 @@ export const SUBCONTRACTOR_SLOTS: SubcontractorSlot[] = [
     intervalMonths: CARRIER_PROFILE_INTERVAL_MONTHS,
     required: true,
     reminderLeadDays: SUBCONTRACTOR_DEFAULT_LEAD_DAYS,
-    captures: ["safety_rating", "monitoring_status"],
+    // The NSC number is printed on every profile, so it is read here too rather than
+    // waiting on a separately filed Safety Fitness Certificate.
+    captures: ["safety_rating", "monitoring_status", "nsc_number"],
   },
   {
     key: "sfc_certificate",
@@ -292,7 +294,13 @@ export function slotCaptures(slot: SubcontractorSlot, capture: SubcontractorCapt
 }
 
 export const SUBCONTRACTOR_SAFETY_RATINGS = [
+  // Alberta's top rating. Rare, but it is printed, and filing it as "satisfactory" would
+  // throw away the one thing that sets the carrier apart.
+  { value: "excellent", label: "Excellent" },
   { value: "satisfactory", label: "Satisfactory" },
+  // Every province issues this to a carrier it has never audited. It is the most common
+  // rating on a small carrier's profile and it is NOT the same claim as Satisfactory.
+  { value: "satisfactory_unaudited", label: "Satisfactory Unaudited" },
   { value: "conditional", label: "Conditional" },
   { value: "unsatisfactory", label: "Unsatisfactory" },
   { value: "unrated", label: "Unrated" },

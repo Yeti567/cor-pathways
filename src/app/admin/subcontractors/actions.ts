@@ -5,6 +5,12 @@ import { redirect } from "next/navigation";
 import { loadResolvedSubcontractorSlots } from "@/app/admin/subcontractors/_lib/settings";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
+import {
+  carrierProfileNamesCarrier,
+  mergeCarrierProfileRead,
+  readCarrierProfileFile,
+  type CarrierProfileMerge,
+} from "@/lib/carrier-profile-read";
 import { sanitizeStorageFilename } from "@/lib/document-control";
 import {
   buildSubcontractorDocumentWrite,
@@ -144,7 +150,7 @@ async function requireOwnedSubcontractor(
 
   const { data } = await supabase
     .from("subcontractor")
-    .select("id, carrier_profile_interval_months, rate_statement_interval_months")
+    .select("id, legal_name, nsc_number, carrier_profile_interval_months, rate_statement_interval_months")
     .eq("id", subcontractorId)
     .eq("tenant_id", tenantId)
     .is("deleted_at", null)
@@ -615,8 +621,31 @@ export async function fileSubcontractorDocument(formData: FormData) {
     backToSubcontractor(subcontractorId, "Choose a file, or reuse one already uploaded for this subcontractor.");
   }
 
-  const issuedDate = optionalDate(formData, "issuedDate");
   const expiryDate = optionalDate(formData, "expiryDate");
+  let issuedDate = optionalDate(formData, "issuedDate");
+  let documentNumber = optionalString(formData, "documentNumber");
+  let safetyRating: string | null = optionalChoice(formData, "safetyRating", SUBCONTRACTOR_SAFETY_RATINGS);
+  let monitoringStatus: string | null = optionalChoice(formData, "monitoringStatus", SUBCONTRACTOR_MONITORING_STATUSES);
+
+  // The carrier profile is collected to be graded, so read the grade off it rather than
+  // relying on somebody remembering to pick it from a dropdown. Before the date check,
+  // because the profile's own generated date is the issue date the interval runs from.
+  let profile: CarrierProfileMerge | null = null;
+
+  if (slot.key === "carrier_profile" && hasUpload) {
+    const { read, text } = await readCarrierProfileFile(file);
+
+    profile = mergeCarrierProfileRead(
+      read,
+      { issuedDate, monitoringStatus, nscNumber: documentNumber, safetyRating },
+      new Date().toISOString().slice(0, 10),
+    );
+    ({ issuedDate, monitoringStatus, nscNumber: documentNumber, safetyRating } = profile);
+
+    if (text && !carrierProfileNamesCarrier(text, subcontractor.legal_name)) {
+      profile.notes.push(`The profile does not name ${subcontractor.legal_name}. Check it was filed under the right carrier.`);
+    }
+  }
 
   if (slot.dueMode === "expiry" && !expiryDate) {
     backToSubcontractor(subcontractorId, `${slot.label} needs an expiry date, or nothing can warn you before it lapses.`);
@@ -658,8 +687,8 @@ export async function fileSubcontractorDocument(formData: FormData) {
   const fields: Record<string, string | null> = {
     employer_rate: optionalString(formData, "employerRate"),
     industry_rate: optionalString(formData, "industryRate"),
-    monitoring_status: optionalChoice(formData, "monitoringStatus", SUBCONTRACTOR_MONITORING_STATUSES),
-    safety_rating: optionalChoice(formData, "safetyRating", SUBCONTRACTOR_SAFETY_RATINGS),
+    monitoring_status: monitoringStatus,
+    safety_rating: safetyRating,
     wcb_account: optionalString(formData, "wcbAccount"),
   };
 
@@ -669,7 +698,7 @@ export async function fileSubcontractorDocument(formData: FormData) {
       additionalInsured: checkboxValue(formData, "additionalInsured"),
       coverageAmount: optionalMoney(formData, "coverageAmount"),
       deductibleAmount: optionalMoney(formData, "deductibleAmount"),
-      documentNumber: optionalString(formData, "documentNumber"),
+      documentNumber,
       expiryDate,
       fields,
       insurer: optionalString(formData, "insurer"),
@@ -691,6 +720,12 @@ export async function fileSubcontractorDocument(formData: FormData) {
       ),
     },
   );
+
+  if (profile) {
+    // Kept beside the captures so the grade, and the numbers behind it, stay with the
+    // document they were read from.
+    write.fields = { ...write.fields, ...profile.extraFields };
+  }
 
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -735,12 +770,28 @@ export async function fileSubcontractorDocument(formData: FormData) {
 
   const parentPatch = parentPatchFromCaptures(slot, fields);
 
+  if (profile) {
+    profile.notes.push(
+      ...(await carrierProfileCrossChecks(supabase, context.appUser.tenant_id, subcontractor, documentNumber, write.fields)),
+    );
+
+    // Fill the carrier's NSC number when it has none. Never overwrite one: a different
+    // number is reported by the cross-check above, not silently swapped.
+    if (documentNumber && !subcontractor.nsc_number) {
+      parentPatch.nsc_number = documentNumber;
+    }
+  }
+
   if (Object.keys(parentPatch).length > 0) {
-    await supabase
+    const { error: parentError } = await supabase
       .from("subcontractor")
       .update(parentPatch)
       .eq("id", subcontractorId)
       .eq("tenant_id", context.appUser.tenant_id);
+
+    if (parentError) {
+      profile?.notes.push(`The carrier's rating could not be updated: ${parentError.message}`);
+    }
   }
 
   await audit(context, {
@@ -757,7 +808,48 @@ export async function fileSubcontractorDocument(formData: FormData) {
   });
 
   revalidatePath(LIST_PATH);
-  backToSubcontractor(subcontractorId, `${slot.label} filed.`, "notice");
+  backToSubcontractor(subcontractorId, [`${slot.label} filed.`, ...(profile?.notes ?? [])].join(" "), "notice");
+}
+
+/**
+ * What a freshly read profile disagrees with elsewhere on the carrier's file.
+ *
+ * Reported, never corrected: the profile may be the stale one, and a person has to say
+ * which document is wrong.
+ */
+async function carrierProfileCrossChecks(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  tenantId: string,
+  subcontractor: { id: string; nsc_number: string | null },
+  nscNumber: string | null,
+  fields: Record<string, string | null>,
+) {
+  const notes: string[] = [];
+  const flat = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+  if (nscNumber && subcontractor.nsc_number && flat(nscNumber) !== flat(subcontractor.nsc_number)) {
+    notes.push(`The carrier is on file as NSC ${subcontractor.nsc_number} but this profile says ${nscNumber}.`);
+  }
+
+  const profileSfcExpiry = fields.profile_sfc_expiry ?? null;
+
+  if (profileSfcExpiry) {
+    const { data: sfc } = await supabase
+      .from("subcontractor_document")
+      .select("expiry_date")
+      .eq("tenant_id", tenantId)
+      .eq("subcontractor_id", subcontractor.id)
+      .eq("slot_key", "sfc_certificate")
+      .is("superseded_by_id", null)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (sfc?.expiry_date && sfc.expiry_date !== profileSfcExpiry) {
+      notes.push(`The Safety Fitness Certificate on file expires ${sfc.expiry_date}; the profile says ${profileSfcExpiry}.`);
+    }
+  }
+
+  return notes;
 }
 
 /**
@@ -842,8 +934,14 @@ export async function reviewSubcontractorDocument(formData: FormData) {
   const reviewedFields: Record<string, string | null> = { ...((document.fields ?? {}) as Record<string, string | null>) };
 
   if (slot && slotCaptures(slot, "safety_rating")) {
-    reviewedFields.safety_rating = optionalChoice(formData, "safetyRating", SUBCONTRACTOR_SAFETY_RATINGS);
-    reviewedFields.monitoring_status = optionalChoice(formData, "monitoringStatus", SUBCONTRACTOR_MONITORING_STATUSES);
+    // Blank means "I did not change it", not "clear it": the value read off the profile
+    // when the carrier submitted it stands unless the reviewer picks another.
+    reviewedFields.safety_rating =
+      optionalChoice(formData, "safetyRating", SUBCONTRACTOR_SAFETY_RATINGS) ?? reviewedFields.safety_rating ?? null;
+    reviewedFields.monitoring_status =
+      optionalChoice(formData, "monitoringStatus", SUBCONTRACTOR_MONITORING_STATUSES) ??
+      reviewedFields.monitoring_status ??
+      null;
   }
 
   const { data, error } = await supabase

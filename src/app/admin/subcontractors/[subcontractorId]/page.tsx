@@ -13,6 +13,7 @@ import { loadResolvedSubcontractorSlots } from "@/app/admin/subcontractors/_lib/
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { WcbClearancePanel } from "@/app/admin/subcontractors/_components/WcbClearancePanel";
 import { canUseAdminPanel } from "@/lib/access-control";
+import { CARRIER_PROFILE_GRADE_LABELS } from "@/lib/carrier-profile-read";
 import { requireAppUser } from "@/lib/current-user";
 import {
   getSubcontractorDocumentStatus,
@@ -75,6 +76,53 @@ function money(value: number | null) {
   );
 }
 
+function ratingLabel(value: string) {
+  return SUBCONTRACTOR_SAFETY_RATINGS.find((rating) => rating.value === value)?.label ?? value;
+}
+
+const gradeTone = { fail: toneClass.red, pass: toneClass.green, review: toneClass.amber } as const;
+
+/** The grade read off a filed carrier profile, and the numbers it was given on. */
+function CarrierProfileGradeLine({ fields }: { fields: DocumentRow["fields"] }) {
+  const bag = (fields ?? {}) as Record<string, string | null | undefined>;
+  const grade = bag.profile_grade as keyof typeof gradeTone | undefined;
+
+  if (!grade && !bag.safety_rating) {
+    return (
+      <p className="mt-2 text-xs text-[var(--ink-muted)]">
+        Not graded. Filed before the app read profiles, or it could not be read. File it again to grade it.
+      </p>
+    );
+  }
+
+  const facts = [
+    bag.profile_rating_as_printed ?? (bag.safety_rating ? ratingLabel(bag.safety_rating) : null),
+    bag.profile_nsc_number ? `NSC ${bag.profile_nsc_number}` : null,
+    bag.profile_monitoring_stage ?? null,
+    bag.profile_r_factor
+      ? `R-Factor ${bag.profile_r_factor}${bag.profile_industry_average_r_factor ? ` (industry ${bag.profile_industry_average_r_factor})` : ""}`
+      : null,
+    bag.profile_percent_of_maximum ? `${bag.profile_percent_of_maximum}% of maximum` : null,
+    bag.profile_convictions_total ? `${bag.profile_convictions_total} convictions` : null,
+    bag.profile_accidents_total ? `${bag.profile_accidents_total} collisions` : null,
+    bag.profile_sfc_expiry ? `SFC to ${bag.profile_sfc_expiry}` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="mt-2 flex flex-wrap items-start gap-2 text-xs text-[var(--ink)]">
+      {grade ? (
+        <span className={`inline-flex items-center rounded-md border px-2 py-0.5 font-semibold uppercase tracking-wide ${gradeTone[grade]}`}>
+          {CARRIER_PROFILE_GRADE_LABELS[grade]}
+        </span>
+      ) : null}
+      <span className="pt-0.5">
+        {facts.join(" · ")}
+        {bag.profile_grade_reasons ? <span className="block text-[var(--ink-muted)]">{bag.profile_grade_reasons}</span> : null}
+      </span>
+    </div>
+  );
+}
+
 /**
  * The fields a slot asks for, rendered from the slot definition.
  *
@@ -83,18 +131,28 @@ function money(value: number | null) {
  * and adding a field later is one entry in one array.
  */
 function SlotFields({ intervalMonths, slot }: { intervalMonths: number | null; slot: ResolvedSubcontractorSlot }) {
+  // A carrier profile is read on upload: the date, rating, monitoring stage and NSC number
+  // come off the document, so every field on its form may be left blank.
+  const readOnUpload = slot.key === "carrier_profile";
+
   return (
     <>
+      {readOnUpload ? (
+        <p className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-2 text-xs text-[var(--ink-muted)]">
+          Leave these blank and they are read off the profile when you file it. Anything you do enter is kept, and you
+          are told if the profile says otherwise.
+        </p>
+      ) : null}
       {slot.dueMode !== "none" ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={labelClass}>
             <span className={labelTextClass}>
-              Issued{slot.dueMode === "interval" ? "" : " (optional)"}
+              Issued{slot.dueMode === "interval" && !readOnUpload ? "" : " (optional)"}
             </span>
             <input
               className={inputClass}
               name="issuedDate"
-              required={slot.dueMode === "interval"}
+              required={slot.dueMode === "interval" && !readOnUpload}
               type="date"
             />
             {slot.dueMode === "interval" ? (
@@ -370,7 +428,8 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
           <div>
             <p className="text-sm text-[var(--ink-muted)]">
               {summary.satisfiedCount} of {summary.requiredCount} documents current
-              {subcontractor.safety_rating ? ` · Rated ${subcontractor.safety_rating}` : ""}
+              {subcontractor.safety_rating ? ` · Rated ${ratingLabel(subcontractor.safety_rating)}` : ""}
+              {subcontractor.nsc_number ? ` · NSC ${subcontractor.nsc_number}` : ""}
               {subcontractor.monitoring_status && subcontractor.monitoring_status !== "none"
                 ? ` · ${subcontractor.monitoring_status}`
                 : ""}
@@ -446,7 +505,11 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
                         <div className="grid gap-2 sm:grid-cols-2">
                           <label className="space-y-1">
                             <span className="text-xs font-medium text-[var(--ink-muted)]">Safety rating</span>
-                            <select className={inputClass} defaultValue="" name="safetyRating">
+                            <select
+                              className={inputClass}
+                              defaultValue={(document.fields as Record<string, string> | null)?.safety_rating ?? ""}
+                              name="safetyRating"
+                            >
                               <option value="">Not recorded</option>
                               {SUBCONTRACTOR_SAFETY_RATINGS.map((rating) => (
                                 <option key={rating.value} value={rating.value}>
@@ -457,7 +520,11 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
                           </label>
                           <label className="space-y-1">
                             <span className="text-xs font-medium text-[var(--ink-muted)]">Monitoring</span>
-                            <select className={inputClass} defaultValue="" name="monitoringStatus">
+                            <select
+                              className={inputClass}
+                              defaultValue={(document.fields as Record<string, string> | null)?.monitoring_status ?? ""}
+                              name="monitoringStatus"
+                            >
                               <option value="">Not recorded</option>
                               {SUBCONTRACTOR_MONITORING_STATUSES.map((status) => (
                                 <option key={status.value} value={status.value}>
@@ -651,6 +718,7 @@ export default async function SubcontractorDetailPage({ params, searchParams }: 
                                 </form>
                               </div>
                             </div>
+                            {slot.key === "carrier_profile" ? <CarrierProfileGradeLine fields={live.fields} /> : null}
                             {slot.key === "cargo_insurance" && live.deductible_amount !== null ? (
                               <p className="mt-1 text-xs text-[var(--ink-muted)]">
                                 Deductible {money(live.deductible_amount)}

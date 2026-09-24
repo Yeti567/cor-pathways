@@ -814,21 +814,76 @@ export async function extractPdfEmbeddedText(buffer: Buffer) {
   }
 }
 
-async function rasterizePdfPagesToPngBuffers(buffer: Buffer) {
+type NapiCanvasTarget = {
+  canvas: { width: number; height: number } | null;
+  context: unknown;
+};
+
+/**
+ * The canvas pdf.js draws a page's embedded IMAGES onto before compositing them.
+ *
+ * unpdf ships pdf.js with its Node canvas factory stubbed out to throw, and passing a
+ * canvas to renderPageAsImage only covers the page itself. A text-only PDF renders fine
+ * without this, so it went unnoticed; a scan, which is one big embedded image, threw
+ * "@napi-rs/canvas is not available", the catch below swallowed it, and OCR was handed
+ * zero pages. That is why a scanned Alberta carrier profile read as blank (2026-09-24).
+ */
+async function loadNapiCanvasFactory() {
+  const { createCanvas } = await import("@napi-rs/canvas");
+
+  return class NapiCanvasFactory {
+    create(width: number, height: number) {
+      const canvas = createCanvas(width, height);
+
+      return { canvas, context: canvas.getContext("2d") };
+    }
+
+    reset(target: NapiCanvasTarget, width: number, height: number) {
+      if (target.canvas) {
+        target.canvas.width = width;
+        target.canvas.height = height;
+      }
+    }
+
+    destroy(target: NapiCanvasTarget) {
+      if (target.canvas) {
+        target.canvas.width = 0;
+        target.canvas.height = 0;
+      }
+
+      target.canvas = null;
+      target.context = null;
+    }
+  };
+}
+
+export type PdfOcrOptions = {
+  /** Render scale for scanned pages. Small print (a certificate's dates) needs 3. */
+  ocrScale?: number;
+  /** Stop after this many pages, so a long scan cannot run a request past its timeout. */
+  ocrMaxPages?: number;
+};
+
+export async function rasterizePdfPagesToPngBuffers(buffer: Buffer, options: PdfOcrOptions = {}) {
+  const scale = options.ocrScale ?? 2;
   try {
     await installPdfRuntime();
     const { getDocumentProxy, renderPageAsImage } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(buffer), {
+      // Not in unpdf's option type, but passed straight through to pdf.js getDocument.
+      CanvasFactory: await loadNapiCanvasFactory(),
       isEvalSupported: false,
       useSystemFonts: false,
-    });
+    } as Parameters<typeof getDocumentProxy>[1]);
     const pages: Buffer[] = [];
 
     try {
-      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const lastPage = Math.min(pdf.numPages, options.ocrMaxPages ?? pdf.numPages);
+
+      for (let pageNumber = 1; pageNumber <= lastPage; pageNumber += 1) {
         const image = await renderPageAsImage(pdf, pageNumber, {
           canvasImport: () => import("@napi-rs/canvas"),
-          scale: 2,
+          scale,
         });
         pages.push(Buffer.from(image));
       }
@@ -1072,7 +1127,11 @@ async function recognizeImageText(input: OcrImageInput) {
   }
 }
 
-async function extractPdfTextResult(file: File, env: Partial<NodeJS.ProcessEnv>): Promise<ExtractedImportTextResult> {
+async function extractPdfTextResult(
+  file: File,
+  env: Partial<NodeJS.ProcessEnv>,
+  ocrOptions: PdfOcrOptions = {},
+): Promise<ExtractedImportTextResult> {
   const buffer = Buffer.from(await file.arrayBuffer());
   const embeddedText = await extractPdfEmbeddedText(buffer);
 
@@ -1084,7 +1143,7 @@ async function extractPdfTextResult(file: File, env: Partial<NodeJS.ProcessEnv>)
     };
   }
 
-  const pageImages = await rasterizePdfPagesToPngBuffers(buffer);
+  const pageImages = await rasterizePdfPagesToPngBuffers(buffer, ocrOptions);
   const pageTexts: string[] = [];
   let providerLabel = "Tesseract OCR";
 
@@ -1119,7 +1178,11 @@ async function extractImageTextResult(file: File, env: Partial<NodeJS.ProcessEnv
   };
 }
 
-async function extractTextResultFromImportFile(file: File, env: Partial<NodeJS.ProcessEnv>): Promise<ExtractedImportTextResult> {
+async function extractTextResultFromImportFile(
+  file: File,
+  env: Partial<NodeJS.ProcessEnv>,
+  ocrOptions: PdfOcrOptions = {},
+): Promise<ExtractedImportTextResult> {
   const extension = fileExtension(file.name);
 
   if (file.size > formImportMaxSizeBytes) {
@@ -1127,7 +1190,7 @@ async function extractTextResultFromImportFile(file: File, env: Partial<NodeJS.P
   }
 
   if (file.type === "application/pdf" || extension === "pdf") {
-    return extractPdfTextResult(file, env);
+    return extractPdfTextResult(file, env, ocrOptions);
   }
 
   if (imageMimeTypes.has(file.type) || ["jpg", "jpeg", "png", "webp"].includes(extension)) {
@@ -1162,8 +1225,8 @@ export function buildLocalFormImportStarterText(fileName: string) {
   ].join("\n");
 }
 
-export async function extractTextFromImportFile(file: File) {
-  return (await extractTextResultFromImportFile(file, process.env)).detectedText;
+export async function extractTextFromImportFile(file: File, options: PdfOcrOptions = {}) {
+  return (await extractTextResultFromImportFile(file, process.env, options)).detectedText;
 }
 
 export async function extractFormFieldsFromImportFile(
