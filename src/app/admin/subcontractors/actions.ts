@@ -266,9 +266,10 @@ export async function removeSubcontractor(formData: FormData) {
 
   // Soft delete. The filed documents are the evidence of what was checked and when, and
   // removing a company from the active list is not a reason to destroy that.
+  const removedAt = new Date().toISOString();
   const { data, error } = await supabase
     .from("subcontractor")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({ deleted_at: removedAt })
     .eq("id", subcontractorId)
     .eq("tenant_id", context.appUser.tenant_id)
     .select("id");
@@ -279,6 +280,23 @@ export async function removeSubcontractor(formData: FormData) {
 
   if (!data || data.length === 0) {
     backToSubcontractor(subcontractorId, "Nothing was removed. You may not have permission to change this record.");
+  }
+
+  // Its trucks and drivers go with it, stamped with the same time so the removal can be
+  // undone as one. Every contracted list, reminder and ELD match filters on the unit's or
+  // driver's OWN deleted_at, not the carrier's, so without this a removed carrier's
+  // tractors stayed on Contracted Equipment and kept raising expiry reminders.
+  for (const table of ["contracted_equipment", "contracted_driver"] as const) {
+    const { error: childError } = await supabase
+      .from(table)
+      .update({ deleted_at: removedAt })
+      .eq("subcontractor_id", subcontractorId)
+      .eq("tenant_id", context.appUser.tenant_id)
+      .is("deleted_at", null);
+
+    if (childError) {
+      backToList(`The carrier was removed, but its ${table === "contracted_driver" ? "drivers" : "units"} could not be: ${childError.message}`);
+    }
   }
 
   await audit(context, {
