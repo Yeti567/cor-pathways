@@ -1560,6 +1560,37 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["equipment_document"]["Row"]>;
         Relationships: [];
       };
+      document_intake: {
+        Row: TenantScopedRow & {
+          attempts: number;
+          batch_id: string;
+          claimed_at: string | null;
+          confidence: number | null;
+          content_sha256: string | null;
+          doc_type: string | null;
+          equipment_id: string | null;
+          error: string | null;
+          extraction: Json;
+          filed_at: string | null;
+          filed_document_id: string | null;
+          mime_type: string | null;
+          original_name: string;
+          proposal: Json;
+          review_reasons: string[];
+          reviewed_by: string | null;
+          size_bytes: number | null;
+          status: "queued" | "reading" | "ready" | "needs_review" | "filed" | "skipped" | "failed";
+          storage_path: string;
+          uploaded_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["document_intake"]["Row"]> &
+          Pick<
+            Database["public"]["Tables"]["document_intake"]["Row"],
+            "tenant_id" | "batch_id" | "storage_path" | "original_name"
+          >;
+        Update: Partial<Database["public"]["Tables"]["document_intake"]["Row"]>;
+        Relationships: [];
+      };
       equipment_certification_types: {
         Row: TenantScopedRow & {
           applies_by_default: boolean;
