@@ -27,6 +27,8 @@ type Props = {
 };
 
 type Candidate = { file: File; name: string; type: string };
+/** A picked or dropped file and where it sat in the folder it came from. */
+type Picked = { file: File; path: string };
 
 const UPLOAD_LANES = 4;
 // Each lane makes one processing call at a time and each call reads several files at once.
@@ -52,9 +54,70 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function fromPicker(list: FileList | null): Picked[] {
+  return Array.from(list ?? []).map((file) => ({
+    file,
+    path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+  }));
+}
+
+function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  return new Promise((resolve, reject) => {
+    const all: FileSystemEntry[] = [];
+    // readEntries hands back at most about 100 entries a call; an empty batch is the end.
+    const next = () =>
+      reader.readEntries((batch) => {
+        if (batch.length === 0) {
+          resolve(all);
+        } else {
+          all.push(...batch);
+          next();
+        }
+      }, reject);
+    next();
+  });
+}
+
+async function walkEntry(entry: FileSystemEntry, into: Picked[]) {
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+    into.push({ file, path: entry.fullPath.replace(/^\//, "") });
+    return;
+  }
+
+  if (entry.isDirectory) {
+    for (const child of await readAllEntries((entry as FileSystemDirectoryEntry).createReader())) {
+      await walkEntry(child, into);
+    }
+  }
+}
+
+// A folder dragged onto the page arrives in dataTransfer.files as one empty item with no
+// type, so it used to be skipped as "only PDF and photos can be read". The entries API
+// walks into it instead. The entries must be taken synchronously, inside the drop event.
+function fromDrop(transfer: DataTransfer): Promise<Picked[]> {
+  const entries = Array.from(transfer.items ?? [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.webkitGetAsEntry?.() ?? null);
+
+  if (entries.length === 0 || entries.some((entry) => entry === null)) {
+    return Promise.resolve(fromPicker(transfer.files));
+  }
+
+  return (async () => {
+    const picked: Picked[] = [];
+
+    for (const entry of entries) {
+      await walkEntry(entry as FileSystemEntry, picked);
+    }
+
+    return picked;
+  })();
+}
+
 // Expands zips in the browser, so unpacking costs the server nothing and each file is
 // validated and uploaded on its own.
-async function expand(files: File[]): Promise<{ candidates: Candidate[]; skipped: string[] }> {
+async function expand(files: Picked[]): Promise<{ candidates: Candidate[]; skipped: string[] }> {
   const candidates: Candidate[] = [];
   const skipped: string[] = [];
   const seen = new Set<string>();
@@ -85,9 +148,7 @@ async function expand(files: File[]): Promise<{ candidates: Candidate[]; skipped
     candidates.push({ file, name, type });
   }
 
-  for (const file of files) {
-    const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-
+  for (const { file, path: relative } of files) {
     if (extensionOf(file.name) === "zip" || file.type === "application/zip" || file.type === "application/x-zip-compressed") {
       try {
         const entries = unzipSync(new Uint8Array(await file.arrayBuffer()), {
@@ -207,10 +268,14 @@ export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Prop
     }
   }, [queuedCount, readerConfigured, runReading]);
 
-  async function handleFiles(list: FileList | File[] | null) {
-    const files = Array.from(list ?? []);
+  async function handleFiles(pending: Picked[] | Promise<Picked[]>) {
+    if (phase === "uploading" || phase === "reading") {
+      return;
+    }
 
-    if (files.length === 0 || phase === "uploading" || phase === "reading") {
+    const files = await pending;
+
+    if (files.length === 0) {
       return;
     }
 
@@ -299,7 +364,7 @@ export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Prop
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          void handleFiles(event.dataTransfer.files);
+          void handleFiles(fromDrop(event.dataTransfer));
         }}
       >
         <UploadCloud className="mx-auto h-9 w-9 text-[var(--primary)]" aria-hidden="true" />
@@ -335,7 +400,7 @@ export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Prop
           className="hidden"
           multiple
           onChange={(event) => {
-            void handleFiles(event.target.files);
+            void handleFiles(fromPicker(event.target.files));
             event.target.value = "";
           }}
           ref={filesRef}
@@ -345,7 +410,7 @@ export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Prop
           className="hidden"
           multiple
           onChange={(event) => {
-            void handleFiles(event.target.files);
+            void handleFiles(fromPicker(event.target.files));
             event.target.value = "";
           }}
           ref={folderRef}
