@@ -1,4 +1,5 @@
 import { summarizeReportAnalytics, type AnalyticsSubmission, type AnalyticsUser } from "@/lib/report-analytics";
+import { selectAllRowsForIdsResult, selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -90,6 +91,8 @@ export async function loadAdminReportData(tenantId: string, dateRangeInput: Admi
   const supabase = await createSupabaseServerClient();
   const dateRange = resolveAdminReportDateRange(dateRangeInput);
 
+  // Submissions and follow-ups are paged: a busy range passes PostgREST's 1,000-row cap
+  // and the report would count only the first thousand without a word.
   const [
     { data: forms },
     { data: users },
@@ -110,21 +113,29 @@ export async function loadAdminReportData(tenantId: string, dateRangeInput: Admi
       .eq("tenant_id", tenantId)
       .order("full_name")
       .returns<AnalyticsUser[]>(),
-    supabase
-      .from("submissions")
-      .select("id, form_id, submitted_by, created_at, submitted_at")
-      .eq("tenant_id", tenantId)
-      .gte("created_at", dateRange.start.toISOString())
-      .lt("created_at", dateRange.endExclusive.toISOString())
-      .returns<AnalyticsSubmission[]>(),
-    supabase
-      .from("follow_ups")
-      .select("id, title, description, status, assigned_to, created_at, parent_submission_id, form_item_id")
-      .eq("tenant_id", tenantId)
-      .gte("created_at", dateRange.start.toISOString())
-      .lt("created_at", dateRange.endExclusive.toISOString())
-      .order("created_at", { ascending: false })
-      .returns<ReportFollowUpRow[]>(),
+    selectAllRowsResult<AnalyticsSubmission>((from, to) =>
+      supabase
+        .from("submissions")
+        .select("id, form_id, submitted_by, created_at, submitted_at")
+        .eq("tenant_id", tenantId)
+        .gte("created_at", dateRange.start.toISOString())
+        .lt("created_at", dateRange.endExclusive.toISOString())
+        .order("id")
+        .range(from, to)
+        .returns<AnalyticsSubmission[]>(),
+    ),
+    selectAllRowsResult<ReportFollowUpRow>((from, to) =>
+      supabase
+        .from("follow_ups")
+        .select("id, title, description, status, assigned_to, created_at, parent_submission_id, form_item_id")
+        .eq("tenant_id", tenantId)
+        .gte("created_at", dateRange.start.toISOString())
+        .lt("created_at", dateRange.endExclusive.toISOString())
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(from, to)
+        .returns<ReportFollowUpRow[]>(),
+    ),
     supabase.from("company_settings").select("*").eq("tenant_id", tenantId).maybeSingle<ReportCompanySettingsRow>(),
     supabase.from("print_settings").select("*").eq("tenant_id", tenantId).maybeSingle<ReportPrintSettingsRow>(),
   ]);
@@ -139,12 +150,17 @@ export async function loadAdminReportData(tenantId: string, dateRangeInput: Admi
   const [{ data: values }, { data: items }] =
     analyticsSubmissionIds.length > 0
       ? await Promise.all([
-          supabase
-            .from("submission_values")
-            .select("submission_id, form_item_id, value")
-            .eq("tenant_id", tenantId)
-            .in("submission_id", analyticsSubmissionIds)
-            .returns<ReportSubmissionValueRow[]>(),
+          // A range's answers: far past the 1,000-row cap, and too many ids for one URL.
+          selectAllRowsForIdsResult<ReportSubmissionValueRow>(analyticsSubmissionIds, (ids, from, to) =>
+            supabase
+              .from("submission_values")
+              .select("submission_id, form_item_id, value")
+              .eq("tenant_id", tenantId)
+              .in("submission_id", ids)
+              .order("id")
+              .range(from, to)
+              .returns<ReportSubmissionValueRow[]>(),
+          ),
           supabase
             .from("form_items")
             .select("id, form_id, label, field_type, sort_order")

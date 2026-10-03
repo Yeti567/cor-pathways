@@ -18,6 +18,7 @@ import {
   hasDistinctName,
 } from "@/lib/equipment";
 import { sendEquipmentAttentionNotifications } from "@/lib/equipment-reminders";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -91,15 +92,21 @@ export default async function EquipmentPage({ searchParams }: EquipmentPageProps
 
   const supabase = await createSupabaseServerClient();
   await sendEquipmentAttentionNotifications(context.appUser.tenant_id);
-  const [{ data: equipment }, { data: locations }, { data: users }, { data: scheduledServices }, { data: documents }] =
+  // Units, services and documents are read in full: PostgREST stops at 1,000 rows and
+  // says nothing, so the counts past that would be quietly short.
+  const [equipment, { data: locations }, { data: users }, scheduledServices, documents] =
     await Promise.all([
-      supabase
-        .from("equipment")
-        .select("*")
-        .eq("tenant_id", context.appUser.tenant_id)
-        .is("deleted_at", null)
-        .order("unit_number", { ascending: true })
-        .returns<EquipmentRow[]>(),
+      selectAllRows<EquipmentRow>((from, to) =>
+        supabase
+          .from("equipment")
+          .select("*")
+          .eq("tenant_id", context.appUser.tenant_id)
+          .is("deleted_at", null)
+          .order("unit_number", { ascending: true })
+          .order("id")
+          .range(from, to)
+          .returns<EquipmentRow[]>(),
+      ),
       supabase
         .from("locations")
         .select("id, name, code")
@@ -112,36 +119,44 @@ export default async function EquipmentPage({ searchParams }: EquipmentPageProps
         .eq("tenant_id", context.appUser.tenant_id)
         .order("full_name", { ascending: true })
         .returns<UserRow[]>(),
-      supabase
-        .from("equipment_scheduled_service")
-        .select("equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, date_lead_days, meter_lead, is_active")
-        .eq("tenant_id", context.appUser.tenant_id)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .returns<ScheduledServiceRow[]>(),
-      supabase
-        .from("equipment_document")
-        .select("equipment_id, title, expiry_date, reminder_lead_days, is_active")
-        .eq("tenant_id", context.appUser.tenant_id)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .returns<EquipmentDocumentRow[]>(),
+      selectAllRows<ScheduledServiceRow>((from, to) =>
+        supabase
+          .from("equipment_scheduled_service")
+          .select("equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, date_lead_days, meter_lead, is_active")
+          .eq("tenant_id", context.appUser.tenant_id)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<ScheduledServiceRow[]>(),
+      ),
+      selectAllRows<EquipmentDocumentRow>((from, to) =>
+        supabase
+          .from("equipment_document")
+          .select("equipment_id, title, expiry_date, reminder_lead_days, is_active")
+          .eq("tenant_id", context.appUser.tenant_id)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<EquipmentDocumentRow[]>(),
+      ),
     ]);
 
   const rows = buildEquipmentInventoryRows({
     assignedTo,
     category,
-    documents: (documents ?? []).map((document) => ({
+    documents: documents.map((document) => ({
       equipment_id: document.equipment_id,
       expiryDate: document.expiry_date,
       isActive: document.is_active,
       reminderLeadDays: document.reminder_lead_days,
       title: document.title,
     })),
-    equipment: equipment ?? [],
+    equipment,
     locations: locations ?? [],
     query,
-    scheduledServices: (scheduledServices ?? []).map((service) => ({
+    scheduledServices: scheduledServices.map((service) => ({
       dueDate: service.due_date,
       dueMeter: service.due_meter,
       windowStartMeter: service.window_start_meter,
@@ -158,7 +173,7 @@ export default async function EquipmentPage({ searchParams }: EquipmentPageProps
     users: users ?? [],
   });
 
-  const allEquipment = equipment ?? [];
+  const allEquipment = equipment;
   const activeCount = allEquipment.filter((item) => item.status === "active").length;
   const downCount = allEquipment.filter((item) => item.status === "down").length;
   const serviceAttentionCount = rows.filter((row) => row.serviceIndicator.state !== "current").length;

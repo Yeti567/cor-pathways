@@ -26,6 +26,7 @@ import {
   type EldTarget,
 } from "@/lib/eld/targets";
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import type { Database, EldProvider } from "@/types/database";
 
 type AdminClient = NonNullable<ReturnType<typeof createSupabaseAdminClient>>;
@@ -67,13 +68,19 @@ export async function reconcileEldDriverLinks(input: {
     return map;
   }
 
+  // Paged, as is the unit read below: a roster past PostgREST's 1,000-row cap would
+  // otherwise leave drivers on it unmatched.
   const [{ data: contractedDrivers }, { data: ownDrivers }] = await Promise.all([
-    admin
-      .from("contracted_driver")
-      .select("id, full_name")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<DbDriver[]>(),
+    selectAllRowsResult<DbDriver>((from, to) =>
+      admin
+        .from("contracted_driver")
+        .select("id, full_name")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<DbDriver[]>(),
+    ),
     admin
       .from("transport_driver")
       .select("id, full_name")
@@ -157,18 +164,26 @@ export async function reconcileEldVehicleLinks(input: {
   }
 
   const [{ data: contracted }, { data: own }] = await Promise.all([
-    admin
-      .from("contracted_equipment")
-      .select("id, unit_number, vin_or_serial, license_plate")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<EquipmentMatchRow[]>(),
-    admin
-      .from("equipment")
-      .select("id, unit_number, vin_or_serial, license_plate")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<EquipmentMatchRow[]>(),
+    selectAllRowsResult<EquipmentMatchRow>((from, to) =>
+      admin
+        .from("contracted_equipment")
+        .select("id, unit_number, vin_or_serial, license_plate")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentMatchRow[]>(),
+    ),
+    selectAllRowsResult<EquipmentMatchRow>((from, to) =>
+      admin
+        .from("equipment")
+        .select("id, unit_number, vin_or_serial, license_plate")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentMatchRow[]>(),
+    ),
   ]);
 
   const alreadyLinked = new Set(map.keys());

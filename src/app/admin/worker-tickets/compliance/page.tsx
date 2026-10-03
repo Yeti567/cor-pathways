@@ -5,6 +5,7 @@ import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { hasAttachedProof } from "@/lib/proof-status";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildWorkerComplianceSummary, type WorkerCompliance, type WorkerInput } from "@/lib/worker-compliance";
 import type { Database } from "@/types/database";
@@ -122,7 +123,8 @@ export default async function WorkerTicketCompliancePage() {
 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
-  const [{ data: users }, { data: profiles }, { data: certifications }, { data: mandatoryTypes }] = await Promise.all([
+  // Certifications are read in full: PostgREST stops at 1,000 rows and says nothing.
+  const [{ data: users }, { data: profiles }, certifications, { data: mandatoryTypes }] = await Promise.all([
     supabase
       .from("users")
       .select("id, full_name, email")
@@ -130,11 +132,15 @@ export default async function WorkerTicketCompliancePage() {
       .eq("active", true)
       .returns<UserRow[]>(),
     supabase.from("worker_profiles").select("id, user_id").eq("tenant_id", tenantId).returns<ProfileRow[]>(),
-    supabase
-      .from("certifications")
-      .select("id, name, expires_on, attachment_path, worker_profile_id")
-      .eq("tenant_id", tenantId)
-      .returns<CertificationRow[]>(),
+    selectAllRows<CertificationRow>((from, to) =>
+      supabase
+        .from("certifications")
+        .select("id, name, expires_on, attachment_path, worker_profile_id")
+        .eq("tenant_id", tenantId)
+        .order("id")
+        .range(from, to)
+        .returns<CertificationRow[]>(),
+    ),
     supabase
       // Mandatory TICKETS only. Orientations and site badges share this list but belong
       // to contracted drivers, and a mandatory one would otherwise be reported missing
@@ -150,7 +156,7 @@ export default async function WorkerTicketCompliancePage() {
   const userIdByProfileId = new Map((profiles ?? []).map((profile) => [profile.id, profile.user_id]));
   const ticketsByUserId = new Map<string, CertificationRow[]>();
 
-  for (const certification of certifications ?? []) {
+  for (const certification of certifications) {
     const userId = userIdByProfileId.get(certification.worker_profile_id);
 
     if (!userId) {

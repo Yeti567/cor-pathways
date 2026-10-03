@@ -4,6 +4,7 @@ import {
   type CorCanonicalElement,
   isCanonicalElement,
 } from "@/lib/cor-frameworks";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -77,12 +78,18 @@ export async function loadCorAuditReadiness(tenantId: string, frameworkCode: str
       .select("id, code, name, cor_element, cor_element_key, cor_tracked")
       .eq("tenant_id", tenantId)
       .returns<FormRow[]>(),
-    supabase
-      .from("submissions")
-      .select("form_id")
-      .eq("tenant_id", tenantId)
-      .not("submitted_at", "is", null)
-      .returns<SubmissionRow[]>(),
+    // Paged: past 1,000 submissions a form whose rows fell beyond the cap would read
+    // as never submitted.
+    selectAllRowsResult<SubmissionRow>((from, to) =>
+      supabase
+        .from("submissions")
+        .select("form_id")
+        .eq("tenant_id", tenantId)
+        .not("submitted_at", "is", null)
+        .order("id")
+        .range(from, to)
+        .returns<SubmissionRow[]>(),
+    ),
     supabase
       .from("resources")
       .select("name, cor_element, cor_element_key, cor_tracked")

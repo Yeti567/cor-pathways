@@ -120,6 +120,7 @@ import {
   normalizeManagedListName,
   resolveManagedListSettings,
 } from "@/lib/managed-lists";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recordTenantAuditEvent, type TenantAuditEventInput } from "@/lib/tenant-audit";
@@ -7496,12 +7497,17 @@ async function readEquipmentForDuplicateCheck(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   tenantId: string,
 ) {
-  const { data } = await supabase
-    .from("equipment")
-    .select("id, unit_number, vin_or_serial, license_plate, status")
-    .eq("tenant_id", tenantId)
-    .is("deleted_at", null)
-    .returns<EquipmentDuplicateRow[]>();
+  // Paged: a unit past PostgREST's 1,000-row cap would never be seen as a duplicate.
+  const { data } = await selectAllRowsResult<EquipmentDuplicateRow>((from, to) =>
+    supabase
+      .from("equipment")
+      .select("id, unit_number, vin_or_serial, license_plate, status")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .order("id")
+      .range(from, to)
+      .returns<EquipmentDuplicateRow[]>(),
+  );
 
   return data ?? [];
 }

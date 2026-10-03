@@ -14,6 +14,7 @@ import { sendContractedAttentionNotifications } from "@/lib/contracted-reminders
 import { requireAppUser } from "@/lib/current-user";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { VEHICLE_FILE_STATE_LABELS, vehicleFileStateClass } from "@/lib/equipment";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -62,7 +63,9 @@ export default async function ContractedEquipmentPage({ searchParams }: PageProp
   // De-duplicated on recipient, title and body, so the two paths cannot double up.
   await sendContractedAttentionNotifications(tenantId);
 
-  const [{ data: carriers }, { data: units }, { data: documents }, { data: requirements }, certificationTypes] =
+  // Units, documents and requirements are read in full: PostgREST stops at 1,000 rows
+  // and a carrier fleet's documents pass that well before the fleet is large.
+  const [{ data: carriers }, units, documents, requirements, certificationTypes] =
     await Promise.all([
       supabase
         .from("subcontractor")
@@ -71,34 +74,47 @@ export default async function ContractedEquipmentPage({ searchParams }: PageProp
         .is("deleted_at", null)
         .order("legal_name")
         .returns<CarrierRow[]>(),
-      supabase
-        .from("contracted_equipment")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null)
-        .order("unit_number")
-        .returns<ContractedEquipmentRow[]>(),
-      supabase
-        .from("contracted_equipment_document")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null)
-        .returns<ContractedEquipmentDocumentRow[]>(),
-      supabase
-        .from("contracted_equipment_certification_requirement")
-        .select("contracted_equipment_id, certification_type_id")
-        .eq("tenant_id", tenantId)
-        .returns<RequirementRow[]>(),
+      selectAllRows<ContractedEquipmentRow>((from, to) =>
+        supabase
+          .from("contracted_equipment")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("unit_number")
+          .order("id")
+          .range(from, to)
+          .returns<ContractedEquipmentRow[]>(),
+      ),
+      selectAllRows<ContractedEquipmentDocumentRow>((from, to) =>
+        supabase
+          .from("contracted_equipment_document")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<ContractedEquipmentDocumentRow[]>(),
+      ),
+      selectAllRows<RequirementRow>((from, to) =>
+        supabase
+          .from("contracted_equipment_certification_requirement")
+          .select("contracted_equipment_id, certification_type_id")
+          .eq("tenant_id", tenantId)
+          .order("contracted_equipment_id")
+          .order("certification_type_id")
+          .range(from, to)
+          .returns<RequirementRow[]>(),
+      ),
       ensureEquipmentCertificationTypes(supabase, tenantId),
     ]);
 
   const carrierRows = carriers ?? [];
-  const unitRows = units ?? [];
+  const unitRows = units;
   const carrierById = new Map(carrierRows.map((carrier) => [carrier.id, carrier]));
 
   const documentsByUnit = new Map<string, ContractedEquipmentDocumentRow[]>();
 
-  for (const document of documents ?? []) {
+  for (const document of documents) {
     const existing = documentsByUnit.get(document.contracted_equipment_id);
 
     if (existing) {
@@ -113,7 +129,7 @@ export default async function ContractedEquipmentPage({ searchParams }: PageProp
   // actually have rows get an array.
   const requiredTypeIdsByUnit = new Map<string, string[]>();
 
-  for (const requirement of requirements ?? []) {
+  for (const requirement of requirements) {
     const existing = requiredTypeIdsByUnit.get(requirement.contracted_equipment_id);
 
     if (existing) {

@@ -1,4 +1,5 @@
 import { isPowerAtLeast } from "@/lib/access-control";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
@@ -286,16 +287,21 @@ export async function sendCertificationExpiryNotifications(
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const createdAt = now.toISOString();
   const thirtyDaysFromNow = dateInputValue(addDays(today, 30));
+  // Read in full. This used to stop at 1,000 rows oldest first, and with expired history
+  // loaded that cut off the tickets that are about to run out, the ones that matter.
   const [{ data: allCertifications, error: certificationError }, { data: nonExpiringTypes }] = await Promise.all([
-    supabase
-      .from("certifications")
-      .select("id, tenant_id, worker_profile_id, name, expires_on, certification_type_id")
-      .eq("tenant_id", tenantId)
-      .not("expires_on", "is", null)
-      .lte("expires_on", thirtyDaysFromNow)
-      .order("expires_on", { ascending: true })
-      .limit(1000)
-      .returns<CertificationReminderCertification[]>(),
+    selectAllRowsResult<CertificationReminderCertification>((from, to) =>
+      supabase
+        .from("certifications")
+        .select("id, tenant_id, worker_profile_id, name, expires_on, certification_type_id")
+        .eq("tenant_id", tenantId)
+        .not("expires_on", "is", null)
+        .lte("expires_on", thirtyDaysFromNow)
+        .order("expires_on", { ascending: true })
+        .order("id")
+        .range(from, to)
+        .returns<CertificationReminderCertification[]>(),
+    ),
     // Types the tenant has marked as never going out of date. Read-only: this runs
     // from cron and must not seed anything.
     supabase

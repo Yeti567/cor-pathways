@@ -1,3 +1,4 @@
+import { selectAllRows } from "@/lib/supabase/select-all";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type ServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -23,15 +24,23 @@ export async function fetchUnitCertificationRequirements(
   supabase: ServerClient,
   tenantId: string,
 ): Promise<Map<string, string[]>> {
-  const { data } = await supabase
-    .from("equipment_certification_requirement")
-    .select("equipment_id, certification_type_id")
-    .eq("tenant_id", tenantId)
-    .returns<RequirementRow[]>();
+  // Paged. A fleet of 160 units with five inspections each is already 800 rows; past the
+  // 1,000-row cap the units beyond it would silently read as "never edited" and fall back
+  // to the default list.
+  const data = await selectAllRows<RequirementRow>((from, to) =>
+    supabase
+      .from("equipment_certification_requirement")
+      .select("equipment_id, certification_type_id")
+      .eq("tenant_id", tenantId)
+      .order("equipment_id")
+      .order("certification_type_id")
+      .range(from, to)
+      .returns<RequirementRow[]>(),
+  );
 
   const byEquipment = new Map<string, string[]>();
 
-  for (const row of data ?? []) {
+  for (const row of data) {
     byEquipment.set(row.equipment_id, [...(byEquipment.get(row.equipment_id) ?? []), row.certification_type_id]);
   }
 

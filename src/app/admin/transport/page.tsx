@@ -43,6 +43,7 @@ import {
   transportExpiryStage,
 } from "@/lib/transport-reminders";
 import { computeHosViolations, type DutyStatusEvent } from "@/lib/hos-rules";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -181,57 +182,83 @@ export default async function TransportPage({ searchParams }: TransportPageProps
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
   const hosWindowStart = hosWindowStartIso();
-  const [{ data: drivers }, { data: driverDocuments }, { data: companyDocuments }, { data: fleetEquipment }, { data: fleetServices }, { data: fleetDocuments }, { data: hosEvents }, certificationTypes] =
+  // Everything but the driver list is read in full: PostgREST stops at 1,000 rows and says
+  // nothing, and a fortnight of duty-status events passes that with a modest fleet.
+  const [{ data: drivers }, driverDocuments, companyDocuments, fleetEquipment, fleetServices, fleetDocuments, hosEvents, certificationTypes] =
     await Promise.all([
       supabase.from("transport_driver").select("id, hos_cycle, hos_regime").eq("tenant_id", tenantId).is("deleted_at", null).returns<DriverRow[]>(),
-      supabase
-        .from("transport_document")
-        .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
-        .eq("tenant_id", tenantId)
-        .eq("scope", "driver")
-        .is("deleted_at", null)
-        .returns<TransportDocRow[]>(),
-      supabase
-        .from("transport_document")
-        .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
-        .eq("tenant_id", tenantId)
-        .eq("scope", "company")
-        .is("deleted_at", null)
-        .returns<TransportDocRow[]>(),
-      supabase
-        .from("equipment")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .in("category", [...FLEET_CATEGORIES])
-        .is("deleted_at", null)
-        // Sold and retired units have nothing left to renew. Vehicle Files, which these
-        // counters link to, excludes the same two, so the numbers match on click-through.
-        .neq("status", "sold")
-        .neq("status", "retired")
-        .returns<FleetEquipmentRow[]>(),
-      supabase
-        .from("equipment_scheduled_service")
-        .select("equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, date_lead_days, meter_lead, is_active")
-        .eq("tenant_id", tenantId)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .returns<FleetServiceRow[]>(),
-      supabase
-        .from("equipment_document")
-        .select(
-          "equipment_id, doc_type, certification_type_id, title, expiry_date, reminder_lead_days, is_active, attachment_ids",
-        )
-        .eq("tenant_id", tenantId)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .returns<FleetDocumentRow[]>(),
-      supabase
-        .from("transport_duty_status_event")
-        .select("driver_id, contracted_driver_id, status, started_at")
-        .eq("tenant_id", tenantId)
-        .gte("started_at", hosWindowStart)
-        .order("started_at", { ascending: true })
-        .returns<HosEventRow[]>(),
+      selectAllRows<TransportDocRow>((from, to) =>
+        supabase
+          .from("transport_document")
+          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+          .eq("tenant_id", tenantId)
+          .eq("scope", "driver")
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<TransportDocRow[]>(),
+      ),
+      selectAllRows<TransportDocRow>((from, to) =>
+        supabase
+          .from("transport_document")
+          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+          .eq("tenant_id", tenantId)
+          .eq("scope", "company")
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<TransportDocRow[]>(),
+      ),
+      selectAllRows<FleetEquipmentRow>((from, to) =>
+        supabase
+          .from("equipment")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .in("category", [...FLEET_CATEGORIES])
+          .is("deleted_at", null)
+          // Sold and retired units have nothing left to renew. Vehicle Files, which these
+          // counters link to, excludes the same two, so the numbers match on click-through.
+          .neq("status", "sold")
+          .neq("status", "retired")
+          .order("id")
+          .range(from, to)
+          .returns<FleetEquipmentRow[]>(),
+      ),
+      selectAllRows<FleetServiceRow>((from, to) =>
+        supabase
+          .from("equipment_scheduled_service")
+          .select("equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, date_lead_days, meter_lead, is_active")
+          .eq("tenant_id", tenantId)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<FleetServiceRow[]>(),
+      ),
+      selectAllRows<FleetDocumentRow>((from, to) =>
+        supabase
+          .from("equipment_document")
+          .select(
+            "equipment_id, doc_type, certification_type_id, title, expiry_date, reminder_lead_days, is_active, attachment_ids",
+          )
+          .eq("tenant_id", tenantId)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<FleetDocumentRow[]>(),
+      ),
+      selectAllRows<HosEventRow>((from, to) =>
+        supabase
+          .from("transport_duty_status_event")
+          .select("driver_id, contracted_driver_id, status, started_at")
+          .eq("tenant_id", tenantId)
+          .gte("started_at", hosWindowStart)
+          .order("started_at", { ascending: true })
+          .order("id")
+          .range(from, to)
+          .returns<HosEventRow[]>(),
+      ),
       ensureEquipmentCertificationTypes(supabase, tenantId),
     ]);
 

@@ -7,6 +7,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { AWAITING_PROOF_CLASS, AWAITING_PROOF_DESCRIPTION, hasAttachedProof } from "@/lib/proof-status";
 import { driverDeficiencies, driverProofGaps, type TransportDocumentRecord } from "@/lib/transport-registry";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -49,6 +50,7 @@ export default async function TransportDriversPage({ searchParams }: DriversPage
   }
 
   const supabase = await createSupabaseServerClient();
+  // Documents are paged: PostgREST stops at 1,000 rows and says nothing.
   const [{ data: drivers }, { data: documents }, { data: users }] = await Promise.all([
     supabase
       .from("transport_driver")
@@ -57,13 +59,17 @@ export default async function TransportDriversPage({ searchParams }: DriversPage
       .is("deleted_at", null)
       .order("full_name", { ascending: true })
       .returns<DriverRow[]>(),
-    supabase
-      .from("transport_document")
-      .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
-      .eq("tenant_id", context.appUser.tenant_id)
-      .eq("scope", "driver")
-      .is("deleted_at", null)
-      .returns<DocumentRow[]>(),
+    selectAllRowsResult<DocumentRow>((from, to) =>
+      supabase
+        .from("transport_document")
+        .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .eq("scope", "driver")
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<DocumentRow[]>(),
+    ),
     supabase
       .from("users")
       .select("id, full_name")

@@ -1,4 +1,5 @@
 import { isPowerAtLeast } from "@/lib/access-control";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
@@ -288,6 +289,7 @@ export async function sendTransportExpiryNotifications(
   );
   const horizon = dateInputValue(new Date(todayUtc(now) + maxLeadDays * 86_400_000));
 
+  // Documents are paged: PostgREST stops at 1,000 rows and says nothing.
   const [{ data: tenant, error: tenantError }, { data: drivers, error: driversError }, { data: documents, error: documentsError }, { data: users, error: usersError }] =
     await Promise.all([
       supabase
@@ -301,16 +303,20 @@ export async function sendTransportExpiryNotifications(
         .eq("tenant_id", tenantId)
         .is("deleted_at", null)
         .returns<TransportReminderDriver[]>(),
-      supabase
-        .from("transport_document")
-        .select("id, registry_key, slot_key, subject_id, title, expiry_date, status")
-        .eq("tenant_id", tenantId)
-        .eq("scope", "driver")
-        .eq("status", "active")
-        .is("deleted_at", null)
-        .not("expiry_date", "is", null)
-        .lte("expiry_date", horizon)
-        .returns<TransportReminderDocument[]>(),
+      selectAllRowsResult<TransportReminderDocument>((from, to) =>
+        supabase
+          .from("transport_document")
+          .select("id, registry_key, slot_key, subject_id, title, expiry_date, status")
+          .eq("tenant_id", tenantId)
+          .eq("scope", "driver")
+          .eq("status", "active")
+          .is("deleted_at", null)
+          .not("expiry_date", "is", null)
+          .lte("expiry_date", horizon)
+          .order("id")
+          .range(from, to)
+          .returns<TransportReminderDocument[]>(),
+      ),
       supabase
         .from("users")
         .select("id, full_name, email, active, power_level, app_access")

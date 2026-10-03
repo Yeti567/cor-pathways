@@ -101,7 +101,8 @@ async function main(): Promise<void> {
       .from("contracted_driver")
       .select("id, full_name, subcontractor_id, license_province, license_expiry, abstract_issued, abstract_expiry, cso_completed, driver_type, status")
       .eq("tenant_id", args.tenant)
-      .is("deleted_at", null),
+      .is("deleted_at", null)
+      .order("id"),
   );
 
   const certifications = await readAll(() =>

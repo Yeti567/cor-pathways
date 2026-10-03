@@ -15,6 +15,7 @@
 
 import { isPowerAtLeast } from "@/lib/access-control";
 import { getEquipmentDocumentStatus } from "@/lib/equipment";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 import { daysUntilCertificationExpiry } from "@/lib/workers";
@@ -292,6 +293,8 @@ export async function sendContractedAttentionNotifications(
   const supabase = client ?? (await createSupabaseServerClient());
   const createdAt = now.toISOString();
 
+  // Units, documents, drivers and certifications are read in full: PostgREST stops at
+  // 1,000 rows and says nothing, and a renewal past that would never be reminded.
   const [
     { data: carriers, error: carriersError },
     { data: units, error: unitsError },
@@ -306,32 +309,48 @@ export async function sendContractedAttentionNotifications(
       .eq("tenant_id", tenantId)
       .is("deleted_at", null)
       .returns<ContractedReminderCarrier[]>(),
-    supabase
-      .from("contracted_equipment")
-      .select("id, subcontractor_id, unit_number, status")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<ContractedReminderUnit[]>(),
-    supabase
-      .from("contracted_equipment_document")
-      .select("id, contracted_equipment_id, title, expiry_date, reminder_lead_days, is_active")
-      .eq("tenant_id", tenantId)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .not("expiry_date", "is", null)
-      .returns<ContractedReminderDocument[]>(),
-    supabase
-      .from("contracted_driver")
-      .select("id, subcontractor_id, full_name, license_expiry, status")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<ContractedReminderDriver[]>(),
-    supabase
-      .from("contracted_driver_certification")
-      .select("id, contracted_driver_id, name, expires_on")
-      .eq("tenant_id", tenantId)
-      .not("expires_on", "is", null)
-      .returns<ContractedReminderCertification[]>(),
+    selectAllRowsResult<ContractedReminderUnit>((from, to) =>
+      supabase
+        .from("contracted_equipment")
+        .select("id, subcontractor_id, unit_number, status")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<ContractedReminderUnit[]>(),
+    ),
+    selectAllRowsResult<ContractedReminderDocument>((from, to) =>
+      supabase
+        .from("contracted_equipment_document")
+        .select("id, contracted_equipment_id, title, expiry_date, reminder_lead_days, is_active")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .not("expiry_date", "is", null)
+        .order("id")
+        .range(from, to)
+        .returns<ContractedReminderDocument[]>(),
+    ),
+    selectAllRowsResult<ContractedReminderDriver>((from, to) =>
+      supabase
+        .from("contracted_driver")
+        .select("id, subcontractor_id, full_name, license_expiry, status")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<ContractedReminderDriver[]>(),
+    ),
+    selectAllRowsResult<ContractedReminderCertification>((from, to) =>
+      supabase
+        .from("contracted_driver_certification")
+        .select("id, contracted_driver_id, name, expires_on")
+        .eq("tenant_id", tenantId)
+        .not("expires_on", "is", null)
+        .order("id")
+        .range(from, to)
+        .returns<ContractedReminderCertification[]>(),
+    ),
     supabase
       .from("users")
       .select("id, full_name, email, active, power_level, app_access")

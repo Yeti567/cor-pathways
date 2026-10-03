@@ -10,6 +10,7 @@ import {
   summariseSiteQualification,
   type SiteQualificationInput,
 } from "@/lib/site-qualification";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ export default async function SiteQualificationPage({ searchParams }: PageProps)
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
 
-  const [{ data: types }, { data: drivers }, { data: carriers }, { data: users }, { data: profiles }] =
+  const [{ data: types }, drivers, { data: carriers }, { data: users }, { data: profiles }] =
     await Promise.all([
       supabase
         .from("certification_types")
@@ -42,11 +43,15 @@ export default async function SiteQualificationPage({ searchParams }: PageProps)
         .eq("tenant_id", tenantId)
         .eq("category", "site_access")
         .order("name"),
-      supabase
-        .from("contracted_driver")
-        .select("id, full_name, subcontractor_id, status")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null),
+      selectAllRows((from, to) =>
+        supabase
+          .from("contracted_driver")
+          .select("id, full_name, subcontractor_id, status")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to),
+      ),
       supabase.from("subcontractor").select("id, legal_name").eq("tenant_id", tenantId).is("deleted_at", null),
       supabase.from("users").select("id, full_name, active").eq("tenant_id", tenantId),
       supabase.from("worker_profiles").select("id, user_id").eq("tenant_id", tenantId),
@@ -55,22 +60,32 @@ export default async function SiteQualificationPage({ searchParams }: PageProps)
   const siteTypeIds = new Set((types ?? []).map((t) => t.id));
   const siteNameById = new Map((types ?? []).map((t) => [t.id, t.name]));
 
-  const [{ data: contractedCerts }, { data: workerCerts }] = await Promise.all([
-    supabase
-      .from("contracted_driver_certification")
-      .select("contracted_driver_id, certification_type_id, expires_on, detail")
-      .eq("tenant_id", tenantId),
-    supabase
-      .from("certifications")
-      .select("worker_profile_id, certification_type_id, expires_on, detail")
-      .eq("tenant_id", tenantId),
+  // Read in full: PostgREST stops at 1,000 rows, and contracted certifications alone are
+  // past that on the largest tenant. A badge on row 1,001 would read as never held.
+  const [contractedCerts, workerCerts] = await Promise.all([
+    selectAllRows((from, to) =>
+      supabase
+        .from("contracted_driver_certification")
+        .select("contracted_driver_id, certification_type_id, expires_on, detail")
+        .eq("tenant_id", tenantId)
+        .order("id")
+        .range(from, to),
+    ),
+    selectAllRows((from, to) =>
+      supabase
+        .from("certifications")
+        .select("worker_profile_id, certification_type_id, expires_on, detail")
+        .eq("tenant_id", tenantId)
+        .order("id")
+        .range(from, to),
+    ),
   ]);
 
   const carrierName = new Map((carriers ?? []).map((c) => [c.id, c.legal_name]));
   const userName = new Map((users ?? []).map((u) => [u.id, u.full_name]));
 
   const credsByDriver = new Map<string, SiteQualificationInput["credentials"][number][]>();
-  for (const cert of contractedCerts ?? []) {
+  for (const cert of contractedCerts) {
     if (!cert.certification_type_id || !siteTypeIds.has(cert.certification_type_id)) continue;
     const list = credsByDriver.get(cert.contracted_driver_id) ?? [];
     list.push({
@@ -82,7 +97,7 @@ export default async function SiteQualificationPage({ searchParams }: PageProps)
   }
 
   const credsByProfile = new Map<string, SiteQualificationInput["credentials"][number][]>();
-  for (const cert of workerCerts ?? []) {
+  for (const cert of workerCerts) {
     if (!cert.certification_type_id || !siteTypeIds.has(cert.certification_type_id)) continue;
     const list = credsByProfile.get(cert.worker_profile_id) ?? [];
     list.push({
@@ -97,7 +112,7 @@ export default async function SiteQualificationPage({ searchParams }: PageProps)
   const employerName = context.tenant?.name ?? "Own staff";
 
   const inputs: SiteQualificationInput[] = [
-    ...(drivers ?? [])
+    ...drivers
       .filter((d) => d.status !== "inactive")
       .map((d) => ({
         driverId: d.id,

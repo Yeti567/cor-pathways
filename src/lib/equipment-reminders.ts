@@ -7,6 +7,7 @@ import {
   getEquipmentScheduleStatus,
   unitCertificationLabel,
 } from "@/lib/equipment";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
@@ -294,29 +295,43 @@ export async function sendEquipmentAttentionNotifications(
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const createdAt = now.toISOString();
   const thirtyDaysFromNow = dateInputValue(addDays(today, 30));
+  // Units, services and documents are read in full: PostgREST stops at 1,000 rows and says
+  // nothing. The documents include every expired one on file, history and all.
   const [{ data: equipment, error: equipmentError }, { data: services, error: servicesError }, { data: documents, error: documentsError }, { data: users, error: usersError }, { data: certificationTypes }] =
     await Promise.all([
-      supabase
-        .from("equipment")
-        .select("id, unit_number, name, status, tracking_mode, current_meter, assigned_to, deleted_at")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null)
-        .returns<EquipmentReminderEquipment[]>(),
-      supabase
-        .from("equipment_scheduled_service")
-        .select("id, equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, date_lead_days, meter_lead, is_active")
-        .eq("tenant_id", tenantId)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .returns<EquipmentReminderService[]>(),
-      supabase
-        .from("equipment_document")
-        .select("id, equipment_id, certification_type_id, title, expiry_date, reminder_lead_days, is_active")
-        .eq("tenant_id", tenantId)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .lte("expiry_date", thirtyDaysFromNow)
-        .returns<EquipmentReminderDocument[]>(),
+      selectAllRowsResult<EquipmentReminderEquipment>((from, to) =>
+        supabase
+          .from("equipment")
+          .select("id, unit_number, name, status, tracking_mode, current_meter, assigned_to, deleted_at")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<EquipmentReminderEquipment[]>(),
+      ),
+      selectAllRowsResult<EquipmentReminderService>((from, to) =>
+        supabase
+          .from("equipment_scheduled_service")
+          .select("id, equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, date_lead_days, meter_lead, is_active")
+          .eq("tenant_id", tenantId)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .order("id")
+          .range(from, to)
+          .returns<EquipmentReminderService[]>(),
+      ),
+      selectAllRowsResult<EquipmentReminderDocument>((from, to) =>
+        supabase
+          .from("equipment_document")
+          .select("id, equipment_id, certification_type_id, title, expiry_date, reminder_lead_days, is_active")
+          .eq("tenant_id", tenantId)
+          .eq("is_active", true)
+          .is("deleted_at", null)
+          .lte("expiry_date", thirtyDaysFromNow)
+          .order("id")
+          .range(from, to)
+          .returns<EquipmentReminderDocument[]>(),
+      ),
       supabase
         .from("users")
         .select("id, full_name, email, active, power_level, app_access")

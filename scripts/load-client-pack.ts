@@ -529,6 +529,7 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
           .from("certifications")
           .select("id, name, worker_profile_id")
           .eq("tenant_id", tenant.id)
+          .order("id")
           .range(from, to),
       ).then((data) => ({ data })),
       readAll<{ id: string; equipment_id: string; title: string; doc_type: string }>((from, to) =>
@@ -538,6 +539,7 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
           .eq("tenant_id", tenant.id)
           .eq("doc_type", "certification")
           .is("deleted_at", null)
+          .order("id")
           .range(from, to),
       ).then((data) => ({ data })),
       supabase.from("worker_profiles").select("id, user_id").eq("tenant_id", tenant.id),
@@ -569,6 +571,7 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
         .eq("tenant_id", tenant.id)
         .eq("doc_type", "certification")
         .is("deleted_at", null)
+        .order("id")
         .range(from, to),
     ).then((data) => ({ data })),
     readAll<{ id: string; contracted_driver_id: string; name: string }>((from, to) =>
@@ -576,13 +579,18 @@ Skipped ${skipped} example or blank row${skipped === 1 ? "" : "s"}.`);
         .from("contracted_driver_certification")
         .select("id, contracted_driver_id, name")
         .eq("tenant_id", tenant.id)
+        .order("id")
         .range(from, to),
     ).then((data) => ({ data })),
-    supabase
-      .from("subcontractor_document")
-      .select("id, subcontractor_id, slot_key")
-      .eq("tenant_id", tenant.id)
-      .is("deleted_at", null),
+    readAll<{ id: string; subcontractor_id: string; slot_key: string }>((from, to) =>
+      supabase
+        .from("subcontractor_document")
+        .select("id, subcontractor_id, slot_key")
+        .eq("tenant_id", tenant.id)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to),
+    ).then((data) => ({ data })),
   ]);
 
   const userIdByProfileId = new Map((profiles ?? []).map((profile) => [profile.id, profile.user_id]));

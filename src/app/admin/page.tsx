@@ -16,6 +16,7 @@ import {
 } from "@/lib/equipment";
 import { sendEquipmentAttentionNotifications } from "@/lib/equipment-reminders";
 import { sendInventoryLowStockNotifications } from "@/lib/inventory-reminders";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -238,9 +239,10 @@ export default async function AdminPage() {
     { count: formCount },
     { count: documentCount },
     { count: submissionCount },
-    { data: equipment },
-    { data: scheduledServices },
-    { data: equipmentDocuments },
+    // The equipment reads are paged: PostgREST stops at 1,000 rows and says nothing.
+    equipment,
+    scheduledServices,
+    equipmentDocuments,
   ] = await Promise.all([
     supabase.from("users").select("*", { count: "exact", head: true }).eq("tenant_id", context.appUser.tenant_id),
     supabase
@@ -257,26 +259,38 @@ export default async function AdminPage() {
       .select("*", { count: "exact", head: true })
       .eq("tenant_id", context.appUser.tenant_id),
     supabase.from("submissions").select("*", { count: "exact", head: true }).eq("tenant_id", context.appUser.tenant_id),
-    supabase
-      .from("equipment")
-      .select("*")
-      .eq("tenant_id", context.appUser.tenant_id)
-      .is("deleted_at", null)
-      .returns<EquipmentRow[]>(),
-    supabase
-      .from("equipment_scheduled_service")
-      .select("equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, is_active")
-      .eq("tenant_id", context.appUser.tenant_id)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .returns<ScheduledServiceRow[]>(),
-    supabase
-      .from("equipment_document")
-      .select("equipment_id, title, expiry_date, reminder_lead_days, is_active")
-      .eq("tenant_id", context.appUser.tenant_id)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .returns<EquipmentDocumentRow[]>(),
+    selectAllRows<EquipmentRow>((from, to) =>
+      supabase
+        .from("equipment")
+        .select("*")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentRow[]>(),
+    ),
+    selectAllRows<ScheduledServiceRow>((from, to) =>
+      supabase
+        .from("equipment_scheduled_service")
+        .select("equipment_id, title, interval_mode, due_date, due_meter, window_start_meter, warn_meter, is_active")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<ScheduledServiceRow[]>(),
+    ),
+    selectAllRows<EquipmentDocumentRow>((from, to) =>
+      supabase
+        .from("equipment_document")
+        .select("equipment_id, title, expiry_date, reminder_lead_days, is_active")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentDocumentRow[]>(),
+    ),
   ]);
 
   const equipmentDashboardDocuments = (equipmentDocuments ?? []).map((document) => ({

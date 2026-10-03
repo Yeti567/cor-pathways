@@ -13,6 +13,7 @@ import {
 } from "@/lib/access-control";
 import { buildCertificationDeficiencySummaries, sendCertificationExpiryNotifications } from "@/lib/certification-reminders";
 import { requireAppUser, type PermissionProfileRow } from "@/lib/current-user";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { workerImportTemplateFilename, workerImportTemplateHeaders } from "@/lib/worker-import";
 import type { Database } from "@/types/database";
@@ -103,6 +104,8 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
 
   const supabase = await createSupabaseServerClient();
   await sendCertificationExpiryNotifications(context.appUser.tenant_id);
+  // Certifications are paged: PostgREST stops at 1,000 rows and the per-worker counts
+  // would quietly come up short.
   const [{ data: users }, { data: profiles }, { data: userLocations }, { data: certifications }, { data: profilesForSelect }] =
     await Promise.all([
       supabase
@@ -121,11 +124,15 @@ export default async function WorkersPage({ searchParams }: WorkersPageProps) {
         .select("user_id, location_id")
         .eq("tenant_id", context.appUser.tenant_id)
         .returns<UserLocationRow[]>(),
-      supabase
-        .from("certifications")
-        .select("id, worker_profile_id, name, expires_on")
-        .eq("tenant_id", context.appUser.tenant_id)
-        .returns<CertificationRow[]>(),
+      selectAllRowsResult<CertificationRow>((from, to) =>
+        supabase
+          .from("certifications")
+          .select("id, worker_profile_id, name, expires_on")
+          .eq("tenant_id", context.appUser.tenant_id)
+          .order("id")
+          .range(from, to)
+          .returns<CertificationRow[]>(),
+      ),
       supabase
         .from("permission_profiles")
         .select("*")

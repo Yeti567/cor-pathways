@@ -18,6 +18,7 @@ import {
   type ResolvedSubcontractorSlot,
   type SubcontractorRequirementSetting,
 } from "@/lib/subcontractor-requirements";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
@@ -273,14 +274,19 @@ export async function sendSubcontractorExpiryNotifications(
     slotKey: row.slot_key,
   }));
 
-  const { data: documents, error: documentError } = await supabase
-    .from("subcontractor_document")
-    .select("id, subcontractor_id, slot_key, due_date, review_status, superseded_by_id")
-    .eq("tenant_id", tenantId)
-    .is("deleted_at", null)
-    .not("due_date", "is", null)
-    .limit(2000)
-    .returns<ReminderDocument[]>();
+  // Paged. The old .limit(2000) never got past PostgREST's 1,000-row cap, so anything
+  // beyond the first thousand was dropped without a word.
+  const { data: documents, error: documentError } = await selectAllRowsResult<ReminderDocument>((from, to) =>
+    supabase
+      .from("subcontractor_document")
+      .select("id, subcontractor_id, slot_key, due_date, review_status, superseded_by_id")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .not("due_date", "is", null)
+      .order("id")
+      .range(from, to)
+      .returns<ReminderDocument[]>(),
+  );
 
   if (documentError) {
     return { auditError: null, created: 0, error: documentError.message, skipped: 0 };

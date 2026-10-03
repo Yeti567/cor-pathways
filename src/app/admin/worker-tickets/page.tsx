@@ -10,6 +10,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { sendCertificationExpiryNotifications } from "@/lib/certification-reminders";
 import { requireAppUser } from "@/lib/current-user";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { certificationStatus, certificationStatusClass } from "@/lib/workers";
 import { AWAITING_PROOF_LABEL, hasAttachedProof } from "@/lib/proof-status";
@@ -106,14 +107,19 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
   const storageSupabase = createSupabaseAdminClient() ?? supabase;
   await sendCertificationExpiryNotifications(context.appUser.tenant_id);
 
-  const [{ data: certifications }, { data: certificationTypes }, { data: workers }, { data: workerProfiles }] =
+  // Certifications are read in full: PostgREST stops at 1,000 rows and says nothing.
+  const [certifications, { data: certificationTypes }, { data: workers }, { data: workerProfiles }] =
     await Promise.all([
-      supabase
-        .from("certifications")
-        .select("*")
-        .eq("tenant_id", context.appUser.tenant_id)
-        .order("created_at", { ascending: false })
-        .returns<CertificationRow[]>(),
+      selectAllRows<CertificationRow>((from, to) =>
+        supabase
+          .from("certifications")
+          .select("*")
+          .eq("tenant_id", context.appUser.tenant_id)
+          .order("created_at", { ascending: false })
+          .order("id")
+          .range(from, to)
+          .returns<CertificationRow[]>(),
+      ),
       supabase
         // Tickets only. Client site orientations and access badges share this list but
         // belong to contracted drivers, and dropping seventy of them into an employee
@@ -142,7 +148,7 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
   const certificationTypeById = new Map((certificationTypes ?? []).map((certificationType) => [certificationType.id, certificationType]));
   const activeWorkers = (workers ?? []).filter((worker) => worker.active);
   const attachmentPaths = Array.from(
-    new Set((certifications ?? []).map((certification) => certification.attachment_path).filter((path): path is string => Boolean(path))),
+    new Set(certifications.map((certification) => certification.attachment_path).filter((path): path is string => Boolean(path))),
   );
   const signedUrls = new Map<string, string | null>();
 
@@ -153,7 +159,7 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
     }),
   );
 
-  const ticketRows = (certifications ?? []).map((ticket) => {
+  const ticketRows = certifications.map((ticket) => {
     const workerId = workerIdByProfileId.get(ticket.worker_profile_id) ?? null;
     const worker = workerId ? workerById.get(workerId) ?? null : null;
     const certificationType = ticket.certification_type_id ? certificationTypeById.get(ticket.certification_type_id) ?? null : null;

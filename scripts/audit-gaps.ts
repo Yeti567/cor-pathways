@@ -107,12 +107,16 @@ type CarrierRow = LiveRow & {
 };
 type CertTypeRow = { id: string; name: string; category: CertificationCategory | null; is_mandatory: boolean };
 
-async function all<T>(table: string, select: string, tenantScoped = true): Promise<T[]> {
+// Pages need a stable order or they overlap and skip. Most tables have an id; the two
+// requirement tables are keyed on their pair of columns instead.
+async function all<T>(table: string, select: string, tenantScoped = true, order: string[] = ["id"]): Promise<T[]> {
   let from = 0;
   let rows: T[] = [];
   for (;;) {
-    let q = sb.from(table).select(select).range(from, from + 999);
+    let q = sb.from(table).select(select);
     if (tenantScoped) q = q.eq("tenant_id", T);
+    for (const column of order) q = q.order(column);
+    q = q.range(from, from + 999);
     const { data, error } = await q;
     if (error) throw new Error(`${table}: ${error.message}`);
     rows = rows.concat((data ?? []) as T[]);
@@ -131,11 +135,11 @@ async function main(): Promise<void> {
   ] = await Promise.all([
     all<EquipmentRow>("equipment", "id,unit_number,name,category,vin_or_serial,license_plate,status,deleted_at,notes"),
     all<EquipmentDocRow>("equipment_document", "id,equipment_id,doc_type,title,certification_type_id,issued_date,expiry_date,is_active,attachment_ids,reminder_lead_days,deleted_at"),
-    all<EquipmentReqRow>("equipment_certification_requirement", "equipment_id,certification_type_id"),
+    all<EquipmentReqRow>("equipment_certification_requirement", "equipment_id,certification_type_id", true, ["equipment_id", "certification_type_id"]),
     all<EquipmentTypeRow>("equipment_certification_types", "id,name,applies_by_default,default_interval_days"),
     all<ContractedUnitRow>("contracted_equipment", "id,unit_number,category,subcontractor_id,vin_or_serial,license_plate,status,deleted_at"),
     all<ContractedDocRow>("contracted_equipment_document", "id,contracted_equipment_id,doc_type,title,certification_type_id,issued_date,expiry_date,is_active,attachment_ids,reminder_lead_days,deleted_at"),
-    all<ContractedReqRow>("contracted_equipment_certification_requirement", "contracted_equipment_id,certification_type_id"),
+    all<ContractedReqRow>("contracted_equipment_certification_requirement", "contracted_equipment_id,certification_type_id", true, ["contracted_equipment_id", "certification_type_id"]),
     all<ContractedDriverRow>("contracted_driver", "id,full_name,subcontractor_id,contracted_equipment_id,license_province,license_expiry,abstract_issued,abstract_expiry,cso_completed,status,email,phone,notes,deleted_at"),
     all<DriverCertRow>("contracted_driver_certification", "*"),
     all<DriverDocRow>("contracted_driver_document", "*"),

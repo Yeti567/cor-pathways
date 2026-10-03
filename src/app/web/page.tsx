@@ -66,6 +66,7 @@ import { followUpStatusClass, formatFollowUpStatus } from "@/lib/follow-ups";
 import { getManagedListIdFromSettings, resolveManagedListSettings } from "@/lib/managed-lists";
 import { toOfflineFormItem, toOfflineFormSection, toOfflineFormSummary } from "@/lib/offline/form-model";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   buildVisitorRoster,
@@ -431,6 +432,8 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
     { data: followUpRows },
     { data: scheduledTaskRows },
     { data: workflowRunStepRows },
+    // The three equipment reads are paged (PostgREST stops at 1,000 rows and says nothing).
+    // A failed read still leaves its list empty rather than taking the home page down.
     { data: equipmentRows },
     { data: equipmentServiceRows },
     { data: equipmentDocumentRows },
@@ -502,32 +505,44 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
       .order("due_at", { ascending: true })
       .limit(12)
       .returns<WorkflowRunStepRow[]>(),
-    supabase
-      .from("equipment")
-      .select(
-        "id, tenant_id, unit_number, name, category, make, model, year, vin_or_serial, tracking_mode, current_meter, status, assigned_to, location_id, updated_at",
-      )
-      .eq("tenant_id", context.appUser.tenant_id)
-      .is("deleted_at", null)
-      .in("status", ["active", "down"])
-      .order("unit_number", { ascending: true })
-      .returns<EquipmentRow[]>(),
-    supabase
-      .from("equipment_scheduled_service")
-      .select(
-        "id, tenant_id, equipment_id, service_type, title, interval_mode, due_date, due_meter, recurrence_value, recurrence_unit, last_completed_at, last_completed_meter, is_active, updated_at",
-      )
-      .eq("tenant_id", context.appUser.tenant_id)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .returns<EquipmentServiceRow[]>(),
-    supabase
-      .from("equipment_document")
-      .select("id, tenant_id, equipment_id, doc_type, title, expiry_date, reminder_lead_days, attachment_ids, is_active, updated_at")
-      .eq("tenant_id", context.appUser.tenant_id)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .returns<EquipmentDocumentRow[]>(),
+    selectAllRowsResult<EquipmentRow>((from, to) =>
+      supabase
+        .from("equipment")
+        .select(
+          "id, tenant_id, unit_number, name, category, make, model, year, vin_or_serial, tracking_mode, current_meter, status, assigned_to, location_id, updated_at",
+        )
+        .eq("tenant_id", context.appUser.tenant_id)
+        .is("deleted_at", null)
+        .in("status", ["active", "down"])
+        .order("unit_number", { ascending: true })
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentRow[]>(),
+    ),
+    selectAllRowsResult<EquipmentServiceRow>((from, to) =>
+      supabase
+        .from("equipment_scheduled_service")
+        .select(
+          "id, tenant_id, equipment_id, service_type, title, interval_mode, due_date, due_meter, recurrence_value, recurrence_unit, last_completed_at, last_completed_meter, is_active, updated_at",
+        )
+        .eq("tenant_id", context.appUser.tenant_id)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentServiceRow[]>(),
+    ),
+    selectAllRowsResult<EquipmentDocumentRow>((from, to) =>
+      supabase
+        .from("equipment_document")
+        .select("id, tenant_id, equipment_id, doc_type, title, expiry_date, reminder_lead_days, attachment_ids, is_active, updated_at")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentDocumentRow[]>(),
+    ),
   ]);
   const assignedLocationIds = new Set((userLocationRows ?? []).map((location) => location.location_id));
   const locationOptions = (locationRows ?? [])

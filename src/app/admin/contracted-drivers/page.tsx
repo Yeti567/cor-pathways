@@ -14,6 +14,7 @@ import {
 } from "@/lib/contracted-drivers";
 import { requireAppUser } from "@/lib/current-user";
 import { certificationStatusClass } from "@/lib/workers";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { CertificationCategory, Database } from "@/types/database";
 
@@ -69,7 +70,9 @@ export default async function ContractedDriversPage({ searchParams }: PageProps)
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
 
-  const [{ data: carriers }, { data: drivers }, { data: units }, { data: types }, { data: certifications }] =
+  // Drivers, units and certifications are read in full: PostgREST stops at 1,000 rows and
+  // this tenant already holds more certifications than that.
+  const [{ data: carriers }, drivers, units, { data: types }, certifications] =
     await Promise.all([
       supabase
         .from("subcontractor")
@@ -78,30 +81,42 @@ export default async function ContractedDriversPage({ searchParams }: PageProps)
         .is("deleted_at", null)
         .order("legal_name")
         .returns<CarrierRow[]>(),
-      supabase
-        .from("contracted_driver")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null)
-        .order("full_name")
-        .returns<ContractedDriverRow[]>(),
-      supabase
-        .from("contracted_equipment")
-        .select("id, subcontractor_id, unit_number")
-        .eq("tenant_id", tenantId)
-        .is("deleted_at", null)
-        .order("unit_number")
-        .returns<UnitRow[]>(),
+      selectAllRows<ContractedDriverRow>((from, to) =>
+        supabase
+          .from("contracted_driver")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("full_name")
+          .order("id")
+          .range(from, to)
+          .returns<ContractedDriverRow[]>(),
+      ),
+      selectAllRows<UnitRow>((from, to) =>
+        supabase
+          .from("contracted_equipment")
+          .select("id, subcontractor_id, unit_number")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .order("unit_number")
+          .order("id")
+          .range(from, to)
+          .returns<UnitRow[]>(),
+      ),
       supabase
         .from("certification_types")
         .select("id, name, category, is_mandatory")
         .eq("tenant_id", tenantId)
         .returns<CertificationTypeRow[]>(),
-      supabase
-        .from("contracted_driver_certification")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .returns<CertificationRow[]>(),
+      selectAllRows<CertificationRow>((from, to) =>
+        supabase
+          .from("contracted_driver_certification")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .order("id")
+          .range(from, to)
+          .returns<CertificationRow[]>(),
+      ),
     ]);
 
   const carrierRows = carriers ?? [];

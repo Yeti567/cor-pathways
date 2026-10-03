@@ -6,6 +6,7 @@ import { canUseAdminPanel, canUseDesktopMonitor } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { formMatchesKeywords } from "@/lib/report-analytics";
 import { formatSubmissionValue } from "@/lib/submission-values";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -208,12 +209,17 @@ export default async function IncidentsPage() {
                 .in("source_id", formIds)
                 .returns<RegisterRow[]>()
             : Promise.resolve({ data: [] as RegisterRow[] }),
-          supabase
-            .from("submission_values")
-            .select("id, submission_id, form_item_id, value")
-            .eq("tenant_id", context.appUser.tenant_id)
-            .in("submission_id", submissionIds)
-            .returns<SubmissionValueRow[]>(),
+          // Paged: 200 reports' answers pass the 1,000-row cap.
+          selectAllRowsResult<SubmissionValueRow>((from, to) =>
+            supabase
+              .from("submission_values")
+              .select("id, submission_id, form_item_id, value")
+              .eq("tenant_id", context.appUser.tenant_id)
+              .in("submission_id", submissionIds)
+              .order("id")
+              .range(from, to)
+              .returns<SubmissionValueRow[]>(),
+          ),
           formIds.length > 0
             ? supabase
                 .from("form_items")

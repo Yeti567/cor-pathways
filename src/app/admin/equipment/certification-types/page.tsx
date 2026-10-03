@@ -6,6 +6,7 @@ import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -35,15 +36,19 @@ export default async function EquipmentCertificationTypesPage({ searchParams }: 
   const certificationTypes = await ensureEquipmentCertificationTypes(supabase, context.appUser.tenant_id);
 
   // How many filed unit certificates point at each type, so a type in active use is
-  // obvious before anyone deletes it.
-  const { data: usageRows } = await supabase
-    .from("equipment_document")
-    .select("certification_type_id")
-    .eq("tenant_id", context.appUser.tenant_id)
-    .eq("doc_type", "certification")
-    .not("certification_type_id", "is", null)
-    .is("deleted_at", null)
-    .returns<{ certification_type_id: string | null }[]>();
+  // obvious before anyone deletes it. Paged: past 1,000 rows the counts would come up short.
+  const { data: usageRows } = await selectAllRowsResult<{ certification_type_id: string | null }>((from, to) =>
+    supabase
+      .from("equipment_document")
+      .select("certification_type_id")
+      .eq("tenant_id", context.appUser.tenant_id)
+      .eq("doc_type", "certification")
+      .not("certification_type_id", "is", null)
+      .is("deleted_at", null)
+      .order("id")
+      .range(from, to)
+      .returns<{ certification_type_id: string | null }[]>(),
+  );
 
   const usageByTypeId = new Map<string, number>();
 

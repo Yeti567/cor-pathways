@@ -10,6 +10,7 @@ import {
   DUTY_STATUS_LABELS,
   type DutyStatusEvent,
 } from "@/lib/hos-rules";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -47,6 +48,7 @@ export default async function TransportHosPage() {
   const tenantId = context.appUser.tenant_id;
   const windowStart = eventWindowStartIso();
 
+  // Events are paged: the window's duty-status log passes PostgREST's 1,000-row cap.
   const [{ data: drivers }, { data: events }] = await Promise.all([
     supabase
       .from("transport_driver")
@@ -55,13 +57,17 @@ export default async function TransportHosPage() {
       .is("deleted_at", null)
       .order("full_name", { ascending: true })
       .returns<DriverRow[]>(),
-    supabase
-      .from("transport_duty_status_event")
-      .select("driver_id, contracted_driver_id, status, started_at")
-      .eq("tenant_id", tenantId)
-      .gte("started_at", windowStart)
-      .order("started_at", { ascending: true })
-      .returns<EventRow[]>(),
+    selectAllRowsResult<EventRow>((from, to) =>
+      supabase
+        .from("transport_duty_status_event")
+        .select("driver_id, contracted_driver_id, status, started_at")
+        .eq("tenant_id", tenantId)
+        .gte("started_at", windowStart)
+        .order("started_at", { ascending: true })
+        .order("id")
+        .range(from, to)
+        .returns<EventRow[]>(),
+    ),
   ]);
 
   const eventsByDriver = new Map<string, DutyStatusEvent[]>();

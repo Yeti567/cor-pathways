@@ -26,6 +26,7 @@ import { canUseAdminPanel, canUseDesktopMonitor } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { summarizeReportAnalytics, type AnalyticsSubmission, type AnalyticsUser } from "@/lib/report-analytics";
 import { formatSubmissionValue } from "@/lib/submission-values";
+import { selectAllRowsForIdsResult, selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   classifyWorkflowRunStepStatus,
@@ -358,22 +359,33 @@ export default async function MonitorPage({ searchParams }: MonitorPageProps) {
     .order("name")
     .returns<LocationRow[]>();
 
-  const reportSubmissionsQuery = supabase
-    .from("submissions")
-    .select("id, form_id, submitted_by, created_at, submitted_at")
-    .eq("tenant_id", context.appUser.tenant_id)
-    .gte("created_at", yearStart.toISOString())
-    .lt("created_at", yearEnd.toISOString())
-    .returns<AnalyticsSubmission[]>();
+  // Paged: a year of submissions passes PostgREST's 1,000-row cap, and the analytics
+  // would count only the first thousand without a word.
+  const reportSubmissionsQuery = selectAllRowsResult<AnalyticsSubmission>((from, to) =>
+    supabase
+      .from("submissions")
+      .select("id, form_id, submitted_by, created_at, submitted_at")
+      .eq("tenant_id", context.appUser.tenant_id)
+      .gte("created_at", yearStart.toISOString())
+      .lt("created_at", yearEnd.toISOString())
+      .order("id")
+      .range(from, to)
+      .returns<AnalyticsSubmission[]>(),
+  );
 
-  const followUpsQuery = supabase
-    .from("follow_ups")
-    .select("id, title, description, status, assigned_to, created_at, parent_submission_id, form_item_id, photo_path")
-    .eq("tenant_id", context.appUser.tenant_id)
-    .gte("created_at", yearStart.toISOString())
-    .lt("created_at", yearEnd.toISOString())
-    .order("created_at", { ascending: false })
-    .returns<FollowUpRow[]>();
+  // Paged for the same reason as the submissions above.
+  const followUpsQuery = selectAllRowsResult<FollowUpRow>((from, to) =>
+    supabase
+      .from("follow_ups")
+      .select("id, title, description, status, assigned_to, created_at, parent_submission_id, form_item_id, photo_path")
+      .eq("tenant_id", context.appUser.tenant_id)
+      .gte("created_at", yearStart.toISOString())
+      .lt("created_at", yearEnd.toISOString())
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, to)
+      .returns<FollowUpRow[]>(),
+  );
 
   const companySettingsQuery = supabase
     .from("company_settings")
@@ -452,12 +464,19 @@ export default async function MonitorPage({ searchParams }: MonitorPageProps) {
   const [{ data: reportValues }, { data: reportItems }] =
     analyticsSubmissionIds.length > 0
       ? await Promise.all([
-          supabase
-            .from("submission_values")
-            .select("submission_id, form_item_id, value")
-            .eq("tenant_id", context.appUser.tenant_id)
-            .in("submission_id", analyticsSubmissionIds)
-            .returns<Pick<SubmissionValueRow, "form_item_id" | "submission_id" | "value">[]>(),
+          // A year of answers: far past the 1,000-row cap, and too many ids for one URL.
+          selectAllRowsForIdsResult<Pick<SubmissionValueRow, "form_item_id" | "submission_id" | "value">>(
+            analyticsSubmissionIds,
+            (ids, from, to) =>
+              supabase
+                .from("submission_values")
+                .select("submission_id, form_item_id, value")
+                .eq("tenant_id", context.appUser.tenant_id)
+                .in("submission_id", ids)
+                .order("id")
+                .range(from, to)
+                .returns<Pick<SubmissionValueRow, "form_item_id" | "submission_id" | "value">[]>(),
+          ),
           supabase
             .from("form_items")
             .select("id, form_id, label, field_type, sort_order")
@@ -489,13 +508,18 @@ export default async function MonitorPage({ searchParams }: MonitorPageProps) {
                 .in("id", submittedByIds)
                 .returns<Pick<UserRow, "id" | "full_name" | "email">[]>()
             : Promise.resolve({ data: [] as Pick<UserRow, "id" | "full_name" | "email">[] }),
-          supabase
-            .from("submission_values")
-            .select("*")
-            .eq("tenant_id", context.appUser.tenant_id)
-            .in("submission_id", submissionIds)
-            .order("created_at", { ascending: true })
-            .returns<SubmissionValueRow[]>(),
+          // Paged: 150 submissions' answers pass the 1,000-row cap.
+          selectAllRowsResult<SubmissionValueRow>((from, to) =>
+            supabase
+              .from("submission_values")
+              .select("*")
+              .eq("tenant_id", context.appUser.tenant_id)
+              .in("submission_id", submissionIds)
+              .order("created_at", { ascending: true })
+              .order("id")
+              .range(from, to)
+              .returns<SubmissionValueRow[]>(),
+          ),
           formIds.length > 0
             ? supabase
                 .from("form_items")

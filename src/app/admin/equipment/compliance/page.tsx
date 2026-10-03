@@ -16,6 +16,7 @@ import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification
 import { gapsByInspection, proofOnFile, readiness, renewalsByMonth } from "@/lib/fleet-charts";
 import { buildFleetComplianceSummary, type FleetUnitInput, type UnitCompliance } from "@/lib/fleet-compliance";
 import { hasAttachedProof } from "@/lib/proof-status";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -126,29 +127,39 @@ export default async function FleetCompliancePage() {
 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
-  const [{ data: equipmentRows }, { data: documentRows }, certificationTypes] = await Promise.all([
-    supabase
-      .from("equipment")
-      .select("id, unit_number, name, category, status, is_commercial")
-      .eq("tenant_id", tenantId)
-      .in("category", [...FLEET_CATEGORIES])
-      .is("deleted_at", null)
-      .neq("status", "retired")
-      .neq("status", "sold")
-      .returns<EquipmentRow[]>(),
-    supabase
-      .from("equipment_document")
-      .select(
-        "equipment_id, doc_type, certification_type_id, expiry_date, is_active, reminder_lead_days, title, attachment_ids",
-      )
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<DocumentRow[]>(),
+  // Units and their documents are read in full: PostgREST stops at 1,000 rows and says
+  // nothing, and a fleet's documents pass that long before the fleet is large.
+  const [equipmentRows, documentRows, certificationTypes] = await Promise.all([
+    selectAllRows<EquipmentRow>((from, to) =>
+      supabase
+        .from("equipment")
+        .select("id, unit_number, name, category, status, is_commercial")
+        .eq("tenant_id", tenantId)
+        .in("category", [...FLEET_CATEGORIES])
+        .is("deleted_at", null)
+        .neq("status", "retired")
+        .neq("status", "sold")
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentRow[]>(),
+    ),
+    selectAllRows<DocumentRow>((from, to) =>
+      supabase
+        .from("equipment_document")
+        .select(
+          "equipment_id, doc_type, certification_type_id, expiry_date, is_active, reminder_lead_days, title, attachment_ids",
+        )
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<DocumentRow[]>(),
+    ),
     ensureEquipmentCertificationTypes(supabase, tenantId),
   ]);
 
   const documentsByEquipment = new Map<string, DocumentRow[]>();
-  for (const document of documentRows ?? []) {
+  for (const document of documentRows) {
     documentsByEquipment.set(document.equipment_id, [
       ...(documentsByEquipment.get(document.equipment_id) ?? []),
       document,
@@ -163,7 +174,7 @@ export default async function FleetCompliancePage() {
   const certificationRequirements = await fetchUnitCertificationRequirements(supabase, tenantId);
   const certificationTypeNames = certificationTypeNameMap(certificationTypeInputs);
 
-  const inputs: FleetUnitInput[] = (equipmentRows ?? []).map((unit) => {
+  const inputs: FleetUnitInput[] = equipmentRows.map((unit) => {
     const documents = documentsByEquipment.get(unit.id) ?? [];
 
     return {

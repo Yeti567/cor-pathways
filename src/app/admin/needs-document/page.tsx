@@ -21,6 +21,7 @@ import {
   type ProofSubject,
 } from "@/lib/proof-status";
 import { companyProofGaps, driverProofGaps, type TransportDocumentRecord } from "@/lib/transport-registry";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { daysUntilCertificationExpiry } from "@/lib/workers";
 import type { Database } from "@/types/database";
@@ -122,19 +123,25 @@ export default async function NeedsDocumentPage() {
   const tenantId = context.appUser.tenant_id;
   const transportEnabled = Boolean(context.tenant?.transport_enabled);
 
+  // Tickets, units and documents are read in full: PostgREST stops at 1,000 rows, and a
+  // gap on a row past that would never be listed.
   const [
-    { data: certifications },
+    certifications,
     { data: profiles },
     { data: users },
-    { data: equipmentRows },
-    { data: equipmentDocuments },
+    equipmentRows,
+    equipmentDocuments,
     certificationTypes,
   ] = await Promise.all([
-    supabase
-      .from("certifications")
-      .select("id, name, expires_on, attachment_path, worker_profile_id")
-      .eq("tenant_id", tenantId)
-      .returns<CertificationRow[]>(),
+    selectAllRows<CertificationRow>((from, to) =>
+      supabase
+        .from("certifications")
+        .select("id, name, expires_on, attachment_path, worker_profile_id")
+        .eq("tenant_id", tenantId)
+        .order("id")
+        .range(from, to)
+        .returns<CertificationRow[]>(),
+    ),
     supabase.from("worker_profiles").select("id, user_id").eq("tenant_id", tenantId).returns<WorkerProfileRow[]>(),
     supabase
       .from("users")
@@ -142,54 +149,70 @@ export default async function NeedsDocumentPage() {
       .eq("tenant_id", tenantId)
       .eq("active", true)
       .returns<UserRow[]>(),
-    supabase
-      .from("equipment")
-      .select("id, unit_number, name, category, is_commercial")
-      .eq("tenant_id", tenantId)
-      .in("category", [...FLEET_CATEGORIES])
-      .is("deleted_at", null)
-      .neq("status", "retired")
-      .neq("status", "sold")
-      .order("unit_number", { ascending: true })
-      .returns<EquipmentRow[]>(),
-    supabase
-      .from("equipment_document")
-      .select(
-        "equipment_id, doc_type, certification_type_id, expiry_date, is_active, reminder_lead_days, title, attachment_ids",
-      )
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<EquipmentDocumentRow[]>(),
+    selectAllRows<EquipmentRow>((from, to) =>
+      supabase
+        .from("equipment")
+        .select("id, unit_number, name, category, is_commercial")
+        .eq("tenant_id", tenantId)
+        .in("category", [...FLEET_CATEGORIES])
+        .is("deleted_at", null)
+        .neq("status", "retired")
+        .neq("status", "sold")
+        .order("unit_number", { ascending: true })
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentRow[]>(),
+    ),
+    selectAllRows<EquipmentDocumentRow>((from, to) =>
+      supabase
+        .from("equipment_document")
+        .select(
+          "equipment_id, doc_type, certification_type_id, expiry_date, is_active, reminder_lead_days, title, attachment_ids",
+        )
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentDocumentRow[]>(),
+    ),
     ensureEquipmentCertificationTypes(supabase, tenantId),
   ]);
 
   // Driver files are a Transport-module concept, so they are only queried when the
   // module is on. A tenant without Transport should see the two sections that
   // apply to it rather than an empty third one implying something is missing.
-  const [{ data: driverDocuments }, { data: drivers }, { data: companyDocuments }] = transportEnabled
+  const [driverDocuments, { data: drivers }, companyDocuments] = transportEnabled
     ? await Promise.all([
-        supabase
-          .from("transport_document")
-          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
-          .eq("tenant_id", tenantId)
-          .eq("scope", "driver")
-          .is("deleted_at", null)
-          .returns<TransportDocumentRow[]>(),
+        selectAllRows<TransportDocumentRow>((from, to) =>
+          supabase
+            .from("transport_document")
+            .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+            .eq("tenant_id", tenantId)
+            .eq("scope", "driver")
+            .is("deleted_at", null)
+            .order("id")
+            .range(from, to)
+            .returns<TransportDocumentRow[]>(),
+        ),
         supabase
           .from("transport_driver")
           .select("id, full_name")
           .eq("tenant_id", tenantId)
           .is("deleted_at", null)
           .returns<TransportDriverRow[]>(),
-        supabase
-          .from("transport_document")
-          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
-          .eq("tenant_id", tenantId)
-          .eq("scope", "company")
-          .is("deleted_at", null)
-          .returns<TransportDocumentRow[]>(),
+        selectAllRows<TransportDocumentRow>((from, to) =>
+          supabase
+            .from("transport_document")
+            .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+            .eq("tenant_id", tenantId)
+            .eq("scope", "company")
+            .is("deleted_at", null)
+            .order("id")
+            .range(from, to)
+            .returns<TransportDocumentRow[]>(),
+        ),
       ])
-    : [{ data: [] }, { data: [] }, { data: [] }];
+    : [[], { data: [] }, []];
 
   const gaps: ProofGap[] = [];
 
@@ -200,7 +223,7 @@ export default async function NeedsDocumentPage() {
   const userById = new Map((users ?? []).map((user) => [user.id, user]));
   const userIdByProfileId = new Map((profiles ?? []).map((profile) => [profile.id, profile.user_id]));
 
-  for (const certification of certifications ?? []) {
+  for (const certification of certifications) {
     if (hasAttachedProof(certification.attachment_path)) {
       continue;
     }
@@ -230,7 +253,7 @@ export default async function NeedsDocumentPage() {
 
   // --- Unit files ------------------------------------------------------------
   const documentsByEquipment = new Map<string, EquipmentDocumentRow[]>();
-  for (const document of equipmentDocuments ?? []) {
+  for (const document of equipmentDocuments) {
     documentsByEquipment.set(document.equipment_id, [
       ...(documentsByEquipment.get(document.equipment_id) ?? []),
       document,
@@ -245,7 +268,7 @@ export default async function NeedsDocumentPage() {
   const certificationRequirements = await fetchUnitCertificationRequirements(supabase, tenantId);
   const certificationTypeNames = certificationTypeNameMap(certificationTypeInputs);
 
-  for (const unit of equipmentRows ?? []) {
+  for (const unit of equipmentRows) {
     const documents = documentsByEquipment.get(unit.id) ?? [];
     const registryStatuses = unit.is_commercial
       ? buildVehicleFileStatuses({
@@ -292,7 +315,7 @@ export default async function NeedsDocumentPage() {
 
   // --- Driver qualification files --------------------------------------------
   const driverRecords = new Map<string, TransportDocumentRecord[]>();
-  for (const document of driverDocuments ?? []) {
+  for (const document of driverDocuments) {
     if (!document.subject_id) {
       continue;
     }
@@ -326,7 +349,7 @@ export default async function NeedsDocumentPage() {
   // Company-scope registries (the COR safety program elements) hang off no person
   // or unit, so they ride in the driver section under the company's own name
   // rather than earning a fourth section for what is usually a handful of rows.
-  const companyRecords: TransportDocumentRecord[] = (companyDocuments ?? []).map((document) => ({
+  const companyRecords: TransportDocumentRecord[] = companyDocuments.map((document) => ({
     registryKey: document.registry_key,
     slotKey: document.slot_key,
     scope: document.scope,

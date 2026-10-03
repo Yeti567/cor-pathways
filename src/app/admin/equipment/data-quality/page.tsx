@@ -13,6 +13,7 @@ import {
   type DataQualityUnit,
 } from "@/lib/fleet-data-quality";
 import { findCandidatePairs, getFleetAiStatus, reviewCandidatesWithAi } from "@/lib/fleet-data-quality-ai";
+import { selectAllRows } from "@/lib/supabase/select-all";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -88,22 +89,32 @@ export default async function FleetDataQualityPage({ searchParams }: PageProps) 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
 
-  const [{ data: equipmentRows }, { data: documentRows }] = await Promise.all([
-    supabase
-      .from("equipment")
-      .select("id, unit_number, name, category, status, is_commercial, license_plate, vin_or_serial, make, model, year, tank_spec")
-      .eq("tenant_id", tenantId)
-      .in("category", [...FLEET_CATEGORIES])
-      .is("deleted_at", null),
-    supabase
-      .from("equipment_document")
-      .select("equipment_id, title, expiry_date, is_active")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null),
+  // Read in full: PostgREST stops at 1,000 rows and says nothing, and a document past
+  // that would never be checked.
+  const [equipmentRows, documentRows] = await Promise.all([
+    selectAllRows((from, to) =>
+      supabase
+        .from("equipment")
+        .select("id, unit_number, name, category, status, is_commercial, license_plate, vin_or_serial, make, model, year, tank_spec")
+        .eq("tenant_id", tenantId)
+        .in("category", [...FLEET_CATEGORIES])
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to),
+    ),
+    selectAllRows((from, to) =>
+      supabase
+        .from("equipment_document")
+        .select("equipment_id, title, expiry_date, is_active")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to),
+    ),
   ]);
 
-  const units = (equipmentRows ?? []) as DataQualityUnit[];
-  const deterministic = scanFleetDataQuality({ documents: documentRows ?? [], units });
+  const units = equipmentRows as DataQualityUnit[];
+  const deterministic = scanFleetDataQuality({ documents: documentRows, units });
 
   // The AI pass is opt-in, because it costs money per run and the deterministic
   // report is the part that has to be instant. Candidates are still computed

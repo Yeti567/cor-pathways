@@ -14,6 +14,7 @@ import {
   subcontractorStateTone,
   type SubcontractorComplianceSummary,
 } from "@/lib/subcontractor-requirements";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -99,6 +100,8 @@ export default async function SubcontractorsPage({ searchParams }: PageProps) {
   }
 
   const supabase = await createSupabaseServerClient();
+  // Documents are paged: PostgREST stops at 1,000 rows and says nothing, and a carrier's
+  // certificate past that would read as missing.
   const [{ data: subcontractors }, { data: documents }, { settings, slots }] = await Promise.all([
     supabase
       .from("subcontractor")
@@ -107,12 +110,16 @@ export default async function SubcontractorsPage({ searchParams }: PageProps) {
       .is("deleted_at", null)
       .order("legal_name", { ascending: true })
       .returns<SubcontractorRow[]>(),
-    supabase
-      .from("subcontractor_document")
-      .select("subcontractor_id, slot_key, due_date, coverage_amount, review_status, superseded_by_id")
-      .eq("tenant_id", context.appUser.tenant_id)
-      .is("deleted_at", null)
-      .returns<DocumentRow[]>(),
+    selectAllRowsResult<DocumentRow>((from, to) =>
+      supabase
+        .from("subcontractor_document")
+        .select("subcontractor_id, slot_key, due_date, coverage_amount, review_status, superseded_by_id")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<DocumentRow[]>(),
+    ),
     loadResolvedSubcontractorSlots(supabase, context.appUser.tenant_id),
   ]);
 

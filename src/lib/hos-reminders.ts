@@ -8,6 +8,7 @@
 
 import { isPowerAtLeast } from "@/lib/access-control";
 import { computeHosViolations, type DutyStatusEvent, type HosViolationType } from "@/lib/hos-rules";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
@@ -176,6 +177,8 @@ export async function sendHosViolationNotifications(
   const createdAt = now.toISOString();
   const windowStart = new Date(now.getTime() - HOS_EVENT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
+  // Events are paged: the window's duty-status log passes PostgREST's 1,000-row cap with a
+  // modest fleet, and a violation in the rows past it would never be raised.
   const [{ data: drivers, error: driversError }, { data: events, error: eventsError }, { data: users, error: usersError }] =
     await Promise.all([
       supabase
@@ -184,13 +187,17 @@ export async function sendHosViolationNotifications(
         .eq("tenant_id", tenantId)
         .is("deleted_at", null)
         .returns<HosReminderDriver[]>(),
-      supabase
-        .from("transport_duty_status_event")
-        .select("driver_id, contracted_driver_id, status, started_at")
-        .eq("tenant_id", tenantId)
-        .gte("started_at", windowStart)
-        .order("started_at", { ascending: true })
-        .returns<HosReminderEvent[]>(),
+      selectAllRowsResult<HosReminderEvent>((from, to) =>
+        supabase
+          .from("transport_duty_status_event")
+          .select("driver_id, contracted_driver_id, status, started_at")
+          .eq("tenant_id", tenantId)
+          .gte("started_at", windowStart)
+          .order("started_at", { ascending: true })
+          .order("id")
+          .range(from, to)
+          .returns<HosReminderEvent[]>(),
+      ),
       supabase
         .from("users")
         .select("id, full_name, email, active, power_level, app_access")

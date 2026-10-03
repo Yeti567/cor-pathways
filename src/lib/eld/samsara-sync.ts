@@ -43,6 +43,7 @@ import {
   type NormalizedDutyEvent,
 } from "@/lib/eld/sync";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 
 const SAMSARA_DRIVERS_PATH = process.env.SAMSARA_DRIVERS_PATH?.trim() || "/fleet/drivers";
 const SAMSARA_VEHICLES_PATH = process.env.SAMSARA_VEHICLES_PATH?.trim() || "/fleet/vehicles";
@@ -422,6 +423,8 @@ async function computeSamsaraImportPlan(input: {
   // tractors are all contracted would be offered every one of them again as a new record
   // on every import.
   const [
+    // Rosters and units are paged: anything past PostgREST's 1,000-row cap would look
+    // missing and be planned as new.
     { data: ownDrivers },
     { data: contractedDrivers },
     { data: ownEquipment },
@@ -435,24 +438,36 @@ async function computeSamsaraImportPlan(input: {
       .eq("tenant_id", tenantId)
       .is("deleted_at", null)
       .returns<ExistingDriverRow[]>(),
-    admin
-      .from("contracted_driver")
-      .select("id, full_name")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<ExistingDriverRow[]>(),
-    admin
-      .from("equipment")
-      .select("id, unit_number, vin_or_serial, license_plate")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<EquipmentMatchRow[]>(),
-    admin
-      .from("contracted_equipment")
-      .select("id, unit_number, vin_or_serial, license_plate")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<EquipmentMatchRow[]>(),
+    selectAllRowsResult<ExistingDriverRow>((from, to) =>
+      admin
+        .from("contracted_driver")
+        .select("id, full_name")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<ExistingDriverRow[]>(),
+    ),
+    selectAllRowsResult<EquipmentMatchRow>((from, to) =>
+      admin
+        .from("equipment")
+        .select("id, unit_number, vin_or_serial, license_plate")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentMatchRow[]>(),
+    ),
+    selectAllRowsResult<EquipmentMatchRow>((from, to) =>
+      admin
+        .from("contracted_equipment")
+        .select("id, unit_number, vin_or_serial, license_plate")
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to)
+        .returns<EquipmentMatchRow[]>(),
+    ),
     admin
       .from("eld_driver_link")
       .select("external_driver_id")

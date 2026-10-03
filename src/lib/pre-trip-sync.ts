@@ -8,6 +8,7 @@
 //   reconcilePreTripSubmissions - read completed submissions of that form back
 //                          into dti_inspection.
 
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   normalizePreTripLabel,
@@ -376,12 +377,18 @@ export async function reconcilePreTripSubmissions(
       .eq("tenant_id", tenantId)
       .eq("form_id", form.id)
       .returns<PreTripFormItemRow[]>(),
-    supabase
-      .from("dti_inspection")
-      .select("submission_id")
-      .eq("tenant_id", tenantId)
-      .not("submission_id", "is", null)
-      .returns<{ submission_id: string }[]>(),
+    // Paged: a fleet's inspection history passes PostgREST's 1,000-row cap, and a
+    // submission linked past it would be taken for new on every load.
+    selectAllRowsResult<{ submission_id: string }>((from, to) =>
+      supabase
+        .from("dti_inspection")
+        .select("submission_id")
+        .eq("tenant_id", tenantId)
+        .not("submission_id", "is", null)
+        .order("id")
+        .range(from, to)
+        .returns<{ submission_id: string }[]>(),
+    ),
   ]);
 
   const alreadyLinked = new Set((linked ?? []).map((row) => row.submission_id));
@@ -407,12 +414,18 @@ export async function reconcilePreTripSubmissions(
 
   const pendingIds = pending.map((submission) => submission.id);
   const [{ data: values }, { data: defectActions }] = await Promise.all([
-    supabase
-      .from("submission_values")
-      .select("submission_id, form_item_id, value")
-      .eq("tenant_id", tenantId)
-      .in("submission_id", pendingIds)
-      .returns<{ submission_id: string; form_item_id: string; value: unknown }[]>(),
+    // Paged: up to 200 pre-trips at forty-odd answers each is well past PostgREST's
+    // 1,000-row cap, and an inspection built from half its answers could miss a defect.
+    selectAllRowsResult<{ submission_id: string; form_item_id: string; value: unknown }>((from, to) =>
+      supabase
+        .from("submission_values")
+        .select("submission_id, form_item_id, value")
+        .eq("tenant_id", tenantId)
+        .in("submission_id", pendingIds)
+        .order("id")
+        .range(from, to)
+        .returns<{ submission_id: string; form_item_id: string; value: unknown }[]>(),
+    ),
     supabase
       .from("follow_ups")
       .select("parent_submission_id, form_item_id, title")

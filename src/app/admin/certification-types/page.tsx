@@ -15,6 +15,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { sendCertificationExpiryNotifications } from "@/lib/certification-reminders";
 import { requireAppUser } from "@/lib/current-user";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { certificationStatus, certificationStatusClass } from "@/lib/workers";
 import { hasAttachedProof } from "@/lib/proof-status";
@@ -69,6 +70,8 @@ export default async function CertificationTypesPage({ searchParams }: Certifica
   const supabase = await createSupabaseServerClient();
   const storageSupabase = createSupabaseAdminClient() ?? supabase;
   await sendCertificationExpiryNotifications(context.appUser.tenant_id);
+  // Certifications are paged: PostgREST stops at 1,000 rows and the usage counts would
+  // quietly come up short.
   const [{ data: certificationTypes }, { data: certifications }, { data: workers }, { data: workerProfiles }] = await Promise.all([
     supabase
       .from("certification_types")
@@ -76,12 +79,16 @@ export default async function CertificationTypesPage({ searchParams }: Certifica
       .eq("tenant_id", context.appUser.tenant_id)
       .order("name")
       .returns<CertificationTypeRow[]>(),
-    supabase
-      .from("certifications")
-      .select("*")
-      .eq("tenant_id", context.appUser.tenant_id)
-      .order("created_at", { ascending: false })
-      .returns<CertificationRow[]>(),
+    selectAllRowsResult<CertificationRow>((from, to) =>
+      supabase
+        .from("certifications")
+        .select("*")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(from, to)
+        .returns<CertificationRow[]>(),
+    ),
     supabase
       .from("users")
       .select("id, full_name, email, active")
