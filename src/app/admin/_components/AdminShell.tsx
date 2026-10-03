@@ -90,6 +90,7 @@ const navItems = [
   { href: "/admin/certification-types", label: "Certification Types", icon: BadgeCheck },
   { href: "/admin/worker-tickets", label: "Employee Tickets", icon: IdCard },
   { href: "/admin/worker-tickets/compliance", label: "Ticket Compliance", icon: BadgeCheck },
+  { href: "/admin/people/add", label: "Add Your People", icon: UserRound },
   { href: "/admin/intake", label: "Document Intake", icon: FolderUp },
   { href: "/admin/needs-document", label: "Needs Document", icon: FileWarning },
   { href: "/admin/access", label: "Access", icon: UsersRound },

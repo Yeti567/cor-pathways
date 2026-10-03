@@ -161,6 +161,25 @@ function csvCell(value: string) {
   return `"${value.replaceAll("\"", "\"\"")}"`;
 }
 
+/** Which field a column heading means, by the same aliases the CSV import accepts. Null when unknown. */
+export function workerImportKeyForHeader(header: string): WorkerImportKey | null {
+  const normalized = normalizeImportHeader(header);
+
+  if (!normalized) {
+    return null;
+  }
+
+  for (const [key, aliases] of Object.entries(headerAliases) as [WorkerImportKey, string[]][]) {
+    if (aliases.includes(normalized)) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
+export type { WorkerImportKey };
+
 export function buildWorkerImportTemplateCsv() {
   return `${workerImportTemplateHeaders.map(csvCell).join(",")}\n`;
 }

@@ -172,6 +172,8 @@ const actionGroups = [
       "sendWorkerInvite",
       "sendWorkerInvites",
       "importWorkersFromCsv",
+      "readPeopleSpreadsheet",
+      "addPeople",
       "updateWorkerProfile",
       "createCertificationType",
       "deleteCertificationType",

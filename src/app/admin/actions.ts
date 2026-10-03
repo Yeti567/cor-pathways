@@ -135,6 +135,15 @@ import {
 import { addMonths, dateInputValue as toDateInputValue } from "@/lib/document-reminders";
 import { createOverdueWorkflowStepReminderNotification } from "@/lib/workflow-reminders";
 import { parseWorkerImportCsv, type WorkerImportRow } from "@/lib/worker-import";
+import {
+  checkPeople,
+  JOB_ORDER,
+  parsePeopleTable,
+  toWorkerImportRows,
+  type JobKind,
+  type PersonDraft,
+} from "@/lib/people-intake";
+import { readPeopleWorkbook } from "@/lib/people-sheet";
 import { buildEmergencyContacts, normalizePhone } from "@/lib/workers";
 import { existingNotificationKeys, notificationKey } from "@/lib/notification-dedupe";
 import type { Database, Json } from "@/types/database";
@@ -9606,7 +9615,64 @@ export async function importWorkersFromCsv(formData: FormData) {
     redirect("/admin/workers?error=CSV%20import%20has%20no%20valid%20worker%20rows.");
   }
 
-  const emails = Array.from(new Set(parsed.rows.map((row) => row.email)));
+  const result = await importWorkerRows(adminSupabase, context, parsed.rows);
+
+  if ("error" in result) {
+    redirect(`/admin/workers?error=${encodeURIComponent(result.error)}`);
+  }
+
+  const { assignedLocationCount, createdCount, failures, updatedCount } = result;
+  revalidatePath("/admin/workers");
+  revalidatePath("/admin/access");
+
+  const completedCount = createdCount + updatedCount;
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "worker.import",
+    entityTable: "users",
+    metadata: {
+      assigned_location_count: assignedLocationCount,
+      created_count: createdCount,
+      failure_count: failures.length,
+      failure_preview: failures.slice(0, 3),
+      imported_count: completedCount,
+      row_count: parsed.rows.length,
+      status: failures.length > 0 ? "partial" : "completed",
+      updated_count: updatedCount,
+    },
+  });
+
+  if (failures.length > 0) {
+    redirect(
+      `/admin/workers?error=${encodeURIComponent(`Imported ${completedCount} workers. ${summarizeWorkerImportErrors(failures)}`)}`,
+    );
+  }
+
+  const locationNotice = assignedLocationCount > 0 ? ` ${assignedLocationCount} location assignments.` : "";
+  // Say plainly that nothing was emailed. An import that used to fire off fifty
+  // invitations now fires none, and an admin who is not told that will sit waiting
+  // for people to sign in.
+  redirect(
+    `/admin/workers?notice=${encodeURIComponent(
+      `Imported ${createdCount} new workers and updated ${updatedCount} existing workers.${locationNotice}` +
+        " No invitations were sent - tick the workers on this list and press Send invitations when they are ready.",
+    )}`,
+  );
+}
+
+/**
+ * Adds or updates a list of people in one go: the account (no invitation sent), the
+ * worker profile, and their locations. Shared by the CSV upload on the workers page and
+ * the Add Your People screen, so both make people exactly the same way.
+ */
+async function importWorkerRows(
+  adminSupabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  context: Awaited<ReturnType<typeof requireWorkerManager>>,
+  rows: WorkerImportRow[],
+): Promise<
+  | { error: string }
+  | { assignedLocationCount: number; createdCount: number; createdUserIds: string[]; failures: string[]; updatedCount: number }
+> {
+  const emails = Array.from(new Set(rows.map((row) => row.email)));
   const [{ data: permissionProfiles, error: profilesError }, { data: locations, error: locationsError }, { data: existingUsers, error: existingUsersError }] =
     await Promise.all([
       adminSupabase
@@ -9629,21 +9695,21 @@ export async function importWorkersFromCsv(formData: FormData) {
     ]);
 
   if (profilesError) {
-    redirect(`/admin/workers?error=${encodeURIComponent(profilesError.message)}`);
+    return { error: profilesError.message };
   }
 
   if (locationsError) {
-    redirect(`/admin/workers?error=${encodeURIComponent(locationsError.message)}`);
+    return { error: locationsError.message };
   }
 
   if (existingUsersError) {
-    redirect(`/admin/workers?error=${encodeURIComponent(existingUsersError.message)}`);
+    return { error: existingUsersError.message };
   }
 
-  const referenceErrors = validateWorkerImportReferences(parsed.rows, permissionProfiles ?? [], locations ?? []);
+  const referenceErrors = validateWorkerImportReferences(rows, permissionProfiles ?? [], locations ?? []);
 
   if (referenceErrors.length > 0) {
-    redirect(`/admin/workers?error=${encodeURIComponent(summarizeWorkerImportErrors(referenceErrors))}`);
+    return { error: summarizeWorkerImportErrors(referenceErrors) };
   }
 
   const locationMap = buildImportLocationMap(locations ?? []);
@@ -9652,8 +9718,9 @@ export async function importWorkersFromCsv(formData: FormData) {
   let createdCount = 0;
   let updatedCount = 0;
   let assignedLocationCount = 0;
+  const createdUserIds: string[] = [];
 
-  for (const row of parsed.rows) {
+  for (const row of rows) {
     let userId = existingUsersByEmail.get(row.email);
     let createdAccount = false;
     let bootstrapTenantId: string | null = null;
@@ -9675,6 +9742,7 @@ export async function importWorkersFromCsv(formData: FormData) {
 
       userId = account.user.id;
       createdAccount = true;
+      createdUserIds.push(userId);
       existingUsersByEmail.set(row.email, userId);
 
       const { data: bootstrapUser } = await adminSupabase
@@ -9784,41 +9852,156 @@ export async function importWorkersFromCsv(formData: FormData) {
     }
   }
 
+  return { assignedLocationCount, createdCount, createdUserIds, failures, updatedCount };
+}
+
+/**
+ * Reads a client's own .xlsx staff list into rows for Add Your People. Returns the rows,
+ * it does not save anything. A roster is small, well under the 1 MB action limit; an old
+ * .xls (which exceljs cannot open) is answered with what to do instead.
+ */
+export async function readPeopleSpreadsheet(formData: FormData): Promise<{ error: string } | { rows: string[][] }> {
+  await requireWorkerManager();
+  const file = getUploadFile(formData, "sheet");
+
+  if (!file) {
+    return { error: "Choose a file first." };
+  }
+
+  const name = file.name.toLowerCase();
+
+  if (name.endsWith(".xls")) {
+    return {
+      error: "That is an older Excel file this page can't open. In Excel, choose File > Save As > Excel Workbook (.xlsx), or copy the rows and paste them below.",
+    };
+  }
+
+  if (name.endsWith(".csv") || name.endsWith(".txt")) {
+    return { rows: parsePeopleTable(await file.text()) };
+  }
+
+  if (!name.endsWith(".xlsx")) {
+    return { error: "Choose an Excel (.xlsx) or CSV file, or paste the list below." };
+  }
+
+  try {
+    return { rows: (await readPeopleWorkbook(await file.arrayBuffer())).slice(0, 2000) };
+  } catch {
+    return { error: "That file could not be opened. Copy the rows from Excel and paste them below instead." };
+  }
+}
+
+/**
+ * Add Your People: adds the people the client confirmed, with no invitations sent.
+ *
+ * The browser sends the edited list, and every row is checked again here with the same
+ * checks the screen showed, so a row with a problem cannot be slipped through. Jobs map to
+ * permissions on the server too: the browser only ever says "field", "office" and so on.
+ */
+export async function addPeople(
+  formData: FormData,
+): Promise<
+  | { error: string }
+  | { createdCount: number; createdUserIds: string[]; failures: string[]; skipped: number; updatedCount: number }
+> {
+  const context = await requireWorkerManager();
+  const adminSupabase = createSupabaseAdminClient();
+
+  if (!adminSupabase) {
+    return { error: "The app is not set up to add people yet (SUPABASE_SERVICE_ROLE_KEY is missing)." };
+  }
+
+  let drafts: PersonDraft[];
+
+  try {
+    const parsed = JSON.parse(stringValue(formData, "people")) as unknown;
+    drafts = Array.isArray(parsed) ? parsed.flatMap((entry) => coercePersonDraft(entry)) : [];
+  } catch {
+    return { error: "The list could not be read. Reload the page and try again." };
+  }
+
+  if (!drafts.some((draft) => draft.include)) {
+    return { error: "Tick at least one person to add." };
+  }
+
+  if (drafts.length > 2000) {
+    return { error: "That is more than 2,000 people. Add them in smaller groups." };
+  }
+
+  const emails = [...new Set(drafts.map((draft) => draft.email).filter(Boolean))];
+  const { data: existing } =
+    emails.length > 0
+      ? await adminSupabase
+          .from("users")
+          .select("email")
+          .eq("tenant_id", context.appUser.tenant_id)
+          .in("email", emails)
+          .returns<{ email: string }[]>()
+      : { data: [] as { email: string }[] };
+  const checks = checkPeople(drafts, new Set((existing ?? []).map((row) => row.email.toLowerCase())));
+  const rows = toWorkerImportRows(drafts, checks);
+  const skipped = drafts.filter((draft) => draft.include).length - rows.length;
+
+  if (rows.length === 0) {
+    return { error: "Nobody on the list is ready to add yet. Fix the rows marked in red, or untick them." };
+  }
+
+  const result = await importWorkerRows(adminSupabase, context, rows);
+
+  if ("error" in result) {
+    return { error: result.error };
+  }
+
   revalidatePath("/admin/workers");
   revalidatePath("/admin/access");
 
-  const completedCount = createdCount + updatedCount;
   await recordAppUserAuditEvent(context.appUser, {
     action: "worker.import",
     entityTable: "users",
     metadata: {
-      assigned_location_count: assignedLocationCount,
-      created_count: createdCount,
-      failure_count: failures.length,
-      failure_preview: failures.slice(0, 3),
-      imported_count: completedCount,
-      row_count: parsed.rows.length,
-      status: failures.length > 0 ? "partial" : "completed",
-      updated_count: updatedCount,
+      created_count: result.createdCount,
+      failure_count: result.failures.length,
+      failure_preview: result.failures.slice(0, 3),
+      row_count: rows.length,
+      skipped_count: skipped,
+      source: "add_people",
+      status: result.failures.length > 0 ? "partial" : "completed",
+      updated_count: result.updatedCount,
     },
   });
 
-  if (failures.length > 0) {
-    redirect(
-      `/admin/workers?error=${encodeURIComponent(`Imported ${completedCount} workers. ${summarizeWorkerImportErrors(failures)}`)}`,
-    );
+  return {
+    createdCount: result.createdCount,
+    createdUserIds: result.createdUserIds,
+    failures: result.failures,
+    skipped,
+    updatedCount: result.updatedCount,
+  };
+}
+
+function coercePersonDraft(value: unknown): PersonDraft[] {
+  if (!value || typeof value !== "object") {
+    return [];
   }
 
-  const locationNotice = assignedLocationCount > 0 ? ` ${assignedLocationCount} location assignments.` : "";
-  // Say plainly that nothing was emailed. An import that used to fire off fifty
-  // invitations now fires none, and an admin who is not told that will sit waiting
-  // for people to sign in.
-  redirect(
-    `/admin/workers?notice=${encodeURIComponent(
-      `Imported ${createdCount} new workers and updated ${updatedCount} existing workers.${locationNotice}` +
-        " No invitations were sent - tick the workers on this list and press Send invitations when they are ready.",
-    )}`,
-  );
+  const entry = value as Record<string, unknown>;
+  const text = (key: string, max = 200) => String(entry[key] ?? "").trim().slice(0, max);
+  const job = text("job") as JobKind;
+  const hiredOn = text("hiredOn");
+
+  return [
+    {
+      email: text("email", 254).toLowerCase(),
+      employeeNumber: text("employeeNumber", 64),
+      fullName: text("fullName"),
+      hiredOn: /^\d{4}-\d{2}-\d{2}$/.test(hiredOn) ? hiredOn : "",
+      include: entry.include === true,
+      job: JOB_ORDER.includes(job) ? job : "field",
+      phone: text("phone", 32),
+      rowNumber: Number.isFinite(Number(entry.rowNumber)) ? Number(entry.rowNumber) : 0,
+      title: text("title", 120),
+    },
+  ];
 }
 
 export async function updateWorkerProfile(formData: FormData) {
