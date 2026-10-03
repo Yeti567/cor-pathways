@@ -2,13 +2,13 @@ import type { MetadataRoute } from "next";
 import { APP_NAME } from "@/lib/brand";
 
 // The label under a home-screen icon. Launchers truncate it, so a long legal name
-// like "Crude Master Transport Inc." has to be shortened to whole leading words
+// like "Stone Ridge Transport Inc." has to be shortened to whole leading words
 // rather than cut mid-word.
 //
 // The bound is 16 rather than the launcher's own ~12, deliberately. At 12 a
-// two-word company loses its second word entirely: "Speed Logistics" became
-// "Speed" and "Northwind Energy Services" became "Northwind", which on a phone
-// full of icons identifies nobody. A slightly truncated "Speed Logistics" is far
+// two-word company loses its second word entirely: "Swift Logistics" became
+// "Swift" and "Northwind Energy Services" became "Northwind", which on a phone
+// full of icons identifies nobody. A slightly truncated "Swift Logistics" is far
 // easier to pick out than a bare first word that could belong to any app, so the
 // second word is worth keeping even when the launcher clips its tail.
 const SHORT_NAME_MAX = 16;

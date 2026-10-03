@@ -308,7 +308,7 @@ describe("unit certifications", () => {
   });
 });
 
-// The columns the tank fleet sheets need. Crude Master's trailers carry CSA B620
+// The columns the tank fleet sheets need. An oil hauler's trailers carry CSA B620
 // inspections on several different cycles, and four product hoses per unit that
 // each expire on their own date, none of which the original pack could express.
 describe("tank fleet columns", () => {

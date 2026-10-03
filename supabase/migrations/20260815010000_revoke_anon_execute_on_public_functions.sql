@@ -1,7 +1,7 @@
 -- Actually revoke anon's execute, rather than believing we already did.
 --
 -- 20260805000000 was supposed to lock these down and reported success on every
--- database it ran against. On Crude Master's it changed nothing: the advisor
+-- database it ran against. On one client's it changed nothing: the advisor
 -- still listed eight SECURITY DEFINER functions in the public schema as callable
 -- by `anon`, and `proacl` confirmed it.
 --

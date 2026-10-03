@@ -12,7 +12,7 @@ type RequirementRow = {
  *
  * One query for the whole fleet rather than one per unit, because every caller is a
  * page rendering a table of every unit, and a per-unit query there is a hundred and
- * fifty round trips on Crude Master's trailer fleet alone.
+ * fifty round trips on one client's trailer fleet alone.
  *
  * A unit missing from the returned map has never had its list edited. That is not the
  * same as a unit held to nothing, and the distinction is load bearing: the first falls

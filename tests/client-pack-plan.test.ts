@@ -297,12 +297,12 @@ describe("countActions", () => {
 describe("several certificates of one type on one unit", () => {
   const UNIT: TenantSnapshot = {
     ...EMPTY,
-    equipment: [{ id: "e1", unit_number: "802A", vin_or_serial: null, license_plate: null }],
+    equipment: [{ id: "e1", unit_number: "906A", vin_or_serial: null, license_plate: null }],
   };
 
   const hose = (serial: string, expires: string): UnitCertificationRow => ({
     rowNumber: 2,
-    unitNumber: "802A",
+    unitNumber: "906A",
     certificationType: "Product hose",
     componentId: serial,
     issuedOn: null,
@@ -354,7 +354,7 @@ describe("several certificates of one type on one unit", () => {
       [
         {
           rowNumber: 2,
-          unitNumber: "802A",
+          unitNumber: "906A",
           certificationType: "Upper coupler (UC)",
           componentId: null,
           issuedOn: "2021-02-20",
@@ -362,7 +362,7 @@ describe("several certificates of one type on one unit", () => {
         },
         {
           rowNumber: 3,
-          unitNumber: "802A",
+          unitNumber: "906A",
           certificationType: "Upper coupler (UC)",
           componentId: "2022-03-11",
           issuedOn: "2022-03-11",
