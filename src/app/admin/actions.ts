@@ -57,6 +57,7 @@ import {
   coerceEquipmentServiceType,
   coerceEquipmentStatus,
   coerceEquipmentTrackingMode,
+  expectedCertificationTypesForUnit,
   equipmentAttachmentMaxBytes,
   equipmentLocationForStatus,
   normalizeEquipmentUnitNumber,
@@ -65,6 +66,8 @@ import {
   parseUploadedEquipmentAttachmentPaths,
 } from "@/lib/equipment";
 import { requireAppUser, requireCurrentUser } from "@/lib/current-user";
+import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
+import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { type CorCanonicalElement, COR_FRAMEWORKS, elementNumberForCanonical, isCanonicalElement } from "@/lib/cor-frameworks";
 import { type Country, coerceCountry } from "@/lib/region";
 import type { WorkOrderStatus, WorkType } from "@/lib/trades";
@@ -7321,6 +7324,47 @@ function redirectEquipmentError(equipmentId: string, tab: string, message: strin
   redirect(`${equipmentDetailPath(equipmentId, tab)}&error=${encodeURIComponent(message)}`);
 }
 
+// The "Finish your units" screen posts through the same document actions as the unit
+// page, and the person has to land back where they were working, not on a page they
+// have never seen. Only that one screen is accepted, so a posted value cannot be used
+// to send anyone anywhere else.
+const FINISH_RETURN_PATH = /^\/admin\/equipment\/finish(\?[\w=&%.,-]*)?$/;
+
+function finishReturnPath(formData: FormData): string | null {
+  const value = String(formData.get("returnTo") ?? "");
+  return FINISH_RETURN_PATH.test(value) ? value : null;
+}
+
+function withQueryParam(path: string, key: string, value: string) {
+  return `${path}${path.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
+}
+
+// Declared, not inferred: TypeScript only narrows after a call to a `never` method when
+// the variable holding it has an explicit type.
+type EquipmentDocumentOutcome = { done(message: string): never; fail(message: string): never };
+
+/** Where an equipment document action reports back: the finish screen if it came from there. */
+function equipmentDocumentOutcome(formData: FormData, equipmentId: string): EquipmentDocumentOutcome {
+  const back = finishReturnPath(formData);
+
+  return {
+    fail(message: string): never {
+      if (back) {
+        redirect(withQueryParam(back, "error", message));
+      }
+
+      redirectEquipmentError(equipmentId, "documents", message);
+    },
+    done(message: string): never {
+      redirect(
+        back
+          ? withQueryParam(back, "notice", message)
+          : `${equipmentDetailPath(equipmentId, "documents")}&notice=${encodeURIComponent(message)}`,
+      );
+    },
+  };
+}
+
 function revalidateEquipmentPaths(equipmentId?: string | null) {
   revalidatePath("/admin/equipment");
 
@@ -8435,6 +8479,8 @@ export async function createEquipmentDocument(formData: FormData) {
     redirect("/admin/equipment?error=Choose%20valid%20equipment.");
   }
 
+  const outcome: EquipmentDocumentOutcome = equipmentDocumentOutcome(formData, equipmentId);
+
   // A certification document can name which certification it records, chosen from the
   // tenant's own equipment_certification_types list. Any other document type ignores it.
   const certificationTypeIdInput = stringValue(formData, "certificationTypeId");
@@ -8450,7 +8496,7 @@ export async function createEquipmentDocument(formData: FormData) {
       .maybeSingle<{ id: string; name: string }>();
 
     if (!certificationType) {
-      redirectEquipmentError(equipmentId, "documents", "Choose a valid certification type.");
+      outcome.fail("Choose a valid certification type.");
     }
 
     certificationTypeId = certificationType.id;
@@ -8462,7 +8508,7 @@ export async function createEquipmentDocument(formData: FormData) {
   const title = titleInput || certificationTypeName || "";
 
   if (!title) {
-    redirectEquipmentError(equipmentId, "documents", "Enter a document title or choose a certification type.");
+    outcome.fail("Enter a document title or choose a certification type.");
   }
 
   let serverAttachmentPaths: string[];
@@ -8476,12 +8522,18 @@ export async function createEquipmentDocument(formData: FormData) {
       tenantId: context.appUser.tenant_id,
     });
   } catch (error) {
-    redirectEquipmentError(equipmentId, "documents", error instanceof Error ? error.message : "Attachments were not uploaded.");
+    outcome.fail(error instanceof Error ? error.message : "Attachments were not uploaded.");
   }
 
   // Anything the browser already put in storage, plus anything small enough to have
   // come through the form, end up in one list from here on.
   const attachmentPaths = [...clientAttachmentPaths, ...serverAttachmentPaths];
+
+  // The finish screen exists to put the document behind a requirement, so a save from
+  // there with nothing attached would leave the item exactly as it was.
+  if (finishReturnPath(formData) && attachmentPaths.length === 0) {
+    outcome.fail("Choose the document to upload first.");
+  }
 
   const reminderLeadDays = Math.max(0, numberValue(formData, "reminderLeadDays", 30));
   const { data: equipmentDocument, error } = await supabase
@@ -8514,7 +8566,7 @@ export async function createEquipmentDocument(formData: FormData) {
     .single<{ id: string }>();
 
   if (error || !equipmentDocument) {
-    redirectEquipmentError(equipmentId, "documents", error?.message ?? "Equipment document was not created.");
+    outcome.fail(error?.message ?? "Equipment document was not created.");
   }
 
   await recordEquipmentAuditEvent({
@@ -8533,7 +8585,7 @@ export async function createEquipmentDocument(formData: FormData) {
   });
 
   revalidateEquipmentPaths(equipmentId);
-  redirect(`${equipmentDetailPath(equipmentId, "documents")}&notice=Equipment%20document%20added.`);
+  outcome.done("Equipment document added.");
 }
 
 /**
@@ -8584,8 +8636,10 @@ export async function attachEquipmentDocumentProof(formData: FormData) {
       title: string;
     }>();
 
+  const outcome: EquipmentDocumentOutcome = equipmentDocumentOutcome(formData, equipmentId);
+
   if (!existing) {
-    redirectEquipmentError(equipmentId, "documents", "That document is no longer on this unit.");
+    outcome.fail("That document is no longer on this unit.");
   }
 
   const clientAttachmentPaths = parseUploadedEquipmentAttachmentPaths(formData.getAll("uploadedAttachmentPaths"), {
@@ -8605,7 +8659,12 @@ export async function attachEquipmentDocumentProof(formData: FormData) {
   // No expiry is a legitimate answer - the document does not expire and the scan is
   // the proof - so this form asks only that something actually changed.
   if (clientAttachmentPaths.length === 0 && expiryDate === existing.expiry_date && issuedDate === existing.issued_date) {
-    redirectEquipmentError(equipmentId, "documents", "Choose a scan to upload, or change a date.");
+    outcome.fail("Choose a scan to upload, or change a date.");
+  }
+
+  // From the finish screen the point is the scan; a date change alone leaves the item waiting.
+  if (finishReturnPath(formData) && clientAttachmentPaths.length === 0) {
+    outcome.fail("Choose the document to upload first.");
   }
 
   const { error } = await supabase
@@ -8632,7 +8691,7 @@ export async function attachEquipmentDocumentProof(formData: FormData) {
     .eq("tenant_id", context.appUser.tenant_id);
 
   if (error) {
-    redirectEquipmentError(equipmentId, "documents", error.message);
+    outcome.fail(error.message);
   }
 
   await recordEquipmentAuditEvent({
@@ -8652,7 +8711,105 @@ export async function attachEquipmentDocumentProof(formData: FormData) {
   });
 
   revalidateEquipmentPaths(equipmentId);
-  redirect(`${equipmentDetailPath(equipmentId, "documents")}&notice=Document%20updated.`);
+  outcome.done("Document updated.");
+}
+
+/**
+ * "This unit doesn't need this inspection", from the finish screen.
+ *
+ * Takes one inspection off one unit's list and leaves the rest of the list exactly as
+ * the unit was being held to it. A unit still on the default list (never edited) gets
+ * that list written out first, minus this one, because an unedited unit has no rows to
+ * delete and would otherwise fall straight back to the defaults.
+ *
+ * Only certification types can be taken off. Registration and CVIP are not on this list
+ * at all, so they can never be waived from here. The person confirms in so many words,
+ * and who said so and when is kept in the audit log, because "not needed" is a claim an
+ * auditor may ask about.
+ */
+export async function waiveUnitCertification(formData: FormData) {
+  const context = await requireEquipmentManager();
+  const supabase = await createSupabaseServerClient();
+  const equipmentId = stringValue(formData, "equipmentId");
+  const certificationTypeId = stringValue(formData, "certificationTypeId");
+  const back = finishReturnPath(formData) ?? "/admin/equipment/finish";
+
+  if (!equipmentId || !certificationTypeId) {
+    redirect(withQueryParam(back, "error", "Choose the inspection that does not apply."));
+  }
+
+  if (stringValue(formData, "confirm") !== "yes") {
+    redirect(withQueryParam(back, "error", "Tick the box to confirm this unit does not need it."));
+  }
+
+  const { data: equipment } = await supabase
+    .from("equipment")
+    .select("id, category")
+    .eq("id", equipmentId)
+    .eq("tenant_id", context.appUser.tenant_id)
+    .is("deleted_at", null)
+    .maybeSingle<{ category: string; id: string }>();
+
+  if (!equipment) {
+    redirect(withQueryParam(back, "error", "That unit is no longer in your fleet."));
+  }
+
+  const [types, requirements] = await Promise.all([
+    ensureEquipmentCertificationTypes(supabase, context.appUser.tenant_id),
+    fetchUnitCertificationRequirements(supabase, context.appUser.tenant_id),
+  ]);
+  const waived = types.find((type) => type.id === certificationTypeId);
+
+  if (!waived) {
+    redirect(withQueryParam(back, "error", "That inspection is not on your list."));
+  }
+
+  const current = expectedCertificationTypesForUnit({
+    category: equipment.category,
+    certificationTypes: types.map((type) => ({ appliesByDefault: type.applies_by_default, id: type.id, name: type.name })),
+    requiredTypeIds: requirements.get(equipmentId) ?? null,
+  }).map((type) => type.id);
+  const keep = current.filter((id) => id !== certificationTypeId);
+
+  const { error: clearError } = await supabase
+    .from("equipment_certification_requirement")
+    .delete()
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("equipment_id", equipmentId);
+
+  if (clearError) {
+    redirect(withQueryParam(back, "error", clearError.message));
+  }
+
+  if (keep.length > 0) {
+    const { error: insertError } = await supabase.from("equipment_certification_requirement").insert(
+      keep.map((id) => ({
+        certification_type_id: id,
+        created_by: context.appUser.id,
+        equipment_id: equipmentId,
+        tenant_id: context.appUser.tenant_id,
+      })),
+    );
+
+    if (insertError) {
+      redirect(withQueryParam(back, "error", insertError.message));
+    }
+  }
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "equipment.certification_requirements.waive",
+    entityId: equipmentId,
+    entityTable: "equipment",
+    metadata: {
+      certificationTypeId,
+      certificationTypeName: waived.name,
+      remainingCertificationTypeIds: keep,
+      source: "finish_units",
+    },
+  });
+
+  revalidateEquipmentPaths(equipmentId);
+  redirect(withQueryParam(back, "notice", `${waived.name} taken off this unit.`));
 }
 
 export async function createManualEquipmentSubmissionLink(formData: FormData) {

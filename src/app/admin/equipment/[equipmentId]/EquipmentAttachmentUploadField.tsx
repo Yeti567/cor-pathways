@@ -8,6 +8,7 @@ import {
   equipmentAttachmentMaxBytes,
   type EquipmentAttachmentFolder,
 } from "@/lib/equipment";
+import { shrinkPhotoFile } from "@/lib/offline/shrink-photo";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type UploadedAttachment = {
@@ -67,7 +68,12 @@ export function EquipmentAttachmentUploadField({
     const uploaded: UploadedAttachment[] = [];
 
     try {
-      for (const [index, file] of files.entries()) {
+      for (const [index, picked] of files.entries()) {
+        // A phone photo of a certificate is 3 to 5 MB at full size and stays in the
+        // client's storage for good. Shrunk on the device it is a tenth of that and
+        // still readable. A PDF or anything that cannot be decoded goes up untouched.
+        const file = picked.type.startsWith("image/") ? await shrinkPhotoFile(picked) : picked;
+
         // Say which file and why, so a rejected scan does not read as the whole
         // batch failing when the rest went up fine.
         if (!allowedMimeTypes.includes(file.type)) {

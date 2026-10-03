@@ -113,7 +113,7 @@ function stateOf(documentState: VehicleFileState): UnitComplianceState {
  * marking it deficient, which is the difference between a fleet that reads
  * 0 of 160 ready and one that reads the truth.
  */
-function stateOfStatus(status: { state: VehicleFileState; required?: boolean }): UnitComplianceState {
+export function stateOfStatus(status: { state: VehicleFileState; required?: boolean }): UnitComplianceState {
   if (isDeficiency(status)) {
     return "deficient";
   }

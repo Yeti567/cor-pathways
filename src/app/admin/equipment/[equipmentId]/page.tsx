@@ -57,7 +57,7 @@ import {
   formatEquipmentMeter,
   formatEquipmentStatus,
   buildUnitCertificationStatuses,
-  getEquipmentComplianceStatus,
+  buildVehicleFileStatuses,
   getEquipmentDocumentStatus,
   getEquipmentScheduleStatus,
   statusesAwaitingProof,
@@ -71,6 +71,7 @@ import {
 } from "@/lib/equipment";
 import { AWAITING_PROOF_DESCRIPTION, hasAttachedProof } from "@/lib/proof-status";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { buildUnitFinish } from "@/lib/unit-finish";
 import type { Database } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -462,18 +463,6 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
   // service form drops the meter inputs and tracks by date only.
   const tracksByMeter = equipmentTracksByMeter(equipment.category);
 
-  // Commercial/NSC units must carry registration, insurance, and a maintenance
-  // record. A maintenance record counts as a logged entry or a set-up schedule.
-  const compliance = getEquipmentComplianceStatus({
-    isCommercial: equipment.is_commercial,
-    documents: (documents ?? []).map((document) => ({
-      docType: document.doc_type,
-      expiryDate: document.expiry_date,
-      isActive: document.is_active,
-    })),
-    hasMaintenanceRecord: (maintenance?.length ?? 0) > 0 || (scheduledServices?.length ?? 0) > 0,
-  });
-
   // The tenant's vehicle certification type list (CVIP, picker, tank, pressure test...),
   // seeded on first read. Drives the Add Document certification picker and names filed
   // certifications in the list below.
@@ -527,6 +516,43 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
   const certificationGapCount = unitCertificationGaps(certificationStatuses).length;
   const certificationProofCount = statusesAwaitingProof(certificationStatuses).length;
 
+  // The header badge and banner read the same rules as Fleet Compliance and the finish
+  // screen. They used to run an older check that wanted insurance and a maintenance
+  // record on every commercial unit, trailers included, and ignored whether a scan was
+  // on file: every trailer read "incomplete" forever and the banner asked for documents
+  // a trailer never gets, while the dashboard said something else.
+  const unitFinish = buildUnitFinish({
+    certificationTypeNames: certificationTypeNameById,
+    certificationTypes: equipmentCertificationTypes.map((type) => ({
+      appliesByDefault: type.applies_by_default,
+      id: type.id,
+      name: type.name,
+    })),
+    documents: documents ?? [],
+    requiredTypeIds,
+    unit: equipment,
+  });
+  const fileApplies = equipment.is_commercial || expectedCertificationTypes.length > 0;
+  // The registry files this unit is held to (no insurance on a trailer; permits optional).
+  const vehicleFiles = equipment.is_commercial
+    ? buildVehicleFileStatuses({
+        category: equipment.category,
+        documents: (documents ?? []).map((document) => ({
+          docType: document.doc_type,
+          expiryDate: document.expiry_date,
+          hasProof: hasAttachedProof(document.attachment_ids),
+          isActive: document.is_active,
+          reminderLeadDays: document.reminder_lead_days,
+        })),
+      }).filter((file) => file.required || file.state !== "missing")
+    : [];
+  const fileTone =
+    unitFinish.red > 0
+      ? { box: "border-[var(--danger)] bg-red-50", text: "text-[var(--danger)]", word: "File incomplete" }
+      : unitFinish.open > 0
+        ? { box: "border-[var(--warning)] bg-amber-50", text: "text-[var(--warning)]", word: "Waiting on documents" }
+        : { box: "border-[var(--success)] bg-emerald-50", text: "text-[var(--success)]", word: "File complete" };
+
   return (
     <AdminShell
       eyebrow="Equipment file"
@@ -544,20 +570,16 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
         <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${statusBadgeClass(equipment.status)}`}>
           {formatEquipmentStatus(equipment.status)}
         </span>
-        {compliance.applicable ? (
+        {fileApplies ? (
           <span
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-semibold ${
-              compliance.isComplete
-                ? "border-[var(--success)] bg-emerald-50 text-[var(--success)]"
-                : "border-[var(--danger)] bg-red-50 text-[var(--danger)]"
-            }`}
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-semibold ${fileTone.box} ${fileTone.text}`}
           >
-            {compliance.isComplete ? (
+            {unitFinish.open === 0 ? (
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
             ) : (
               <AlertTriangle className="h-4 w-4" aria-hidden="true" />
             )}
-            {compliance.isComplete ? "File complete" : "File incomplete"}
+            {fileTone.word}
           </span>
         ) : null}
         {eldVehicleLink ? (
@@ -567,29 +589,34 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
           </span>
         ) : null}
       </div>
-      {compliance.applicable && !compliance.isComplete ? (
-        <div className="mb-4 rounded-md border border-[var(--danger)] bg-red-50 p-3">
-          <p className="flex items-center gap-2 text-sm font-semibold text-[var(--danger)]">
+      {fileApplies && unitFinish.open > 0 ? (
+        <div className={`mb-4 rounded-md border p-3 ${fileTone.box}`}>
+          <p className={`flex items-center gap-2 text-sm font-semibold ${fileTone.text}`}>
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            This commercial unit&apos;s file is incomplete.
+            {unitFinish.open === 1 ? "1 thing left" : `${unitFinish.open} things left`} before this unit is green.
           </p>
           <p className="mt-1 text-sm text-[var(--ink)]">
-            Add the following before the unit is compliant:{" "}
-            {compliance.missing.map((item, index) => (
-              <span key={item.key} className="font-semibold">
-                {index > 0 ? ", " : ""}
-                {item.label}
-                {item.reason === "expired" ? " (expired)" : ""}
-              </span>
-            ))}
+            {unitFinish.tasks
+              .filter((task) => !task.canWait)
+              .map((task, index) => (
+                <span key={task.key} className="font-semibold">
+                  {index > 0 ? ", " : ""}
+                  {task.label}
+                  {task.state === "expired"
+                    ? " (expired)"
+                    : task.state === "missing"
+                      ? " (missing)"
+                      : " (needs the document)"}
+                </span>
+              ))}
             .
           </p>
           <Link
             className="mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-3 text-sm font-semibold text-white transition hover:bg-[var(--primary-strong)]"
-            href={`/admin/equipment/${equipment.id}?tab=documents`}
+            href={`/admin/equipment/finish?unit=${equipment.id}`}
           >
             <FileText className="h-4 w-4" aria-hidden="true" />
-            Upload documents
+            Finish this unit
           </Link>
         </div>
       ) : null}
@@ -1313,20 +1340,23 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
 
       {activeTab === "documents" ? (
         <div className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]">
-          {compliance.applicable ? (
+          {vehicleFiles.length > 0 ? (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm xl:col-span-2">
               <h3 className="text-sm font-semibold text-[var(--ink)]">Required for this commercial unit</h3>
               <ul className="mt-3 grid gap-2 sm:grid-cols-3">
-                {compliance.required.map((item) => (
-                  <li className="flex items-center gap-2 text-sm" key={item.key}>
-                    {item.met ? (
+                {vehicleFiles.map((file) => (
+                  <li className="flex items-center gap-2 text-sm" key={file.docType}>
+                    {file.state === "on_file" ? (
                       <CheckCircle2 className="h-4 w-4 text-[var(--success)]" aria-hidden="true" />
                     ) : (
-                      <AlertTriangle className="h-4 w-4 text-[var(--danger)]" aria-hidden="true" />
+                      <AlertTriangle
+                        className={`h-4 w-4 ${file.state === "missing" || file.state === "expired" ? "text-[var(--danger)]" : "text-[var(--warning)]"}`}
+                        aria-hidden="true"
+                      />
                     )}
-                    <span className={item.met ? "text-[var(--ink)]" : "font-semibold text-[var(--danger)]"}>
-                      {item.label}
-                      {item.reason === "expired" ? " (expired)" : item.met ? "" : " (missing)"}
+                    <span className={file.state === "on_file" ? "text-[var(--ink)]" : "font-semibold text-[var(--ink)]"}>
+                      {file.label}
+                      {file.state === "on_file" ? "" : ` (${VEHICLE_FILE_STATE_LABELS[file.state].toLowerCase()})`}
                     </span>
                   </li>
                 ))}
