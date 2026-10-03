@@ -3,11 +3,9 @@ import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { FinishUnitsView } from "@/app/admin/equipment/finish/FinishUnitsView";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
-import { certificationTypeNameMap } from "@/lib/equipment";
-import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
-import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { buildUnitFinish, finishQueue, type FinishDocumentRow, type FinishUnitRow } from "@/lib/unit-finish";
+import { finishQueue } from "@/lib/unit-finish";
+import { loadUnitFinishes } from "@/lib/unit-finish-data";
 
 // Finish your units: one unit at a time, closest to green first.
 //
@@ -38,48 +36,7 @@ export default async function FinishUnitsPage({ searchParams }: PageProps) {
 
   const supabase = await createSupabaseServerClient();
   const tenantId = context.appUser.tenant_id;
-  const [{ data: unitRows }, { data: documentRows }, certificationTypes, requirements] = await Promise.all([
-    supabase
-      .from("equipment")
-      .select("id, unit_number, name, category, is_commercial")
-      .eq("tenant_id", tenantId)
-      .in("category", ["vehicle", "trailer"])
-      .is("deleted_at", null)
-      .neq("status", "retired")
-      .neq("status", "sold")
-      .returns<FinishUnitRow[]>(),
-    supabase
-      .from("equipment_document")
-      .select(
-        "id, equipment_id, doc_type, certification_type_id, expiry_date, issued_date, is_active, reminder_lead_days, title, attachment_ids",
-      )
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<FinishDocumentRow[]>(),
-    ensureEquipmentCertificationTypes(supabase, tenantId),
-    fetchUnitCertificationRequirements(supabase, tenantId),
-  ]);
-
-  const documentsByUnit = new Map<string, FinishDocumentRow[]>();
-  for (const document of documentRows ?? []) {
-    documentsByUnit.set(document.equipment_id, [...(documentsByUnit.get(document.equipment_id) ?? []), document]);
-  }
-
-  const typeInputs = certificationTypes.map((type) => ({
-    appliesByDefault: type.applies_by_default,
-    id: type.id,
-    name: type.name,
-  }));
-  const names = certificationTypeNameMap(typeInputs);
-  const finishes = (unitRows ?? []).map((unit) =>
-    buildUnitFinish({
-      certificationTypeNames: names,
-      certificationTypes: typeInputs,
-      documents: documentsByUnit.get(unit.id) ?? [],
-      requiredTypeIds: requirements.get(unit.id) ?? null,
-      unit,
-    }),
-  );
+  const finishes = await loadUnitFinishes(supabase, tenantId);
 
   const queue = finishQueue(finishes);
   const requested = requestedId ? finishes.find((entry) => entry.unit.id === requestedId) : undefined;

@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { Activity, AlertTriangle, BadgeCheck, BarChart3, ClipboardList, FileSliders, FileText, GitBranch, ListChecks, MapPin, Settings2, Share2, ShieldCheck, Smartphone, Truck, UserRound, UsersRound, Wrench } from "lucide-react";
 import { APP_NAME } from "@/lib/brand";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
+import { GettingStartedCard } from "@/app/admin/_components/GettingStartedCard";
+import { loadGettingStarted } from "@/lib/getting-started-data";
 import { canUseAdminPanel, formatAccessLevel, formatPowerLevel, formatReachType } from "@/lib/access-control";
 import { requireCurrentUser } from "@/lib/current-user";
 import {
@@ -293,6 +295,14 @@ export default async function AdminPage() {
     ),
   ]);
 
+  // A failure here must not take the admin home down with it; the checklist just stays hidden.
+  const gettingStarted = await loadGettingStarted(supabase, context.appUser.tenant_id).catch((error: unknown) => {
+    console.error("[admin] Getting started checklist failed to load.", {
+      name: error instanceof Error ? error.name : typeof error,
+    });
+    return [];
+  });
+
   const equipmentDashboardDocuments = (equipmentDocuments ?? []).map((document) => ({
     equipment_id: document.equipment_id,
     expiryDate: document.expiry_date,
@@ -352,6 +362,7 @@ export default async function AdminPage() {
           <span className="text-sm font-semibold text-[var(--primary)]">Open</span>
         </Link>
       ) : null}
+      <GettingStartedCard steps={gettingStarted} />
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
           <p className="text-sm text-[var(--ink-muted)]">Signed in as</p>
