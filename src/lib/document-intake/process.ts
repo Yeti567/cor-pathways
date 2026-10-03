@@ -22,6 +22,7 @@ import { readPdfTextLayer } from "./pdf-text";
 import { secondOpinion } from "./verify";
 import { planFiling, type PlanUnitDocument } from "./plan";
 import { INTAKE_BUCKET } from "./storage";
+import { loadTicketContext, processTicketRow, type TicketContext } from "./ticket-process";
 
 type Supabase = SupabaseClient<Database>;
 type IntakeRow = Database["public"]["Tables"]["document_intake"]["Row"];
@@ -140,22 +141,11 @@ export async function processQueuedIntake(input: {
     return { processed: 0, remaining: await countQueued(supabase, tenantId, batchId) };
   }
 
-  const [{ data: fleetRows, error: fleetError }, { data: certificationTypes, error: typesError }] = await Promise.all([
-    supabase
-      .from("equipment")
-      .select("id, unit_number, vin_or_serial, license_plate")
-      .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
-      .returns<MatchableUnit[]>(),
-    supabase
-      .from("equipment_certification_types")
-      .select("id, name")
-      .eq("tenant_id", tenantId)
-      .returns<{ id: string; name: string }[]>(),
-  ]);
+  const hasUnits = claimed.some((row) => row.subject !== "ticket");
+  const hasTickets = claimed.some((row) => row.subject === "ticket");
 
-  if (fleetError || typesError) {
-    // The system is unwell, not the files. Put the claims back so nothing is stranded.
+  // The system is unwell, not the files. Put the claims back so nothing is stranded.
+  const releaseClaims = async () => {
     await supabase
       .from("document_intake")
       .update({ claimed_at: null, status: "queued" })
@@ -164,14 +154,48 @@ export async function processQueuedIntake(input: {
         claimed.map((row) => row.id),
       )
       .eq("status", "reading");
+  };
+
+  const [{ data: fleetRows, error: fleetError }, { data: certificationTypes, error: typesError }] = hasUnits
+    ? await Promise.all([
+        supabase
+          .from("equipment")
+          .select("id, unit_number, vin_or_serial, license_plate")
+          .eq("tenant_id", tenantId)
+          .is("deleted_at", null)
+          .returns<MatchableUnit[]>(),
+        supabase
+          .from("equipment_certification_types")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .returns<{ id: string; name: string }[]>(),
+      ])
+    : [
+        { data: [] as MatchableUnit[], error: null },
+        { data: [] as { id: string; name: string }[], error: null },
+      ];
+
+  if (fleetError || typesError) {
+    await releaseClaims();
     throw new Error((fleetError ?? typesError)?.message ?? "Could not load the fleet.");
+  }
+
+  let ticketContext: TicketContext | null = null;
+
+  if (hasTickets) {
+    try {
+      ticketContext = await loadTicketContext(supabase, tenantId);
+    } catch (error) {
+      await releaseClaims();
+      throw error;
+    }
   }
 
   const fleet = fleetRows ?? [];
   let processed = 0;
 
   await mapWithConcurrency(claimed, input.concurrency ?? 6, async (row) => {
-    await processOne({ certificationTypes: certificationTypes ?? [], fleet, row, supabase, tenantId });
+    await processOne({ certificationTypes: certificationTypes ?? [], fleet, row, supabase, tenantId, ticketContext });
     processed += 1;
   });
 
@@ -192,6 +216,7 @@ async function processOne(input: {
   row: IntakeRow;
   supabase: Supabase;
   tenantId: string;
+  ticketContext: TicketContext | null;
 }) {
   const { row, supabase, tenantId } = input;
 
@@ -228,6 +253,28 @@ async function processOne(input: {
         review_reasons: ["The same file has already been filed."],
         status: "skipped",
       });
+      return;
+    }
+
+    if (row.subject === "ticket") {
+      if (!input.ticketContext) {
+        throw new Error("Ticket context was not loaded.");
+      }
+
+      await finish(
+        supabase,
+        row,
+        await processTicketRow({
+          bytes,
+          context: input.ticketContext,
+          maxAttempts: MAX_ATTEMPTS,
+          row,
+          sha256,
+          supabase,
+          tenantId,
+          today: todayIso(),
+        }),
+      );
       return;
     }
 

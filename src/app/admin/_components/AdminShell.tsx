@@ -92,6 +92,7 @@ const navItems = [
   { href: "/admin/worker-tickets/compliance", label: "Ticket Compliance", icon: BadgeCheck },
   { href: "/admin/people/add", label: "Add Your People", icon: UserRound },
   { href: "/admin/intake", label: "Document Intake", icon: FolderUp },
+  { href: "/admin/tickets/intake", label: "Add People's Tickets", icon: IdCard },
   { href: "/admin/needs-document", label: "Needs Document", icon: FileWarning },
   { href: "/admin/access", label: "Access", icon: UsersRound },
   { href: "/admin/permission-profiles", label: "Permission Profiles", icon: FileSliders },

@@ -108,11 +108,13 @@ export default async function IntakePage({ searchParams }: PageProps) {
   const supabase = await createSupabaseServerClient();
 
   const [statusResult, readyResult, reviewResult, otherResult, filedResult, unitResult, typeResult] = await Promise.all([
-    supabase.from("document_intake").select("status").eq("tenant_id", tenantId).limit(5000),
+    supabase.from("document_intake").select("status").eq("tenant_id", tenantId)
+      .eq("subject", "unit").limit(5000),
     supabase
       .from("document_intake")
       .select("*")
       .eq("tenant_id", tenantId)
+      .eq("subject", "unit")
       .eq("status", "ready")
       .order("created_at", { ascending: true })
       .limit(100)
@@ -121,6 +123,7 @@ export default async function IntakePage({ searchParams }: PageProps) {
       .from("document_intake")
       .select("*")
       .eq("tenant_id", tenantId)
+      .eq("subject", "unit")
       .eq("status", "needs_review")
       .order("created_at", { ascending: true })
       .limit(100)
@@ -129,6 +132,7 @@ export default async function IntakePage({ searchParams }: PageProps) {
       .from("document_intake")
       .select("*")
       .eq("tenant_id", tenantId)
+      .eq("subject", "unit")
       .in("status", ["failed", "skipped"])
       .order("updated_at", { ascending: false })
       .limit(50)
@@ -137,6 +141,7 @@ export default async function IntakePage({ searchParams }: PageProps) {
       .from("document_intake")
       .select("*")
       .eq("tenant_id", tenantId)
+      .eq("subject", "unit")
       .eq("status", "filed")
       .order("filed_at", { ascending: false })
       .limit(25)

@@ -132,19 +132,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export async function readDocument(input: {
+export type ReaderReply =
+  | { ok: true; model: string; text: string }
+  | Extract<ReadOutcome, { ok: false }>;
+
+/**
+ * Sends one file and a set of instructions to the reader and returns its raw reply.
+ *
+ * Shared by unit paperwork and people's tickets: what differs is the instructions and how
+ * the reply is checked, not how a file reaches the model or how a failure is reported.
+ */
+export async function requestReading(input: {
   bytes: Uint8Array;
-  /**
-   * The company's own certification type names. A tank test, a hose test and a valve test
-   * are each printed under their own form title; given the list, the reader names the
-   * company's entry instead of the form's title, which is what lets the planner file it.
-   */
-  certificationTypeNames?: readonly string[];
   env?: Env;
   fetchImpl?: typeof fetch;
-  fileName: string;
   mimeType: string;
-}): Promise<ReadOutcome> {
+  systemPrompt: string;
+  userText: string;
+}): Promise<ReaderReply> {
   const env = input.env ?? process.env;
   const apiKey = env.OPENROUTER_API_KEY?.trim();
   const model = intakeModel(env);
@@ -164,15 +169,7 @@ export async function readDocument(input: {
     };
   }
 
-  const typeNames = (input.certificationTypeNames ?? []).map((name) => name.trim()).filter(Boolean).slice(0, 60);
-  const typeList =
-    typeNames.length > 0
-      ? `\n\nThis company's certification types are:\n${typeNames.map((name) => `- ${name}`).join("\n")}\nIf the document is a certification, set certification_name to the ONE entry above that best matches what it certifies, copied exactly as written. If more than one applies, choose the main one and name the others in notes. If none fits, return the name printed on the document.`
-      : "";
-  const instruction = {
-    text: `File name (untrusted hint): ${input.fileName}${typeList}\n\nRead this document and return the JSON object.`,
-    type: "text",
-  };
+  const instruction = { text: input.userText, type: "text" };
 
   let filePart: Record<string, unknown>;
 
@@ -208,7 +205,7 @@ export async function readDocument(input: {
         // ceiling only limits spend, it does not set it.
         max_tokens: 6000,
         messages: [
-          { content: INTAKE_SYSTEM_PROMPT, role: "system" },
+          { content: input.systemPrompt, role: "system" },
           { content: [instruction, filePart], role: "user" },
         ],
         model,
@@ -264,11 +261,9 @@ export async function readDocument(input: {
       };
     }
 
-    const raw = parseReaderOutput(text);
-
-    // A reply cut off by the length limit, or one that is not the JSON asked for, is not
-    // read at all. It is never repaired into something that looks confident.
-    if (!raw || finishReason === "length") {
+    // A reply cut off by the length limit is not read at all. It is never repaired into
+    // something that looks confident.
+    if (finishReason === "length") {
       return {
         needsPerson: true,
         ok: false,
@@ -277,7 +272,7 @@ export async function readDocument(input: {
       };
     }
 
-    return { extraction: sanitizeExtraction(raw), model, ok: true };
+    return { model, ok: true, text };
   } catch (error) {
     // Network drop or timeout. The error message can echo request detail, so log only the class.
     console.error("[document-intake] Reader request failed.", {
@@ -288,4 +283,50 @@ export async function readDocument(input: {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function readDocument(input: {
+  bytes: Uint8Array;
+  /**
+   * The company's own certification type names. A tank test, a hose test and a valve test
+   * are each printed under their own form title; given the list, the reader names the
+   * company's entry instead of the form's title, which is what lets the planner file it.
+   */
+  certificationTypeNames?: readonly string[];
+  env?: Env;
+  fetchImpl?: typeof fetch;
+  fileName: string;
+  mimeType: string;
+}): Promise<ReadOutcome> {
+  const typeNames = (input.certificationTypeNames ?? []).map((name) => name.trim()).filter(Boolean).slice(0, 60);
+  const typeList =
+    typeNames.length > 0
+      ? `\n\nThis company's certification types are:\n${typeNames.map((name) => `- ${name}`).join("\n")}\nIf the document is a certification, set certification_name to the ONE entry above that best matches what it certifies, copied exactly as written. If more than one applies, choose the main one and name the others in notes. If none fits, return the name printed on the document.`
+      : "";
+  const reply = await requestReading({
+    bytes: input.bytes,
+    env: input.env,
+    fetchImpl: input.fetchImpl,
+    mimeType: input.mimeType,
+    systemPrompt: INTAKE_SYSTEM_PROMPT,
+    userText: `File name (untrusted hint): ${input.fileName}${typeList}\n\nRead this document and return the JSON object.`,
+  });
+
+  if (!reply.ok) {
+    return reply;
+  }
+
+  const raw = parseReaderOutput(reply.text);
+
+  // A reply that is not the JSON asked for is not read at all.
+  if (!raw) {
+    return {
+      needsPerson: true,
+      ok: false,
+      reason: "The reader could not produce a clean result for this file.",
+      retryable: false,
+    };
+  }
+
+  return { extraction: sanitizeExtraction(raw), model: reply.model, ok: true };
 }

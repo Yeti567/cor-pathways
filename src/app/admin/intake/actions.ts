@@ -6,6 +6,7 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { fileIntakeRow, FILEABLE_DOC_TYPES, type FilingDecision } from "@/lib/document-intake/file";
 import type { EquipmentDocType, FilingProposal } from "@/lib/document-intake/plan";
+import { fileTicketRow } from "@/lib/document-intake/ticket-file";
 import {
   INTAKE_MAX_FILES_PER_REGISTRATION,
   validateUploadedIntakeFiles,
@@ -18,6 +19,7 @@ import type { Database } from "@/types/database";
 type IntakeRow = Database["public"]["Tables"]["document_intake"]["Row"];
 
 const INTAKE_PATH = "/admin/intake";
+const TICKETS_PATH = "/admin/tickets/intake";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Batches of "File all ready" are capped so one click stays well inside a request, and the
@@ -38,8 +40,13 @@ function stringValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
 
-function back(kind: "error" | "notice", message: string): never {
-  redirect(`${INTAKE_PATH}?${kind}=${encodeURIComponent(message)}`);
+function back(kind: "error" | "notice", message: string, path: string = INTAKE_PATH): never {
+  redirect(`${path}?${kind}=${encodeURIComponent(message)}`);
+}
+
+/** The page a row belongs on: tickets have their own. */
+function pageFor(formData: FormData) {
+  return stringValue(formData, "from") === "tickets" ? TICKETS_PATH : INTAKE_PATH;
 }
 
 export type RegisterIntakeResult = {
@@ -54,6 +61,8 @@ export type RegisterIntakeResult = {
 export async function registerIntakeFiles(input: {
   batchId: string;
   files: { name: string; path: string; size: number; type: string }[];
+  /** Unit paperwork (the default) or people's tickets. Decides which reader reads them. */
+  subject?: "unit" | "ticket";
 }): Promise<RegisterIntakeResult> {
   const context = await requireIntakeUser();
   const tenantId = context.appUser.tenant_id;
@@ -85,6 +94,7 @@ export async function registerIntakeFiles(input: {
         size_bytes: file.size,
         status: "queued" as const,
         storage_path: file.path,
+        subject: input.subject === "ticket" ? ("ticket" as const) : ("unit" as const),
         tenant_id: tenantId,
         uploaded_by: context.appUser.id,
       })),
@@ -102,6 +112,7 @@ export async function registerIntakeFiles(input: {
   }
 
   revalidatePath(INTAKE_PATH);
+  revalidatePath(TICKETS_PATH);
 
   return { queued: data?.length ?? 0, rejected };
 }
@@ -177,6 +188,7 @@ export async function fileAllReady() {
     .from("document_intake")
     .select("*")
     .eq("tenant_id", context.appUser.tenant_id)
+    .eq("subject", "unit")
     .eq("status", "ready")
     .order("created_at", { ascending: true })
     .limit(FILE_ALL_LIMIT)
@@ -227,11 +239,12 @@ export async function skipIntakeItem(formData: FormData) {
     .select("id");
 
   if (!data || data.length === 0) {
-    back("error", "That file could not be set aside.");
+    back("error", "That file could not be set aside.", pageFor(formData));
   }
 
   revalidatePath(INTAKE_PATH);
-  back("notice", "Set aside.");
+  revalidatePath(TICKETS_PATH);
+  back("notice", "Set aside.", pageFor(formData));
 }
 
 /** Puts a failed or set-aside file back in the queue to be read again. */
@@ -248,9 +261,151 @@ export async function retryIntakeItem(formData: FormData) {
     .select("id");
 
   if (!data || data.length === 0) {
-    back("error", "That file could not be queued again.");
+    back("error", "That file could not be queued again.", pageFor(formData));
   }
 
   revalidatePath(INTAKE_PATH);
-  back("notice", "Queued again. Open this page to have it read.");
+  revalidatePath(TICKETS_PATH);
+  back("notice", "Queued again. Open this page to have it read.", pageFor(formData));
+}
+
+type TicketProposalJson = Partial<{
+  action: "attach" | "new" | "none";
+  certificationTypeId: string | null;
+  detail: string | null;
+  expiresOn: string | null;
+  issuedOn: string | null;
+  name: string;
+  targetRecordId: string | null;
+}>;
+
+type TicketExtractionJson = Partial<{
+  match_status: "matched" | "suggested" | "unmatched";
+  person: { key: string } | null;
+}>;
+
+/**
+ * Files one ticket as the reviewer decided.
+ *
+ * Whose ticket it is must be certain. Only a name that matched exactly one person can be
+ * filed without a confirmation; for anything else (a suggestion, or a person the reviewer
+ * picked) the form must carry confirm=yes, which the page sends only from the
+ * "Yes, this is their ticket" button. That is the client's own rule: a ticket on the wrong
+ * worker makes someone look qualified who is not.
+ */
+export async function fileTicketItem(formData: FormData) {
+  const context = await requireIntakeUser();
+  const supabase = await createSupabaseServerClient();
+  const intakeId = stringValue(formData, "intakeId");
+
+  const { data: row } = await supabase
+    .from("document_intake")
+    .select("*")
+    .eq("id", intakeId)
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("subject", "ticket")
+    .maybeSingle<IntakeRow>();
+
+  if (!row) {
+    back("error", "That ticket is no longer in the list.", TICKETS_PATH);
+  }
+
+  const extraction = (row.extraction ?? {}) as TicketExtractionJson;
+  const personKey = stringValue(formData, "personKey");
+  const certain = extraction.match_status === "matched" && extraction.person?.key === personKey;
+
+  if (!personKey) {
+    back("error", `${row.original_name}: choose whose ticket this is.`, TICKETS_PATH);
+  }
+
+  if (!certain && stringValue(formData, "confirm") !== "yes") {
+    back("error", `${row.original_name}: confirm whose ticket this is before it is saved.`, TICKETS_PATH);
+  }
+
+  const target = stringValue(formData, "targetRecordId");
+  const result = await fileTicketRow({
+    actor: context.appUser,
+    decision: {
+      certificationTypeId: stringValue(formData, "certificationTypeId") || null,
+      detail: stringValue(formData, "detail") || null,
+      expiresOn: stringValue(formData, "expiresOn") || null,
+      issuedOn: stringValue(formData, "issuedOn") || null,
+      name: stringValue(formData, "name"),
+      personKey,
+      // A waiting record belongs to the person it was planned for; another person gets a new one.
+      targetRecordId: target && extraction.person?.key === personKey ? target : null,
+    },
+    row,
+    supabase,
+  });
+
+  if (!result.ok) {
+    back("error", `${row.original_name}: ${result.error}`, TICKETS_PATH);
+  }
+
+  revalidatePath(TICKETS_PATH);
+  revalidatePath("/admin/worker-tickets");
+  back("notice", `Saved ${row.original_name}.`, TICKETS_PATH);
+}
+
+/** Files every ready ticket exactly as proposed. Ready means the name matched one person exactly. */
+export async function fileAllReadyTickets() {
+  const context = await requireIntakeUser();
+  const supabase = await createSupabaseServerClient();
+
+  const { data: rows } = await supabase
+    .from("document_intake")
+    .select("*")
+    .eq("tenant_id", context.appUser.tenant_id)
+    .eq("subject", "ticket")
+    .eq("status", "ready")
+    .order("created_at", { ascending: true })
+    .limit(FILE_ALL_LIMIT)
+    .returns<IntakeRow[]>();
+
+  let filed = 0;
+  const problems: string[] = [];
+
+  for (const row of rows ?? []) {
+    const extraction = (row.extraction ?? {}) as TicketExtractionJson;
+    const proposal = (row.proposal ?? {}) as TicketProposalJson;
+
+    // Belt and braces: "ready" is only ever set for an exact match, but filing without a
+    // person's Yes is only allowed for one, so it is checked again here.
+    if (extraction.match_status !== "matched" || !extraction.person?.key || proposal.action === "none") {
+      problems.push(`${row.original_name}: needs a person to confirm it.`);
+      continue;
+    }
+
+    const result = await fileTicketRow({
+      actor: context.appUser,
+      decision: {
+        certificationTypeId: proposal.certificationTypeId ?? null,
+        detail: proposal.detail ?? null,
+        expiresOn: proposal.expiresOn ?? null,
+        issuedOn: proposal.issuedOn ?? null,
+        name: proposal.name ?? "",
+        personKey: extraction.person.key,
+        targetRecordId: proposal.action === "attach" ? (proposal.targetRecordId ?? null) : null,
+      },
+      row,
+      supabase,
+    });
+
+    if (result.ok) {
+      filed += 1;
+    } else {
+      problems.push(`${row.original_name}: ${result.error}`);
+    }
+  }
+
+  revalidatePath(TICKETS_PATH);
+  revalidatePath("/admin/worker-tickets");
+
+  if (problems.length > 0) {
+    back("error", `Saved ${filed}. ${problems.length} could not be saved: ${problems.slice(0, 3).join(" ")}`, TICKETS_PATH);
+  }
+
+  const more = (rows?.length ?? 0) === FILE_ALL_LIMIT ? " There are more ready; run it again." : "";
+  back("notice", `Saved ${filed} ticket${filed === 1 ? "" : "s"}.${more}`, TICKETS_PATH);
 }

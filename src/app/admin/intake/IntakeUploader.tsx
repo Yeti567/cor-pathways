@@ -23,8 +23,21 @@ type Props = {
   /** Files already waiting from an earlier visit, so reloading the page resumes the work. */
   queuedCount: number;
   readerConfigured: boolean;
+  /** Unit paperwork (default) or people's tickets: decides the reader and the wording. */
+  subject?: "unit" | "ticket";
   tenantId: string;
 };
+
+const WORDING = {
+  ticket: {
+    body: "Tickets for anyone: your own staff and your carriers' drivers, in any order. A zip, a folder or a pile of phone photos all work. Nothing needs sorting or renaming first.",
+    warning: "Tickets only. Do not include medicals, drug test results, licences, abstracts or hiring forms.",
+  },
+  unit: {
+    body: "Registrations, insurance cards, CVIP certificates, permits and inspection certificates, for any units, in any order. A zip, a folder or a pile of photos all work. Nothing needs sorting or renaming first.",
+    warning: "Unit paperwork only. Do not include driver medicals or personal driver records.",
+  },
+} as const;
 
 type Candidate = { file: File; name: string; type: string };
 /** A picked or dropped file and where it sat in the folder it came from. */
@@ -173,7 +186,8 @@ async function expand(files: Picked[]): Promise<{ candidates: Candidate[]; skipp
   return { candidates, skipped };
 }
 
-export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Props) {
+export function IntakeUploader({ queuedCount, readerConfigured, subject = "unit", tenantId }: Props) {
+  const wording = WORDING[subject];
   const router = useRouter();
   const filesRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -325,7 +339,7 @@ export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Prop
 
     // Registered in chunks so one request body stays small however big the drop was.
     for (let start = 0; start < done.length; start += 200) {
-      const result = await registerIntakeFiles({ batchId, files: done.slice(start, start + 200) });
+      const result = await registerIntakeFiles({ batchId, files: done.slice(start, start + 200), subject });
       queued += result.queued;
       rejected.push(...result.rejected.map((entry) => `${entry.name} (${entry.reason})`));
     }
@@ -369,10 +383,7 @@ export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Prop
       >
         <UploadCloud className="mx-auto h-9 w-9 text-[var(--primary)]" aria-hidden="true" />
         <h2 className="mt-3 text-lg font-semibold text-[var(--ink)]">Drop everything here</h2>
-        <p className="mx-auto mt-1 max-w-xl text-sm text-[var(--ink-muted)]">
-          Registrations, insurance cards, CVIP certificates, permits and inspection certificates, for any units, in any
-          order. A zip, a folder or a pile of photos all work. Nothing needs sorting or renaming first.
-        </p>
+        <p className="mx-auto mt-1 max-w-xl text-sm text-[var(--ink-muted)]">{wording.body}</p>
 
         <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
           <button
@@ -419,9 +430,7 @@ export function IntakeUploader({ queuedCount, readerConfigured, tenantId }: Prop
           {...({ webkitdirectory: "" } as Record<string, string>)}
         />
 
-        <p className="mt-4 text-xs font-semibold text-[var(--warning)]">
-          Unit paperwork only. Do not include driver medicals or personal driver records.
-        </p>
+        <p className="mt-4 text-xs font-semibold text-[var(--warning)]">{wording.warning}</p>
       </div>
 
       {phase === "uploading" ? (

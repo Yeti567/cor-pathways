@@ -1567,12 +1567,14 @@ export type Database = {
           claimed_at: string | null;
           confidence: number | null;
           content_sha256: string | null;
+          contracted_driver_id: string | null;
           doc_type: string | null;
           equipment_id: string | null;
           error: string | null;
           extraction: Json;
           filed_at: string | null;
           filed_document_id: string | null;
+          filed_record_id: string | null;
           mime_type: string | null;
           original_name: string;
           proposal: Json;
@@ -1581,7 +1583,9 @@ export type Database = {
           size_bytes: number | null;
           status: "queued" | "reading" | "ready" | "needs_review" | "filed" | "skipped" | "failed";
           storage_path: string;
+          subject: "unit" | "ticket";
           uploaded_by: string | null;
+          worker_profile_id: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["document_intake"]["Row"]> &
           Pick<
