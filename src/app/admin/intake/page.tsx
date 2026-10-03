@@ -253,6 +253,13 @@ export default async function IntakePage({ searchParams }: PageProps) {
         , which lists every record still waiting on its scan. Filed documents live with their unit; nothing is kept here
         except this receipt.
       </p>
+      <p className="mt-2 text-sm text-[var(--ink)]">
+        When this pile is done,{" "}
+        <Link className="font-semibold text-[var(--primary)] hover:underline" href="/admin/equipment/finish">
+          Finish your units
+        </Link>{" "}
+        takes you through whatever each unit still needs, one unit at a time, until it turns green.
+      </p>
 
       {ready.length > 0 ? (
         <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
