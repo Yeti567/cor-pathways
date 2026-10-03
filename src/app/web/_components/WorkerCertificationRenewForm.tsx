@@ -1,4 +1,5 @@
 import { Camera } from "lucide-react";
+import { ShrinkingFileInput } from "@/app/_components/ShrinkingFileInput";
 
 // The renewal form that sits on each of a worker's own tickets.
 //
@@ -57,7 +58,7 @@ export function WorkerCertificationRenewForm({
         </div>
         <label className="space-y-2">
           <span className="text-sm font-medium text-[var(--ink)]">Photo of the card</span>
-          <input
+          <ShrinkingFileInput
             // capture="environment" opens the rear camera straight away on a
             // phone, which is the whole point: the card is in their hand.
             accept="image/*,.pdf,application/pdf"
@@ -65,7 +66,6 @@ export function WorkerCertificationRenewForm({
             className="block w-full rounded-md border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--ink)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--surface-muted)] file:px-3 file:py-1 file:text-sm file:font-semibold file:text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
             name="attachment"
             required
-            type="file"
           />
         </label>
         <button

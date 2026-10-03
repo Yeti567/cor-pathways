@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { BadgeCheck, FileUp, IdCard, Paperclip, Search, Trash2 } from "lucide-react";
 import { createWorkerCertification, deleteWorkerCertification } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
+import { ShrinkingFileInput } from "@/app/_components/ShrinkingFileInput";
 import { UploadTicketButton } from "@/app/admin/certification-types/UploadTicketButton";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { sendCertificationExpiryNotifications } from "@/lib/certification-reminders";
@@ -432,12 +433,11 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
               </div>
               <label className="space-y-2">
                 <span className="text-sm font-medium text-[var(--ink)]">Ticket image or PDF</span>
-                <input
+                <ShrinkingFileInput
                   accept="image/*,.pdf,application/pdf"
                   className="block w-full rounded-md border border-[var(--border)] bg-white px-3 py-2 text-sm text-[var(--ink)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--surface-muted)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
                   name="attachment"
                   required
-                  type="file"
                 />
               </label>
             </div>

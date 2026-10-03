@@ -32,6 +32,7 @@ import {
 } from "@/lib/offline/forms";
 import type { OfflineCorrectiveActionDrafts, OfflineEvidencePhotos } from "@/lib/offline/follow-ups";
 import { getOfflineFieldOptions, type OfflineFormItem, type OfflineFormSummary } from "@/lib/offline/form-model";
+import { shrinkPhoto } from "@/lib/offline/shrink-photo";
 import {
   coerceEquipmentPickerScope,
   coerceWorkerPickerScope,
@@ -689,14 +690,14 @@ function PhotoField({ onChange, value }: { onChange: (value: Json) => void; valu
       return;
     }
 
-    const nextDataUrl = await readFileAsDataUrl(file);
+    const photo = await shrinkPhoto(file);
     onChange({
       capturedAt: new Date().toISOString(),
       caption: typeof existing.caption === "string" ? existing.caption : "",
-      dataUrl: nextDataUrl,
+      dataUrl: photo.dataUrl,
       fileName: file.name,
-      mimeType: file.type,
-      size: file.size,
+      mimeType: photo.mimeType,
+      size: photo.size,
       type: "photo",
     });
   }
@@ -1209,14 +1210,16 @@ export function AssignedFormsPanel({
       return;
     }
 
+    const photo = await shrinkPhoto(file);
+
     updateCorrectiveAction(correctiveKey, {
       enabled: true,
       photo: {
         capturedAt: new Date().toISOString(),
-        dataUrl: await readFileAsDataUrl(file),
+        dataUrl: photo.dataUrl,
         fileName: file.name,
-        mimeType: file.type,
-        size: file.size,
+        mimeType: photo.mimeType,
+        size: photo.size,
         type: "photo",
       },
     });
@@ -1448,16 +1451,16 @@ export function AssignedFormsPanel({
       return;
     }
 
-    const dataUrl = await readFileAsDataUrl(file);
+    const photo = await shrinkPhoto(file);
 
     setEvidencePhotos((current) => ({
       ...current,
       [itemKey]: {
         capturedAt: new Date().toISOString(),
-        dataUrl,
+        dataUrl: photo.dataUrl,
         fileName: file.name,
-        mimeType: file.type,
-        size: file.size,
+        mimeType: photo.mimeType,
+        size: photo.size,
       },
     }));
   }
