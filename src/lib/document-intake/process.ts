@@ -17,7 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/database";
 import { readDocument } from "./extract";
 import { groundExtraction } from "./ground";
-import { applyPathHint, matchUnit, unitHintFromPath, type MatchableUnit } from "./match";
+import { applyPathHint, expiryHintFromName, matchUnit, unitHintFromPath, type MatchableUnit } from "./match";
 import { readPdfTextLayer } from "./pdf-text";
 import { secondOpinion } from "./verify";
 import { planFiling, type PlanUnitDocument } from "./plan";
@@ -335,6 +335,7 @@ async function processOne(input: {
 
     const plan = planFiling({
       certificationTypes: input.certificationTypes,
+      expiryHint: expiryHintFromName(row.original_name),
       extraction,
       grounding,
       match,

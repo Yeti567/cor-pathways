@@ -37,6 +37,7 @@ import { readDocument, intakeModel, isIntakeReaderConfigured } from "../src/lib/
 import { groundExtraction } from "../src/lib/document-intake/ground";
 import {
   applyPathHint,
+  expiryHintFromName,
   matchUnit,
   unitHintFromPath,
   type MatchableUnit,
@@ -328,6 +329,7 @@ async function main() {
 
     const plan = planFiling({
       certificationTypes: certTypes,
+      expiryHint: expiryHintFromName(file.name),
       extraction,
       grounding,
       match,

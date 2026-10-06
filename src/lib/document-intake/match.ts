@@ -394,3 +394,50 @@ export function applyPathHint(match: UnitMatch, hintId: string | null, fleet: re
 
   return match;
 }
+
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * The expiry the client wrote into the file's name, when they wrote one.
+ *
+ * Yards name scans by what they are and when they run out ("412A - CVIP - Exp Oct 31, 2026.pdf",
+ * "420B - VK - Exp. April 30, 2027.pdf", "...Exp 2027-02-28..."). That date is untrusted, and
+ * the yard's habit of rounding to the end of a month means it is often a few days off the
+ * certificate. But a B620 inspection prints only its inspection date, and a reader that is told
+ * not to calculate an expiry will still sometimes hand one back, a year early or a year late,
+ * and read it the same way twice. The date in the name is the one independent witness such a
+ * scan has, so a disagreement holds the file for a person. Returns YYYY-MM-DD or null.
+ */
+export function expiryHintFromName(path: string): string | null {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  const stem = name.replace(/\.[A-Za-z0-9]{2,4}$/, "");
+  const worded = stem.match(/\bexp(?:iry|ires|\.)?\.?\s*[:-]?\s*([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+((?:19|20)\d{2})\b/i);
+
+  if (worded) {
+    const month = MONTHS[worded[1].slice(0, 3).toLowerCase()];
+    const day = Number(worded[2]);
+    const year = Number(worded[3]);
+
+    if (month && day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate()) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+
+    return null;
+  }
+
+  const iso = stem.match(/\bexp(?:iry|ires|\.)?\.?\s*[:-]?\s*((?:19|20)\d{2})-(\d{2})-(\d{2})\b/i);
+
+  if (iso) {
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const year = Number(iso[1]);
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate()) {
+      return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    }
+  }
+
+  return null;
+}

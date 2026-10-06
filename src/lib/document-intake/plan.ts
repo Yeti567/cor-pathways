@@ -56,10 +56,31 @@ export type PlanInput = {
    * unchecked means there was nothing to check against, which blocks nothing.
    */
   grounding?: GroundingResult | null;
+  /**
+   * The expiry written into the file's name by the client, YYYY-MM-DD, when there is one
+   * (see expiryHintFromName). Untrusted, and allowed to differ by a few days within the same
+   * month, because yards round to month end. A different month or year holds the file.
+   */
+  expiryHint?: string | null;
   /** YYYY-MM-DD, passed in so the function stays pure. */
   today: string;
   minConfidence?: number;
 };
+
+/** Days between two YYYY-MM-DD dates, or null when either is not one. */
+function daysBetween(from: string, to: string): number | null {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+
+  return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 86_400_000) : null;
+}
+
+/**
+ * The shortest life a certificate or inspection can plausibly have. A B620 visual runs a
+ * year, a CVIP a year, a pressure test five. An expiry only days after the issue date is
+ * not a short certificate; it is the inspection date read back as the expiry.
+ */
+const SHORTEST_PLAUSIBLE_LIFE_DAYS = 90;
 
 export type PlanResult = {
   proposal: FilingProposal;
@@ -246,6 +267,29 @@ export function planFiling(input: PlanInput): PlanResult {
 
   if (extraction.expiry_date && extraction.expiry_date < input.today) {
     reasons.push(`The document expired on ${extraction.expiry_date}.`);
+  }
+
+  // Two checks on the expiry itself, because a wrong expiry is the error that files green
+  // and stays green. First, the client's own file name: it is the one independent witness
+  // a scan has. Same month is agreement (yards round to month end); a different month or
+  // year is not. Second, an expiry within weeks of the issue date is the inspection date
+  // handed back as the expiry, which a second reading of the same scan will not catch.
+  if (input.expiryHint && extraction.expiry_date && input.expiryHint.slice(0, 7) !== extraction.expiry_date.slice(0, 7)) {
+    reasons.push(
+      `The file name says it expires ${input.expiryHint} but the document reads ${extraction.expiry_date}. One of them is wrong; check it against the original.`,
+    );
+  } else if (input.expiryHint && !extraction.expiry_date) {
+    notes.push(`The file name says it expires ${input.expiryHint}; the document itself prints no expiry.`);
+  }
+
+  if ((docType === "certification" || docType === "cvip") && extraction.issued_date && extraction.expiry_date) {
+    const life = daysBetween(extraction.issued_date, extraction.expiry_date);
+
+    if (life !== null && life < SHORTEST_PLAUSIBLE_LIFE_DAYS) {
+      reasons.push(
+        `The expiry read (${extraction.expiry_date}) is only ${life} day${life === 1 ? "" : "s"} after the issue date (${extraction.issued_date}). No inspection runs that short, so one of them is misread; it is usually the inspection date given back as the expiry.`,
+      );
+    }
   }
 
   // Certification type: only a certification names one.
