@@ -36,6 +36,8 @@ import {
 } from "../src/lib/document-intake/match";
 import { planFiling, type EquipmentDocType, type FilingProposal, type PlanUnitDocument } from "../src/lib/document-intake/plan";
 import type { IntakeExtraction } from "../src/lib/document-intake/schema";
+import { buildEquipmentActionMetadata, buildEquipmentAttachmentStoragePath } from "../src/lib/equipment";
+import { recordTenantAuditEvent } from "../src/lib/tenant-audit";
 import { processQueuedIntake } from "../src/lib/document-intake/process";
 import { buildIntakeStoragePath, INTAKE_BUCKET, INTAKE_MAX_BYTES } from "../src/lib/document-intake/storage";
 
@@ -140,6 +142,120 @@ async function batchRows(supabase: Supabase, tenantId: string, batchId: string) 
       return rows;
     }
   }
+}
+
+type ExtraRecord = Omit<FilingDecision, "equipmentId">;
+type Decision = FilingDecision & { alsoAttach?: ExtraRecord[]; intakeId: string; note?: string; skip?: boolean };
+
+/**
+ * Puts a copy of an already filed scan on a further record of the same unit: the waiting row
+ * named, or a new one. Mirrors what fileIntakeRow writes. Returns an error message, or null.
+ */
+async function attachCopy(input: {
+  actor: { id: string; power_level: string; tenant_id: string };
+  equipmentId: string;
+  extra: ExtraRecord;
+  fileName: string;
+  from: string;
+  index: number;
+  intakeId: string;
+  supabase: Supabase;
+}): Promise<string | null> {
+  const { actor, extra, supabase } = input;
+  const tenantId = actor.tenant_id;
+
+  if (!input.from) {
+    return "the filed scan could not be found";
+  }
+
+  const path = buildEquipmentAttachmentStoragePath({
+    equipmentId: input.equipmentId,
+    fileName: input.fileName.split("/").pop() ?? input.fileName,
+    folder: "documents",
+    index: input.index,
+    tenantId,
+  });
+  const { error: copyError } = await supabase.storage.from(INTAKE_BUCKET).copy(input.from, path);
+
+  if (copyError) {
+    return `copy failed: ${copyError.message}`;
+  }
+
+  const actionMetadata = buildEquipmentActionMetadata({
+    action: "equipment.document.intake_file",
+    actorId: actor.id,
+    details: { copy_of_intake: input.intakeId, doc_type: extra.docType, expiry_date: extra.expiryDate, via: "document_intake" },
+    source: "admin",
+  });
+  let documentId: string | null = null;
+
+  if (extra.targetDocumentId) {
+    const { data: existing } = await supabase
+      .from("equipment_document")
+      .select("id, attachment_ids")
+      .eq("id", extra.targetDocumentId)
+      .eq("equipment_id", input.equipmentId)
+      .eq("tenant_id", tenantId)
+      .eq("doc_type", extra.docType)
+      .is("deleted_at", null)
+      .maybeSingle<{ attachment_ids: string[] | null; id: string }>();
+
+    if (!existing) {
+      await supabase.storage.from(INTAKE_BUCKET).remove([path]);
+      return "the waiting row is no longer on that unit";
+    }
+
+    const { data: updated } = await supabase
+      .from("equipment_document")
+      .update({
+        action_metadata: actionMetadata,
+        attachment_ids: Array.from(new Set([...(existing.attachment_ids ?? []), path])),
+        expiry_date: extra.expiryDate,
+        issued_date: extra.issuedDate,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id)
+      .eq("tenant_id", tenantId)
+      .select("id");
+    documentId = updated?.[0]?.id ?? null;
+  } else {
+    const { data: created } = await supabase
+      .from("equipment_document")
+      .insert({
+        action_metadata: actionMetadata,
+        attachment_ids: [path],
+        certification_type_id: extra.certificationTypeId,
+        created_by: actor.id,
+        doc_type: extra.docType,
+        equipment_id: input.equipmentId,
+        expiry_date: extra.expiryDate,
+        is_active: true,
+        issued_date: extra.issuedDate,
+        reminder_lead_days: 30,
+        tenant_id: tenantId,
+        title: extra.title,
+      })
+      .select("id")
+      .single<{ id: string }>();
+    documentId = created?.id ?? null;
+  }
+
+  if (!documentId) {
+    await supabase.storage.from(INTAKE_BUCKET).remove([path]);
+    return "the record could not be written";
+  }
+
+  await recordTenantAuditEvent({
+    action: "equipment.document.intake_file",
+    actorRole: actor.power_level,
+    actorUserId: actor.id,
+    entityId: documentId,
+    entityTable: "equipment_document",
+    metadata: { attached_to_existing: Boolean(extra.targetDocumentId), copy_of_intake: input.intakeId, doc_type: extra.docType, equipment_id: input.equipmentId, title: extra.title },
+    tenantId,
+  });
+
+  return null;
 }
 
 function csvCell(value: unknown) {
@@ -346,7 +462,7 @@ async function main() {
   if (has("--file-ready") || has("--file-decisions")) {
     const rows = await batchRows(supabase, tenantId, batchId);
     const byId = new Map(rows.map((row) => [row.id, row]));
-    const work: { decision: FilingDecision; row: IntakeRow }[] = [];
+    const work: { alsoAttach?: ExtraRecord[]; decision: FilingDecision; row: IntakeRow }[] = [];
 
     if (has("--file-ready")) {
       for (const row of rows.filter((candidate) => candidate.status === "ready")) {
@@ -372,33 +488,67 @@ async function main() {
       }
     } else {
       const decisionsPath = take("--file-decisions");
-      const decisions = JSON.parse(readFileSync(String(decisionsPath), "utf8")) as (FilingDecision & { intakeId: string })[];
+      const decisions = JSON.parse(readFileSync(String(decisionsPath), "utf8")) as Decision[];
+      let setAside = 0;
 
-      for (const { intakeId, ...decision } of decisions) {
+      for (const { alsoAttach, intakeId, note, skip, ...decision } of decisions) {
         const row = byId.get(intakeId);
 
-        if (!row) {
-          console.log(`skip ${intakeId}: not in this batch`);
+        if (!row || row.status === "filed" || row.status === "skipped") {
+          console.log(`skip ${intakeId}: not waiting in this batch`);
           continue;
         }
 
-        work.push({ decision: { ...decision, docType: decision.docType as EquipmentDocType }, row });
+        // Set aside, as the page's "Skip" does, with the reason kept on the row.
+        if (skip) {
+          const { data } = await supabase
+            .from("document_intake")
+            .update({ review_reasons: note ? [note] : [], reviewed_by: actor.id, status: "skipped" })
+            .eq("id", row.id)
+            .eq("tenant_id", tenantId)
+            .neq("status", "filed")
+            .select("id");
+          setAside += data?.length ?? 0;
+          continue;
+        }
+
+        work.push({ alsoAttach: alsoAttach ?? [], decision: { ...decision, docType: decision.docType as EquipmentDocType }, row });
       }
+
+      console.log(`set aside ${setAside}`);
     }
 
     let filed = 0;
+    let copies = 0;
 
-    for (const { decision, row } of work) {
+    for (const { alsoAttach, decision, row } of work) {
       const result = await fileIntakeRow({ actor, decision, row, supabase });
 
-      if (result.ok) {
-        filed += 1;
-      } else {
+      if (!result.ok) {
         console.log(`NOT FILED ${row.original_name}: ${result.error}`);
+        continue;
+      }
+
+      filed += 1;
+
+      // One form that proves several records (a PVIKUC, a hose certificate covering every
+      // hose): each further record gets its own copy of the scan, as every earlier load did.
+      if (alsoAttach && alsoAttach.length > 0) {
+        const { data: receipt } = await supabase.from("document_intake").select("storage_path").eq("id", row.id).single<{ storage_path: string }>();
+
+        for (const [index, extra] of alsoAttach.entries()) {
+          const outcome = await attachCopy({ actor, extra, fileName: row.original_name, from: receipt?.storage_path ?? "", index: index + 1, intakeId: row.id, equipmentId: decision.equipmentId, supabase });
+
+          if (outcome) {
+            console.log(`COPY NOT ATTACHED ${row.original_name} -> ${extra.title}: ${outcome}`);
+          } else {
+            copies += 1;
+          }
+        }
       }
     }
 
-    console.log(`filed ${filed} of ${work.length}`);
+    console.log(`filed ${filed} of ${work.length}, plus ${copies} copies on further records`);
     return;
   }
 
