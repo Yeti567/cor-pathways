@@ -368,6 +368,28 @@ export function planFiling(input: PlanInput): PlanResult {
     if (extraction.issued_date && row.issued_date && extraction.issued_date !== row.issued_date) {
       notes.push(`Issue date will change from ${row.issued_date} (on file) to ${extraction.issued_date} (on the document).`);
     }
+
+    // The document prints no expiry, so the one already on the row would be kept. That date
+    // came from the spreadsheet and belongs to whatever inspection the spreadsheet knew about,
+    // which may be the one before this scan. Found 2026-10-06: a B620 visual inspected
+    // 2026-09-17 would have kept the previous cycle's 2026-09-30 and filed red. The file name
+    // is the witness when it carries a date; without one, an issue date that moves on by
+    // months says the row is describing an older inspection.
+    if (!extraction.expiry_date && row.expiry_date) {
+      if (input.expiryHint && input.expiryHint.slice(0, 7) !== row.expiry_date.slice(0, 7)) {
+        reasons.push(
+          `The document prints no expiry, so the one on file (${row.expiry_date}) would be kept, but the file name says ${input.expiryHint}. The date on file may belong to the previous inspection; set the expiry from the original.`,
+        );
+      } else if (!input.expiryHint && extraction.issued_date && row.issued_date) {
+        const moved = daysBetween(row.issued_date, extraction.issued_date);
+
+        if (moved !== null && moved > 60) {
+          reasons.push(
+            `The document prints no expiry, so the one on file (${row.expiry_date}) would be kept, but that date was set for the inspection on ${row.issued_date}, not this one on ${extraction.issued_date}. Set the expiry from the original.`,
+          );
+        }
+      }
+    }
   } else if (waiting.length > 1) {
     reasons.push(
       `This unit has ${waiting.length} ${TITLE_BY_DOC_TYPE[docType].toLowerCase()} rows waiting for a document. Choose which one this is.`,

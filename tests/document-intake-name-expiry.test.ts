@@ -139,6 +139,77 @@ describe("planFiling with the file name's expiry", () => {
   });
 });
 
+describe("planFiling when the document prints no expiry and a waiting row has one", () => {
+  const waiting = (overrides: Partial<{ expiry_date: string | null; issued_date: string | null }> = {}) => ({
+    attachment_ids: [],
+    certification_type_id: "ct-ev",
+    doc_type: "certification",
+    expiry_date: "2026-09-30",
+    id: "waiting",
+    is_active: true,
+    issued_date: "2025-09-26",
+    title: "External visual inspection",
+    ...overrides,
+  });
+
+  it("holds the file when the file name's expiry differs from the one that would be kept", () => {
+    // The 413A case on the second pass: read correctly (no expiry printed), but the row's
+    // 2026-09-30 belonged to the previous inspection.
+    const result = planFiling({
+      certificationTypes: certTypes,
+      expiryHint: "2027-09-30",
+      extraction: extraction({ expiry_date: null, issued_date: "2026-09-17" }),
+      match: matched,
+      today,
+      unitDocuments: [waiting()],
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.proposal.expiryDate).toBe("2026-09-30");
+    expect(result.reasons.join(" ")).toContain("the file name says 2027-09-30");
+  });
+
+  it("files when the file name agrees with the expiry on file", () => {
+    const result = planFiling({
+      certificationTypes: certTypes,
+      expiryHint: "2027-09-30",
+      extraction: extraction({ expiry_date: null, issued_date: "2026-09-17" }),
+      match: matched,
+      today,
+      unitDocuments: [waiting({ expiry_date: "2027-09-30", issued_date: "2026-09-17" })],
+    });
+
+    expect(result.ready).toBe(true);
+  });
+
+  it("holds the file, with no name to go by, when the issue date moves on by months", () => {
+    const result = planFiling({
+      certificationTypes: certTypes,
+      expiryHint: null,
+      extraction: extraction({ expiry_date: null, issued_date: "2026-09-17" }),
+      match: matched,
+      today,
+      unitDocuments: [waiting()],
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons.join(" ")).toContain("was set for the inspection on 2025-09-26");
+  });
+
+  it("does not hold a day's difference in the issue date", () => {
+    const result = planFiling({
+      certificationTypes: certTypes,
+      expiryHint: null,
+      extraction: extraction({ expiry_date: null, issued_date: "2026-01-06" }),
+      match: matched,
+      today,
+      unitDocuments: [waiting({ expiry_date: "2027-01-31", issued_date: "2026-01-07" })],
+    });
+
+    expect(result.ready).toBe(true);
+  });
+});
+
 describe("planFiling and an expiry too close to the issue date", () => {
   it("holds a certification whose expiry is days after its issue date", () => {
     const result = planFiling({
