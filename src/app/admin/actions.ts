@@ -101,9 +101,12 @@ import {
   duplicateFormBuilderName,
   getFormBuilderReorderUpdates,
   nextFormBuilderSortOrder,
+  normalizeFormCode,
   resolveFormCode,
   type FormFieldType,
 } from "@/lib/form-templates";
+import { sanitizeConvertedForm } from "@/lib/form-converter-shared";
+import { remapShowWhenForCopy } from "@/lib/form-logic";
 import { coerceFollowUpStatus, isClosedFollowUpStatus } from "@/lib/follow-ups";
 import { virtualInventoryLocations } from "@/lib/inventory-locations";
 import {
@@ -192,7 +195,7 @@ type FormSectionAuditRow = Pick<
 type FormItemSectionRow = Pick<Database["public"]["Tables"]["form_items"]["Row"], "id" | "section_id">;
 type DuplicateFormItemRow = Pick<
   Database["public"]["Tables"]["form_items"]["Row"],
-  "field_type" | "flaggable" | "helper_text" | "label" | "required" | "section_id" | "settings" | "sort_order"
+  "field_type" | "flaggable" | "helper_text" | "id" | "label" | "required" | "section_id" | "settings" | "sort_order"
 >;
 type FormItemAuditRow = Pick<
   Database["public"]["Tables"]["form_items"]["Row"],
@@ -1635,7 +1638,7 @@ export async function duplicateFormSection(formData: FormData) {
     supabase.from("form_sections").select("sort_order").eq("form_id", formId).eq("tenant_id", tenantId).returns<FormBuilderSortRow[]>(),
     supabase
       .from("form_items")
-      .select("field_type, flaggable, helper_text, label, required, section_id, settings, sort_order")
+      .select("field_type, flaggable, helper_text, id, label, required, section_id, settings, sort_order")
       .eq("section_id", sectionId)
       .eq("form_id", formId)
       .eq("tenant_id", tenantId)
@@ -1671,7 +1674,10 @@ export async function duplicateFormSection(formData: FormData) {
     redirect(`/admin/forms/${formId}?error=${encodeURIComponent(insertSectionError?.message ?? "Section could not be duplicated.")}`);
   }
 
+  // Copies get their ids up front so a show-when rule inside the section can follow its copy.
+  const copiedIds = new Map((originalItems ?? []).map((item) => [item.id, crypto.randomUUID()] as const));
   const itemCopies: FormItemInsertRow[] = (originalItems ?? []).map((item) => ({
+    id: copiedIds.get(item.id),
     field_type: item.field_type,
     flaggable: item.flaggable,
     form_id: formId,
@@ -1679,7 +1685,7 @@ export async function duplicateFormSection(formData: FormData) {
     label: item.label,
     required: item.required,
     section_id: copiedSection.id,
-    settings: item.settings,
+    settings: remapShowWhenForCopy(item.settings, copiedIds),
     sort_order: item.sort_order,
     tenant_id: tenantId,
   }));
@@ -1723,7 +1729,7 @@ export async function duplicateFormItem(formData: FormData) {
 
   const { data: item, error: itemError } = await supabase
     .from("form_items")
-    .select("field_type, flaggable, helper_text, label, required, section_id, settings, sort_order")
+    .select("field_type, flaggable, helper_text, id, label, required, section_id, settings, sort_order")
     .eq("id", itemId)
     .eq("form_id", formId)
     .eq("tenant_id", tenantId)
@@ -5758,6 +5764,191 @@ export async function createFormFromReviewedFields(
   }
 
   redirect(`/admin/forms/${draft.formId}/builder?notice=${encodeURIComponent(draft.notice)}`);
+}
+
+export type ConvertedDraftSaveResult = { message: string; status: "error" };
+
+// Saves a converter draft the person has reviewed. Checked again here: the browser sent it.
+// Lands as a hidden draft (private, off the app menu), so crews see nothing until it is
+// published from the builder. Evidence-photo and corrective-action boxes start off: a converted
+// paper form asks for a photo where it printed one, not under every line.
+export async function createFormFromConvertedDraft(input: {
+  form: unknown;
+  sourceLabel?: string;
+}): Promise<ConvertedDraftSaveResult> {
+  const context = await requireFormManager();
+  const supabase = await createSupabaseServerClient();
+  const tenantId = context.appUser.tenant_id;
+  const form = sanitizeConvertedForm(input.form);
+  const name = form.name.trim();
+  const code = resolveFormCode("", name);
+  const sourceLabel = (input.sourceLabel ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+  const fields = form.sections.flatMap((section) => section.fields);
+
+  if (!name || !code || fields.length === 0) {
+    return { message: "Give the form a name and at least one question before saving.", status: "error" };
+  }
+
+  const { data: clash } = await supabase
+    .from("forms")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("code", code)
+    .maybeSingle<{ id: string }>();
+  const finalCode = clash ? normalizeFormCode(`${code.slice(0, 26)}-${Date.now().toString(36).slice(-5)}`) : code;
+
+  // Ids up front, so a show-when rule can name its controlling field in the same insert.
+  const idByRef = new Map(fields.map((field) => [field.ref, crypto.randomUUID()] as const));
+
+  const { data: created, error: formError } = await supabase
+    .from("forms")
+    .insert({
+      allow_duplicates: true,
+      app_menu_visible: false,
+      code: finalCode,
+      created_by: context.appUser.id,
+      description: sourceLabel ? `Built by the form converter from ${sourceLabel}.` : "Built by the form converter.",
+      import_detected_fields: fields.map((field) => ({
+        fieldType: field.fieldType,
+        id: idByRef.get(field.ref) ?? null,
+        label: field.label,
+        options: field.options,
+        required: field.required,
+      })),
+      import_detected_text: form.notes.length > 0 ? form.notes.join("\n") : null,
+      is_private: true,
+      name,
+      status: "draft",
+      tenant_id: tenantId,
+      use_item_data_in_analytics: false,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (formError || !created) {
+    return { message: formError?.message ?? "The form was not created.", status: "error" };
+  }
+
+  const sectionRows = form.sections.map((section, index) => ({
+    form_id: created.id,
+    id: crypto.randomUUID(),
+    repeatable: section.repeatable,
+    sort_order: index * 100,
+    tenant_id: tenantId,
+    title: section.title,
+  }));
+
+  const { error: sectionError } = await supabase.from("form_sections").insert(sectionRows);
+
+  if (sectionError) {
+    await supabase.from("forms").delete().eq("id", created.id).eq("tenant_id", tenantId);
+    return { message: sectionError.message, status: "error" };
+  }
+
+  const itemRows = form.sections.flatMap((section, sectionIndex) =>
+    section.fields.map((field, fieldIndex) => {
+      const settings: Record<string, Json> = { allowEvidencePhotos: false };
+
+      if (field.options.length > 0) {
+        settings.options = field.options;
+        settings.optionRows = field.options.map((option, optionIndex) => ({
+          id: `converted-option-${optionIndex + 1}`,
+          label: option,
+          markedAsFail: option.toLowerCase() === "fail",
+          value: option,
+        }));
+      }
+
+      if (field.fieldType === "text_info" && field.body) {
+        settings.richTextBody = field.body;
+      }
+
+      if (field.adminOnly) {
+        settings.visibility = "admin_only";
+      }
+
+      const controllerId = field.showWhen ? idByRef.get(field.showWhen.ref) : undefined;
+
+      if (field.showWhen && controllerId) {
+        settings.showWhen = { anyOf: field.showWhen.anyOf, itemId: controllerId };
+      }
+
+      return {
+        field_type: field.fieldType,
+        flaggable: false,
+        form_id: created.id,
+        helper_text: field.help || null,
+        id: idByRef.get(field.ref),
+        label: field.label,
+        required: field.required,
+        section_id: sectionRows[sectionIndex].id,
+        settings,
+        sort_order: fieldIndex * 100,
+        tenant_id: tenantId,
+      };
+    }),
+  );
+
+  const { error: itemError } = await supabase.from("form_items").insert(itemRows);
+
+  if (itemError) {
+    await supabase.from("forms").delete().eq("id", created.id).eq("tenant_id", tenantId);
+    return { message: itemError.message, status: "error" };
+  }
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "form_template.import",
+    entityId: created.id,
+    entityTable: "forms",
+    metadata: {
+      code: finalCode,
+      field_count: fields.length,
+      import_provider: "AI form converter",
+      name,
+      rule_count: fields.filter((field) => field.showWhen).length,
+      section_count: sectionRows.length,
+      source_file_name: sourceLabel || null,
+      status: "draft",
+    },
+  });
+
+  let notice = "Your form is saved as a hidden draft. Crews will not see it until you publish it.";
+
+  if (context.tenant?.document_control_enabled) {
+    try {
+      const dcn = await nextDocumentControlNumber({
+        documentType: "form",
+        revision: "1.0",
+        sourceCode: finalCode,
+        supabase,
+        tenantId,
+        tenantSlug: context.tenant?.slug ?? "tenant",
+      });
+
+      await createDocumentControlEntry({
+        actorRole: context.appUser.power_level,
+        actorUserId: context.appUser.id,
+        dcn,
+        documentType: "form",
+        revisionNotes: sourceLabel ? `Built by the form converter from ${sourceLabel}.` : "Built by the form converter.",
+        sourceId: created.id,
+        sourceTable: "forms",
+        supabase,
+        tenantId,
+        title: name,
+        version: "1.0",
+      });
+      notice = `${notice} DCN ${dcn} registered.`;
+    } catch (registerError) {
+      notice = `${notice} Document control registration needs attention: ${
+        registerError instanceof Error ? registerError.message : "registration failed"
+      }.`;
+    }
+  }
+
+  revalidatePath("/admin/forms");
+  revalidatePath("/admin/documents");
+  redirect(`/admin/forms/${created.id}/builder?notice=${encodeURIComponent(notice)}`);
 }
 
 export async function updateUserAccess(formData: FormData) {

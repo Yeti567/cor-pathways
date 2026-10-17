@@ -19,6 +19,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { answerChoicesForField, buildShowWhenSettings, readShowWhen } from "@/lib/form-logic";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -865,6 +866,96 @@ function DropdownOptionsEditor({
   );
 }
 
+// "Only show this when..." — the paper form's "If No, explain". The worker sees this item only
+// when the chosen question has one of the ticked answers.
+function ShowWhenEditor({
+  allItems,
+  item,
+  onChange,
+}: {
+  allItems: BuilderItem[];
+  item: BuilderItem;
+  onChange: (rule: { anyOf: string[]; itemId: string } | null) => void;
+}) {
+  const rule = readShowWhen(item.settings);
+  const controllers = allItems.filter(
+    (candidate) =>
+      candidate.id !== item.id &&
+      readShowWhen(candidate.settings)?.itemId !== item.id &&
+      answerChoicesForField(candidate.field_type, candidate.settings).length > 0,
+  );
+  const controller = rule ? allItems.find((candidate) => candidate.id === rule.itemId) ?? null : null;
+  const choices = controller ? answerChoicesForField(controller.field_type, controller.settings) : [];
+  const selected = new Set((rule?.anyOf ?? []).map((answer) => answer.toLowerCase()));
+
+  if (controllers.length === 0 && !rule) {
+    return null;
+  }
+
+  return (
+    <fieldset className="space-y-2 rounded-md border border-[var(--border)] bg-white p-3">
+      <legend className="px-1 text-xs font-semibold uppercase text-[var(--ink-muted)]">Only show this when</legend>
+      <select
+        aria-label="Question that decides whether this shows"
+        className="h-9 w-full rounded-md border border-[var(--border)] bg-white px-2 text-sm text-[var(--ink)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+        onChange={(event) => {
+          const nextId = event.target.value;
+
+          if (!nextId) {
+            onChange(null);
+            return;
+          }
+
+          const nextController = allItems.find((candidate) => candidate.id === nextId);
+          const first = nextController ? answerChoicesForField(nextController.field_type, nextController.settings)[0] : null;
+          onChange(first ? { anyOf: [first.value], itemId: nextId } : null);
+        }}
+        value={controller?.id ?? ""}
+      >
+        <option value="">Always show</option>
+        {controllers.map((candidate) => (
+          <option key={candidate.id} value={candidate.id}>
+            {candidate.label}
+          </option>
+        ))}
+      </select>
+      {rule && !controller ? (
+        <p className="text-xs text-[var(--warning)]">The question this depended on is gone, so this always shows.</p>
+      ) : null}
+      {controller ? (
+        <div className="flex flex-wrap gap-2">
+          <span className="self-center text-xs text-[var(--ink-muted)]">is answered</span>
+          {choices.map((choice) => {
+            const checked = selected.has(choice.value.toLowerCase());
+
+            return (
+              <label
+                className={`inline-flex min-h-9 items-center gap-2 rounded-md border px-3 text-sm ${
+                  checked ? "border-[var(--primary)] text-[var(--ink)]" : "border-[var(--border)] text-[var(--ink-muted)]"
+                }`}
+                key={choice.value}
+              >
+                <input
+                  checked={checked}
+                  className="h-4 w-4 accent-[var(--primary)]"
+                  onChange={(event) => {
+                    const next = event.target.checked
+                      ? [...(rule?.anyOf ?? []), choice.value]
+                      : (rule?.anyOf ?? []).filter((answer) => answer.toLowerCase() !== choice.value.toLowerCase());
+                    onChange(next.length > 0 ? { anyOf: next, itemId: controller.id } : null);
+                  }}
+                  type="checkbox"
+                />
+                {choice.label}
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
+    </fieldset>
+  );
+}
+
 function ItemDetails({
   allItems,
   availableLists,
@@ -911,6 +1002,12 @@ function ItemDetails({
             value={helpText}
           />
         </label>
+
+        <ShowWhenEditor
+          allItems={allItems}
+          item={item}
+          onChange={(rule) => void onPatchItem(item.id, { config: buildShowWhenSettings(item.settings, rule) })}
+        />
 
         {item.field_type === "text_info" ? (
           <label className="grid gap-1 text-xs font-semibold uppercase text-[var(--ink-muted)]">

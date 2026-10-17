@@ -33,6 +33,7 @@ import {
 import type { OfflineCorrectiveActionDrafts, OfflineEvidencePhotos } from "@/lib/offline/follow-ups";
 import { getOfflineFieldOptions, type OfflineFormItem, type OfflineFormSummary } from "@/lib/offline/form-model";
 import { shrinkPhoto } from "@/lib/offline/shrink-photo";
+import { buildFormLogicIndex, isFormItemShown, pruneHiddenAnswers } from "@/lib/form-logic";
 import {
   coerceEquipmentPickerScope,
   coerceWorkerPickerScope,
@@ -379,6 +380,8 @@ function requiredErrorsForForm(
   repeatInstances: Record<string, string[]> = {},
 ) {
   const errors: Record<string, string> = {};
+  // An item hidden by a show-when rule is never required: the worker cannot see it.
+  const logicIndex = buildFormLogicIndex(form);
 
   for (const section of form.sections) {
     const sectionItems = visibleFormItems(section.items);
@@ -391,6 +394,10 @@ function requiredErrorsForForm(
 
       for (let index = 0; index < instanceCount; index += 1) {
         for (const item of sectionItems) {
+          if (!isFormItemShown(item.id, logicIndex, values, { index, sectionId: section.id })) {
+            continue;
+          }
+
           const repeatValue = repeatValues(values[item.id])[index];
 
           if (item.required && item.fieldType !== "text_info" && requiredValueMissing(repeatValue)) {
@@ -408,6 +415,10 @@ function requiredErrorsForForm(
     }
 
     for (const item of sectionItems) {
+      if (!isFormItemShown(item.id, logicIndex, values)) {
+        continue;
+      }
+
       if (item.required && item.fieldType !== "text_info" && requiredValueMissing(values[item.id])) {
         errors[item.id] = "Required";
         continue;
@@ -1527,7 +1538,8 @@ export function AssignedFormsPanel({
         locationId: activeLocationId || null,
         sourceAssignment: activeAssignment,
         userId,
-        values: draftValues,
+        // Answers to items a rule now hides are not filed.
+        values: pruneHiddenAnswers(form, draftValues),
       });
 
       if (navigator.onLine) {
@@ -2211,6 +2223,7 @@ export function AssignedFormsPanel({
               <div className="divide-y divide-[var(--border)]">
               {activeForm.sections.map((section) => {
                 const isCollapsed = Boolean(collapsedSections[section.id]);
+                const logicIndex = buildFormLogicIndex(activeForm);
                 const sectionItems = visibleFormItems(section.items);
                 const sectionInstances =
                   repeatInstances[section.id] ??
@@ -2264,7 +2277,9 @@ export function AssignedFormsPanel({
 
                     {!isCollapsed && sectionItems.length > 0 && !section.repeatable ? (
                       <div className="mt-4 grid gap-4">
-                        {sectionItems.map((item) =>
+                        {sectionItems
+                          .filter((item) => isFormItemShown(item.id, logicIndex, draftValues))
+                          .map((item) =>
                           renderFormItem({
                             correctiveKey: item.id,
                             item,
@@ -2295,7 +2310,11 @@ export function AssignedFormsPanel({
                               ) : null}
                             </div>
                             <div className="mt-3 grid gap-4">
-                              {sectionItems.map((item) => {
+                              {sectionItems
+                                .filter((item) =>
+                                  isFormItemShown(item.id, logicIndex, draftValues, { index: repeatIndex, sectionId: section.id }),
+                                )
+                                .map((item) => {
                                 const validationKey = repeatErrorKey(item.id, repeatIndex);
 
                                 return renderFormItem({

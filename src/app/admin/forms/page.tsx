@@ -7,9 +7,11 @@ import { canUseAdminPanel } from "@/lib/access-control";
 import { coerceCertifyingPartner, elementDisplay, frameworkElements } from "@/lib/cor-frameworks";
 import { formatFormStatus, formStatusOptions } from "@/lib/form-templates";
 import { requireAppUser } from "@/lib/current-user";
+import { isFormConverterConfigured } from "@/lib/form-converter";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { DeleteFormButton } from "./DeleteFormButton";
+import { FormConverterPanel } from "./FormConverterPanel";
 import { FormImportPanel } from "./FormImportPanel";
 
 export const dynamic = "force-dynamic";
@@ -247,7 +249,12 @@ export default async function FormsPage({ searchParams }: FormsPageProps) {
         </fieldset>
       </form>
 
-      <FormImportPanel availableLists={managedLists ?? []} />
+      {/* The converter reads the pages with the AI reader; without it, the older OCR importer. */}
+      {isFormConverterConfigured() ? (
+        <FormConverterPanel tenantId={context.appUser.tenant_id} />
+      ) : (
+        <FormImportPanel availableLists={managedLists ?? []} />
+      )}
 
       <div className="mt-6 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
         <div className="grid grid-cols-[1.25fr_150px_1.2fr_100px_220px] gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-xs font-semibold uppercase text-[var(--ink-muted)] max-xl:hidden">
