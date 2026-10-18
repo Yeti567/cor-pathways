@@ -31,6 +31,7 @@ const actionGroups = [
       "createFormFromDetectedText",
       "createFormFromUploadedForm",
       "createFormFromReviewedFields",
+      "createFormFromConvertedDraft",
       "scanUploadedFormForReview",
       "updateCorSetting",
       "updateCorCertifyingPartner",

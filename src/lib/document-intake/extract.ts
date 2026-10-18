@@ -143,24 +143,32 @@ export type ReaderReply =
  * the reply is checked, not how a file reaches the model or how a failure is reported.
  */
 export async function requestReading(input: {
-  bytes: Uint8Array;
+  /** One file. Use files instead to send several pages in reading order. */
+  bytes?: Uint8Array;
   env?: Env;
   fetchImpl?: typeof fetch;
-  mimeType: string;
+  /** Several files, in order. With neither bytes nor files the request is text only. */
+  files?: ReadonlyArray<{ bytes: Uint8Array; mimeType: string }>;
+  /** Output ceiling. Defaults to what one card needs; a whole form needs far more. */
+  maxTokens?: number;
+  mimeType?: string;
+  /** Overrides the intake model, for a feature with its own model setting. */
+  model?: string;
   systemPrompt: string;
+  timeoutMs?: number;
   userText: string;
 }): Promise<ReaderReply> {
   const env = input.env ?? process.env;
   const apiKey = env.OPENROUTER_API_KEY?.trim();
-  const model = intakeModel(env);
+  const model = input.model?.trim() || intakeModel(env);
 
   if (!apiKey || !model) {
     return { needsPerson: false, ok: false, reason: "The document reader is not configured.", retryable: false };
   }
 
-  const isPdf = input.mimeType === "application/pdf";
+  const files = input.files ?? (input.bytes && input.mimeType ? [{ bytes: input.bytes, mimeType: input.mimeType }] : []);
 
-  if (!isPdf && !IMAGE_MIMES.includes(input.mimeType)) {
+  if (files.some((file) => file.mimeType !== "application/pdf" && !IMAGE_MIMES.includes(file.mimeType))) {
     return {
       needsPerson: true,
       ok: false,
@@ -170,20 +178,24 @@ export async function requestReading(input: {
   }
 
   const instruction = { text: input.userText, type: "text" };
-
-  let filePart: Record<string, unknown>;
+  const fileParts: Record<string, unknown>[] = [];
 
   try {
-    if (isPdf) {
-      // No parser engine is named: OpenRouter then lets the model read the pages itself,
-      // which is what a scanned PDF needs, and only falls back to OCR if it cannot.
-      filePart = {
-        file: { file_data: dataUrl(input.bytes, "application/pdf"), filename: "document.pdf" },
-        type: "file",
-      };
-    } else {
-      const image = await prepareImage(input.bytes, input.mimeType);
-      filePart = { image_url: { url: dataUrl(image.data, image.mimeType) }, type: "image_url" };
+    for (const [index, file] of files.entries()) {
+      if (file.mimeType === "application/pdf") {
+        // No parser engine is named: OpenRouter then lets the model read the pages itself,
+        // which is what a scanned PDF needs, and only falls back to OCR if it cannot.
+        fileParts.push({
+          file: {
+            file_data: dataUrl(file.bytes, "application/pdf"),
+            filename: files.length > 1 ? `document-${index + 1}.pdf` : "document.pdf",
+          },
+          type: "file",
+        });
+      } else {
+        const image = await prepareImage(file.bytes, file.mimeType);
+        fileParts.push({ image_url: { url: dataUrl(image.data, image.mimeType) }, type: "image_url" });
+      }
     }
   } catch {
     return {
@@ -195,7 +207,7 @@ export async function requestReading(input: {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   try {
     const response = await (input.fetchImpl ?? fetch)("https://openrouter.ai/api/v1/chat/completions", {
@@ -203,10 +215,10 @@ export async function requestReading(input: {
         // Gemini spends hidden "reasoning" tokens (1,000 to 1,600 per file in testing) out of
         // this same budget. At 1,500 a longer tank-test PDF was cut off mid-answer; the
         // ceiling only limits spend, it does not set it.
-        max_tokens: 6000,
+        max_tokens: input.maxTokens ?? 6000,
         messages: [
           { content: input.systemPrompt, role: "system" },
-          { content: [instruction, filePart], role: "user" },
+          { content: [instruction, ...fileParts], role: "user" },
         ],
         model,
         // Reading a card is lookup, not thinking.

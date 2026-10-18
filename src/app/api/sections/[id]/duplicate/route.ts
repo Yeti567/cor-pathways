@@ -5,6 +5,7 @@ import {
   requireFormBuilderAccess,
   revalidateFormBuilder,
 } from "@/app/api/form-builder/_lib";
+import { remapShowWhenForCopy } from "@/lib/form-logic";
 import { duplicateFormBuilderName, nextFormBuilderSortOrder } from "@/lib/form-templates";
 import type { Database } from "@/types/database";
 
@@ -74,7 +75,10 @@ export async function POST(_request: Request, { params }: RouteParams) {
     return jsonError(insertSectionError?.message ?? "Section could not be duplicated.", 500);
   }
 
+  // Copies get their ids up front so a show-when rule inside the section can follow its copy.
+  const copiedIds = new Map((originalItems ?? []).map((item) => [item.id, crypto.randomUUID()] as const));
   const itemCopies = (originalItems ?? []).map((item) => ({
+    id: copiedIds.get(item.id),
     field_type: item.field_type,
     flaggable: item.flaggable,
     form_id: section.form_id,
@@ -82,7 +86,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     label: item.label,
     required: item.required,
     section_id: copiedSection.id,
-    settings: item.settings,
+    settings: remapShowWhenForCopy(item.settings, copiedIds),
     sort_order: item.sort_order,
     tenant_id: access.tenantId,
   }));
