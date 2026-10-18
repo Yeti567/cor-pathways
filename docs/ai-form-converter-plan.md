@@ -37,8 +37,10 @@ does from the outside, rebuilt on our own form model.
 4. **Upload straight to storage** (`{tenant}/form-import/{batch}/`), like Document Intake, so no
    1 MB limit. Source files are deleted once read: the form is the record, the scan is not kept.
 5. **Save as a hidden draft**: private, off the app menu, so crews see nothing until it is
-   published from the builder. Evidence-photo boxes and corrective-action boxes are OFF unless
-   the line is a pass/fail check (see the evidence-photo trap in the 2026-08-28 notes).
+   published from the builder. Evidence-photo boxes and corrective-action boxes are OFF on every
+   line; the form asks for a photo only where the paper form printed one. Left on, every line
+   grows an always-open photo box and a long checklist becomes dozens of phone screens of
+   cameras nobody asked for. Either can be switched on per line in the builder.
 
 ## Not in this change (follow-ups)
 

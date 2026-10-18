@@ -31,7 +31,7 @@ export function isFormConverterConfigured(env: Env = process.env) {
   return Boolean(env.OPENROUTER_API_KEY?.trim() && converterModel(env));
 }
 
-export const FORM_CONVERTER_SYSTEM_PROMPT = `You build mobile safety and inspection forms for a transport and oilfield company. You are given either pages of an existing paper form (scans, photos, PDFs or a spreadsheet), a plain description of a form, or a draft form plus a change request. You return the form as JSON.
+export const FORM_CONVERTER_SYSTEM_PROMPT = `You build mobile safety and inspection forms for field crews: trades, contractors, transport and oilfield companies. You are given either pages of an existing paper form (scans, photos, PDFs or a spreadsheet), a plain description of a form, or a draft form plus a change request. You return the form as JSON.
 
 When you are given a paper form, recreate THAT form: its title, its sections in order, every question, checklist line and signature, in the order printed. Use the printed wording for labels, tidied (no trailing colons or underscores). Do not invent questions that are not on the page. Do not leave any out.
 
