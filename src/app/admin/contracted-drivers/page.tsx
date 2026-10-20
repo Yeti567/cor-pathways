@@ -52,6 +52,12 @@ const TONE_LABELS = {
   neutral: "Nothing on file",
 } as const;
 
+const STATUS_LABELS = {
+  active: "Active",
+  inactive: "Inactive",
+  terminated: "Terminated",
+} as const;
+
 export default async function ContractedDriversPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const notice = firstParam(params.notice);
@@ -176,14 +182,20 @@ export default async function ContractedDriversPage({ searchParams }: PageProps)
     ? summarised.filter((entry) => entry.driver.subcontractor_id === carrierFilter)
     : summarised;
 
+  // A driver who no longer drives stays listed, so their history is one click away, but
+  // sinks to the bottom and counts toward nothing: no reminder is raised for them either.
+  const isActive = (entry: (typeof summarised)[number]) => entry.driver.status === "active";
   const toneOrder = { danger: 0, warning: 1, unproven: 2, neutral: 3, success: 4 } as const;
   const ordered = [...visible].sort(
     (left, right) =>
-      toneOrder[left.tone] - toneOrder[right.tone] || left.driver.full_name.localeCompare(right.driver.full_name),
+      Number(isActive(right)) - Number(isActive(left)) ||
+      toneOrder[left.tone] - toneOrder[right.tone] ||
+      left.driver.full_name.localeCompare(right.driver.full_name),
   );
 
-  const deficient = visible.filter((entry) => entry.tone === "danger").length;
-  const expiring = visible.filter((entry) => entry.tone === "warning").length;
+  const active = visible.filter(isActive);
+  const deficient = active.filter((entry) => entry.tone === "danger").length;
+  const expiring = active.filter((entry) => entry.tone === "warning").length;
 
   return (
     <AdminShell
@@ -221,7 +233,7 @@ export default async function ContractedDriversPage({ searchParams }: PageProps)
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
           <p className="text-sm text-[var(--ink-muted)]">Drivers</p>
-          <p className="mt-2 text-2xl font-bold text-[var(--ink)]">{visible.length}</p>
+          <p className="mt-2 text-2xl font-bold text-[var(--ink)]">{active.length}</p>
         </div>
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
           <p className="text-sm text-[var(--ink-muted)]">With a deficiency</p>
@@ -285,9 +297,9 @@ export default async function ContractedDriversPage({ searchParams }: PageProps)
                   )}
                 </div>
                 <span
-                  className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wide ${certificationStatusClass(entry.tone)}`}
+                  className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wide ${certificationStatusClass(isActive(entry) ? entry.tone : "neutral")}`}
                 >
-                  {TONE_LABELS[entry.tone]}
+                  {isActive(entry) ? TONE_LABELS[entry.tone] : STATUS_LABELS[entry.driver.status]}
                 </span>
               </li>
             ))}
