@@ -1343,7 +1343,8 @@ export async function uploadWorkerCertificationTicket(formData: FormData) {
   revalidatePath("/admin/workers");
   revalidatePath(`/admin/workers/${context.appUser.id}`);
   revalidatePath("/admin/worker-tickets");
-  redirect("/web?notice=Ticket%20uploaded.");
+  revalidatePath("/admin/ticket-checks");
+  redirect(`/web?notice=${encodeURIComponent("Ticket uploaded. The office will check it.")}`);
 }
 
 /**
@@ -1351,7 +1352,10 @@ export async function uploadWorkerCertificationTicket(formData: FormData) {
  *
  * This is the half of the compliance library that makes it self-maintaining. A
  * ticket lapses and goes red, the worker photographs the new card in the yard,
- * and the record turns green without an administrator touching it. It is also
+ * and the record turns green without waiting for an administrator. The office
+ * still checks it afterwards: the database marks the change 'awaiting_check'
+ * (migration certification_worker_review) and it appears on /admin/ticket-checks,
+ * where Reject puts the old card and dates back. It is also
  * how the amber "No document" records get cleared: an admin bulk-loads the dates
  * from a spreadsheet, and each worker supplies the proof for their own.
  *
@@ -1485,5 +1489,6 @@ export async function renewWorkerCertification(formData: FormData) {
   revalidatePath(`/admin/workers/${context.appUser.id}`);
   revalidatePath("/admin/worker-tickets");
   revalidatePath("/admin/needs-document");
-  redirect(`/web?notice=${encodeURIComponent(`${certification.name} updated.`)}`);
+  revalidatePath("/admin/ticket-checks");
+  redirect(`/web?notice=${encodeURIComponent(`${certification.name} updated. The office will check the new card.`)}`);
 }

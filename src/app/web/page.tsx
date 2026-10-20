@@ -2135,6 +2135,11 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
                               {status.label}
                             </span>
                           </div>
+                          {certification.review_status === "awaiting_check" ? (
+                            <p className="mt-2 text-xs text-[var(--ink-muted)]">
+                              The office will check this card against the dates. It counts in the meantime.
+                            </p>
+                          ) : null}
                           {attachmentUrl ? (
                             <a
                               className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-[var(--border)] bg-white px-2 text-xs font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"

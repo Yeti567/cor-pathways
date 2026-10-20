@@ -316,9 +316,19 @@ export default async function WorkerTicketsPage({ searchParams }: WorkerTicketsP
                   </div>
                   <p className="text-sm text-[var(--ink-muted)]">{formatDate(row.ticket.issued_on)}</p>
                   <p className="text-sm text-[var(--ink-muted)]">{formatDate(row.ticket.expires_on)}</p>
-                  <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold ${certificationStatusClass(row.status.tone)}`}>
-                    {row.status.label}
-                  </span>
+                  <div className="flex flex-col gap-1">
+                    <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold ${certificationStatusClass(row.status.tone)}`}>
+                      {row.status.label}
+                    </span>
+                    {row.ticket.review_status === "awaiting_check" ? (
+                      <Link
+                        className="w-fit rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800"
+                        href="/admin/ticket-checks"
+                      >
+                        Awaiting check
+                      </Link>
+                    ) : null}
+                  </div>
                   <form action={deleteWorkerCertification} className="lg:justify-self-end">
                     <input name="certificationId" type="hidden" value={row.ticket.id} />
                     <input name="returnTo" type="hidden" value="/admin/worker-tickets" />

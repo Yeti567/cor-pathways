@@ -645,6 +645,14 @@ export default async function WorkerDetailPage({ params, searchParams }: WorkerD
                       <span className={`mt-3 inline-flex rounded-md px-2 py-1 text-xs font-semibold ${certificationStatusClass(status.tone)}`}>
                         {status.label}
                       </span>
+                      {certification.review_status === "awaiting_check" ? (
+                        <Link
+                          className="ml-2 mt-3 inline-flex rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800"
+                          href="/admin/ticket-checks"
+                        >
+                          Awaiting check
+                        </Link>
+                      ) : null}
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         {attachmentUrl ? (
                           <a

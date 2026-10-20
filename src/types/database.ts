@@ -1909,6 +1909,18 @@ export type Database = {
           // badge reads the same whether the holder is an employee or a
           // contractor's driver. Added by migration worker_certification_detail.
           detail: string | null;
+          // Set by the certifications_flag_worker_change trigger when a worker adds
+          // or renews their own ticket; cleared by an administrator's Verify or
+          // Reject. Added by migration certification_worker_review.
+          review_status: "awaiting_check" | "verified" | null;
+          review_kind: "new" | "renewal" | null;
+          review_submitted_at: string | null;
+          review_submitted_by: string | null;
+          review_previous_attachment_path: string | null;
+          review_previous_issued_on: string | null;
+          review_previous_expires_on: string | null;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["certifications"]["Row"]> &
           Pick<Database["public"]["Tables"]["certifications"]["Row"], "tenant_id" | "worker_profile_id" | "name">;

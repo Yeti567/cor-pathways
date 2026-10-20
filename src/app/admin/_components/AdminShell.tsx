@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Smartphone,
   Settings2,
+  UserCheck,
   UserRound,
   UsersRound,
   GitBranch,
@@ -37,6 +38,8 @@ import { signOut } from "@/app/actions";
 import { InstallAppButton } from "@/app/_components/InstallAppButton";
 import { getCurrentUserContext } from "@/lib/current-user";
 import { coerceCountry } from "@/lib/region";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { TICKET_CHECKS_PATH } from "@/lib/ticket-review";
 
 const TRANSPORT_NAV_HREF = "/admin/transport";
 const COR_NAV_HREF = "/admin/cor";
@@ -89,6 +92,7 @@ const navItems = [
   { href: "/admin/visitors", label: "Visitors", icon: UserRound },
   { href: "/admin/certification-types", label: "Certification Types", icon: BadgeCheck },
   { href: "/admin/worker-tickets", label: "Employee Tickets", icon: IdCard },
+  { href: TICKET_CHECKS_PATH, label: "Tickets to Check", icon: UserCheck },
   { href: "/admin/worker-tickets/compliance", label: "Ticket Compliance", icon: BadgeCheck },
   { href: "/admin/people/add", label: "Add Your People", icon: UserRound },
   { href: "/admin/intake", label: "Document Intake", icon: FolderUp },
@@ -99,6 +103,21 @@ const navItems = [
   { href: "/admin/consultant-access", label: "Consultant Access", icon: ShieldCheck },
   { href: "/web", label: "Web App", icon: Smartphone },
 ];
+
+async function countTicketsToCheck(tenantId: string | undefined) {
+  if (!tenantId) {
+    return 0;
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { count } = await supabase
+    .from("certifications")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("review_status", "awaiting_check");
+
+  return count ?? 0;
+}
 
 export async function AdminShell({
   children,
@@ -124,6 +143,10 @@ export async function AdminShell({
   const subcontractorsEnabled = Boolean(context.tenant?.subcontractors_enabled);
   // OSHA is the US equivalent of COR; it shows only for United States workspaces.
   const country = coerceCountry(context.tenant?.country);
+  // The office's notice that employees have changed their own tickets. Shown as a
+  // count on the menu, on every admin page, so it cannot be missed by someone who
+  // never opens the list itself.
+  const ticketsToCheck = monitorOnly ? 0 : await countTicketsToCheck(context.appUser?.tenant_id);
 
   const visibleNavItems = (
     monitorOnly
@@ -161,6 +184,12 @@ export async function AdminShell({
       >
         <Icon className="h-4 w-4 text-[var(--primary)]" aria-hidden="true" />
         {item.label}
+        {item.href === TICKET_CHECKS_PATH && ticketsToCheck > 0 ? (
+          <span className="ml-auto rounded-full bg-[var(--danger)] px-2 py-0.5 text-xs font-bold text-white">
+            {ticketsToCheck}
+            <span className="sr-only"> waiting</span>
+          </span>
+        ) : null}
       </Link>
     );
   });

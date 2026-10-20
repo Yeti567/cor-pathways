@@ -8,6 +8,7 @@ import { sendTransportExpiryNotifications } from "@/lib/transport-reminders";
 import { sendHosViolationNotifications } from "@/lib/hos-reminders";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
+import { sendTicketCheckDigest } from "@/lib/ticket-review";
 import type { Database } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,33 @@ export async function GET(request: Request) {
 
     results.push({
       ...result,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+    });
+
+    // Tickets employees added or renewed themselves that the office has not
+    // looked at yet. One email a day to each administrator, only when there are any.
+    const ticketCheckResult = await sendTicketCheckDigest(tenant.id, now, supabase);
+
+    if (ticketCheckResult.created > 0 || ticketCheckResult.skipped > 0) {
+      await recordTenantAuditEvent(
+        {
+          action: "ticket_check_digest.send",
+          actorRole: "system",
+          entityTable: "notifications",
+          metadata: {
+            notification_count: ticketCheckResult.created,
+            skipped_count: ticketCheckResult.skipped,
+            tenant_name: tenant.name,
+          },
+          tenantId: tenant.id,
+        },
+        supabase,
+      );
+    }
+
+    results.push({
+      ...ticketCheckResult,
       tenantId: tenant.id,
       tenantName: tenant.name,
     });
