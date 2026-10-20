@@ -113,7 +113,7 @@ export default async function SiteQualificationPage({ searchParams }: PageProps)
 
   const inputs: SiteQualificationInput[] = [
     ...drivers
-      .filter((d) => d.status !== "inactive")
+      .filter((d) => d.status === "active")
       .map((d) => ({
         driverId: d.id,
         driverName: d.full_name,
