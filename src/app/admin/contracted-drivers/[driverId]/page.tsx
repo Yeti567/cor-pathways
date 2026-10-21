@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Download, FilePlus2, FileText, Lock, Save, Trash2 } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
+import { ContractedScanLinks } from "@/app/admin/_components/ContractedScanLinks";
 import { ContractedUploadField } from "@/app/admin/_components/ContractedUploadField";
 import { ContractedDriverDocumentForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedDriverDocumentForm";
 import { ContractedObservationForm } from "@/app/admin/contracted-drivers/[driverId]/ContractedObservationForm";
@@ -260,6 +261,26 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
 
   const missingMandatory = contractedDriverMissingTickets({ certifications: held, mandatoryTickets });
   const certificationById = new Map(held.map((certification) => [certification.id, certification]));
+
+  // A ticket scan could be uploaded and never opened again, so nobody could check what
+  // was filed. Same ten minute signed window as the identity documents above.
+  const ticketUrls = new Map<string, string>();
+
+  await Promise.all(
+    held.map(async (certification) => {
+      if (!certification.attachment_path) {
+        return;
+      }
+
+      const { data } = await supabase.storage
+        .from(CONTRACTED_DOCUMENTS_BUCKET)
+        .createSignedUrl(certification.attachment_path, 10 * 60);
+
+      if (data?.signedUrl) {
+        ticketUrls.set(certification.attachment_path, data.signedUrl);
+      }
+    }),
+  );
 
   return (
     <AdminShell
@@ -529,6 +550,10 @@ export default async function ContractedDriverPage({ params, searchParams }: Pag
                       </span>
                     </div>
 
+                    <ContractedScanLinks
+                      paths={source?.attachment_path ? [source.attachment_path] : []}
+                      urls={ticketUrls}
+                    />
                     <ContractedTicketProofForm
                       certificationId={status.id}
                       driverId={driver.id}

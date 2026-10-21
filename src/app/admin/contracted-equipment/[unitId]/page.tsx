@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, FilePlus2, Paperclip, Save } from "lucide-react";
+import { ArrowLeft, FilePlus2, Save } from "lucide-react";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
+import { ContractedScanLinks } from "@/app/admin/_components/ContractedScanLinks";
 import { ContractedUploadField } from "@/app/admin/_components/ContractedUploadField";
 import { ContractedDocumentProofForm } from "@/app/admin/contracted-equipment/[unitId]/ContractedDocumentProofForm";
 import {
@@ -120,21 +121,22 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
 
   const typeNameById = new Map(certificationTypes.map((type) => [type.id, type.name]));
 
-  // One-off paperwork, and short-lived links to read it back. Signed rather than public
-  // because this is a hired carrier's material in a private bucket; ten minutes is the
-  // same window the contracted driver page uses.
+  // Short-lived links to read every filed scan back, not only the one-off paperwork:
+  // a registration or CVIP that can be uploaded but never opened cannot be checked.
+  // Signed rather than public because this is a hired carrier's material in a private
+  // bucket; ten minutes is the same window the contracted driver page uses.
   const otherDocuments = contractedUnitOtherDocuments(documentRows);
-  const otherDocumentUrls = new Map<string, string>();
+  const scanUrls = new Map<string, string>();
 
   await Promise.all(
-    otherDocuments.flatMap((document) =>
+    documentRows.filter((document) => document.deleted_at === null).flatMap((document) =>
       document.attachment_ids.map(async (path) => {
         const { data } = await supabase.storage
           .from(CONTRACTED_DOCUMENTS_BUCKET)
           .createSignedUrl(path, 10 * 60);
 
         if (data?.signedUrl) {
-          otherDocumentUrls.set(path, data.signedUrl);
+          scanUrls.set(path, data.signedUrl);
         }
       }),
     ),
@@ -213,19 +215,21 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
                 </div>
 
                 {backing.map((document) => (
-                  <ContractedDocumentProofForm
-                    documentId={document.id}
-                    expiryDate={document.expiry_date}
-                    hasProof={document.attachment_ids.length > 0}
-                    inputClass={inputClass}
-                    issuedDate={document.issued_date}
-                    key={document.id}
-                    subcontractorId={unit.subcontractor_id}
-                    submitClass={submitClass}
-                    tenantId={tenantId}
-                    title={document.title}
-                    unitId={unit.id}
-                  />
+                  <div key={document.id}>
+                    <ContractedScanLinks paths={document.attachment_ids} urls={scanUrls} />
+                    <ContractedDocumentProofForm
+                      documentId={document.id}
+                      expiryDate={document.expiry_date}
+                      hasProof={document.attachment_ids.length > 0}
+                      inputClass={inputClass}
+                      issuedDate={document.issued_date}
+                      subcontractorId={unit.subcontractor_id}
+                      submitClass={submitClass}
+                      tenantId={tenantId}
+                      title={document.title}
+                      unitId={unit.id}
+                    />
+                  </div>
                 ))}
               </li>
             );
@@ -288,6 +292,7 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
                     {backing.length > 1 ? (
                       <p className="mt-2 text-xs font-medium text-[var(--ink)]">{document.title}</p>
                     ) : null}
+                    <ContractedScanLinks paths={document.attachment_ids} urls={scanUrls} />
                     <ContractedDocumentProofForm
                       documentId={document.id}
                       expiryDate={document.expiry_date}
@@ -381,32 +386,7 @@ export default async function ContractedUnitPage({ params, searchParams }: PageP
                 </p>
 
                 {document.attachment_ids.length > 0 ? (
-                  <ul className="mt-1 flex flex-wrap gap-2">
-                    {document.attachment_ids.map((path, index) => {
-                      const url = otherDocumentUrls.get(path);
-
-                      return (
-                        <li key={path}>
-                          {url ? (
-                            <a
-                              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-white px-2 py-1 text-xs font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
-                              href={url}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              <Paperclip className="h-3.5 w-3.5 text-[var(--primary)]" aria-hidden="true" />
-                              {document.attachment_ids.length > 1 ? `Scan ${index + 1}` : "Open scan"}
-                            </a>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs font-semibold text-[var(--ink-muted)]">
-                              <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
-                              Scan unavailable
-                            </span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <ContractedScanLinks paths={document.attachment_ids} urls={scanUrls} />
                 ) : (
                   <p className="mt-1 text-xs text-[var(--warning)]">No scan filed yet.</p>
                 )}
