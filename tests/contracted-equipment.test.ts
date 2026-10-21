@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   contractedStoragePrefix,
@@ -93,6 +95,42 @@ describe("contracted unit documents with no expiry", () => {
     );
 
     expect(status.state).toBe("awaiting_proof");
+  });
+
+  it("reads a continuous registration with its scan as on file", () => {
+    // A registration loaded with its issue date in the expiry column reads expired;
+    // clearing that date is how it becomes continuous, and then it must read green.
+    const [registration] = contractedUnitFileStatuses(
+      {
+        category: "vehicle",
+        documents: [
+          document({ doc_type: "registration", title: "Registration", expiry_date: null, attachment_ids: ["reg.pdf"] }),
+        ],
+      },
+      NOW,
+    ).filter((status) => status.docType === "registration");
+
+    expect(registration.state).toBe("on_file");
+  });
+});
+
+describe("clearing a date on the per-row edit form", () => {
+  // Both forms say "Leave empty if it does not expire". The actions used to fall back
+  // to the stored date on an empty box, so a registration loaded with a date could
+  // never be made continuous. A posted field must be taken literally.
+  const unitActions = readFileSync(join(process.cwd(), "src/app/admin/contracted-equipment/actions.ts"), "utf8");
+  const driverActions = readFileSync(join(process.cwd(), "src/app/admin/contracted-drivers/actions.ts"), "utf8");
+
+  it("clears a unit document's dates when the field is posted empty", () => {
+    expect(unitActions).toContain('formData.has("expiryDate") ? optionalDate(formData, "expiryDate") : document.expiry_date');
+    expect(unitActions).toContain('formData.has("issuedDate") ? optionalDate(formData, "issuedDate") : document.issued_date');
+    expect(unitActions).not.toContain("expiryDate ?? document.expiry_date");
+  });
+
+  it("clears a driver ticket's dates when the field is posted empty", () => {
+    expect(driverActions).toContain('formData.has("expiresOn") ? optionalDate(formData, "expiresOn") : certification.expires_on');
+    expect(driverActions).toContain('formData.has("issuedOn") ? optionalDate(formData, "issuedOn") : certification.issued_on');
+    expect(driverActions).not.toContain("expiresOn ?? certification.expires_on");
   });
 });
 

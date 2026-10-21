@@ -339,8 +339,12 @@ export async function attachContractedEquipmentDocumentProof(formData: FormData)
     scope: "contracted-equipment",
   });
 
-  const issuedDate = optionalDate(formData, "issuedDate");
-  const expiryDate = optionalDate(formData, "expiryDate");
+  // A date field the form posted is taken literally, so emptying it CLEARS the date.
+  // That is how a registration carrying a date becomes one that does not expire.
+  // Falling back to the stored value on an empty box kept the old date and left the
+  // unit reading expired with no way to fix it. A field not posted at all still falls back.
+  const issuedDate = formData.has("issuedDate") ? optionalDate(formData, "issuedDate") : document.issued_date;
+  const expiryDate = formData.has("expiryDate") ? optionalDate(formData, "expiryDate") : document.expiry_date;
 
   const { error } = await supabase
     .from("contracted_equipment_document")
@@ -348,8 +352,8 @@ export async function attachContractedEquipmentDocumentProof(formData: FormData)
       // Added to, never replaced: a certificate scanned in two passes keeps both pages,
       // and a re-upload that failed halfway cannot wipe what was already filed.
       attachment_ids: [...new Set([...document.attachment_ids, ...uploaded])],
-      issued_date: issuedDate ?? document.issued_date,
-      expiry_date: expiryDate ?? document.expiry_date,
+      issued_date: issuedDate,
+      expiry_date: expiryDate,
     })
     .eq("tenant_id", tenantId)
     .eq("id", document.id);

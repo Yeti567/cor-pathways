@@ -347,15 +347,17 @@ export async function attachContractedDriverCertificationProof(formData: FormDat
     scope: "contracted-drivers",
   });
 
-  const issuedOn = optionalDate(formData, "issuedOn");
-  const expiresOn = optionalDate(formData, "expiresOn");
+  // Taken literally when posted, so emptying the expiry marks the ticket as not
+  // expiring instead of silently keeping the old date. Same rule as the unit form.
+  const issuedOn = formData.has("issuedOn") ? optionalDate(formData, "issuedOn") : certification.issued_on;
+  const expiresOn = formData.has("expiresOn") ? optionalDate(formData, "expiresOn") : certification.expires_on;
 
   const { error } = await supabase
     .from("contracted_driver_certification")
     .update({
       attachment_path: uploaded[0] ?? certification.attachment_path,
-      issued_on: issuedOn ?? certification.issued_on,
-      expires_on: expiresOn ?? certification.expires_on,
+      issued_on: issuedOn,
+      expires_on: expiresOn,
     })
     .eq("tenant_id", tenantId)
     .eq("id", certification.id);
