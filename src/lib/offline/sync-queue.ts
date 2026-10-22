@@ -92,6 +92,7 @@ function mutationContextLabel(mutation: Pick<QueuedMutation, "operation" | "tabl
     equipment_meter_log: "Equipment meter reading",
     equipment_scheduled_service: "Scheduled service",
     equipment_submission_link: "Equipment form link",
+    maintenance_work_order_labour: "Work order time",
     submissions: "Form submission",
   };
 

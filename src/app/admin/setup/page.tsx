@@ -11,6 +11,7 @@ import {
   FileSliders,
   FileText,
   Globe,
+  Hammer,
   Handshake,
   ListChecks,
   MapPin,
@@ -33,6 +34,7 @@ import {
   updateGcSetting,
   updateInventorySetting,
   updateMaintenanceContact,
+  updateMaintenanceSetting,
   updatePurchasingSetting,
   updateSubcontractorsSetting,
   updateTradesSetting,
@@ -296,6 +298,7 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
   const tradesEnabled = Boolean(context.tenant?.trades_enabled);
   const inventoryEnabled = Boolean(context.tenant?.inventory_enabled);
   const purchasingEnabled = Boolean(context.tenant?.purchasing_enabled);
+  const maintenanceEnabled = Boolean(context.tenant?.maintenance_enabled);
   const subcontractorsEnabled = Boolean(context.tenant?.subcontractors_enabled);
   const gcEnabled = Boolean(context.tenant?.gc_enabled);
   // Region (country) decides which safety framework a tenant sees. COR is a
@@ -1047,6 +1050,74 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
                           : "bg-[var(--surface-muted)] text-[var(--ink)]"
                       }`}
                       disabled={!purchasingEnabled}
+                      type="submit"
+                    >
+                      <ToggleLeft className="h-4 w-4" aria-hidden="true" />
+                      Off
+                    </button>
+                  </form>
+                </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 rounded-md border border-[var(--border)] bg-white p-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
+                  <Hammer className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--ink)]">
+                    Maintenance
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--ink-muted)]">
+                      {maintenanceEnabled ? (
+                        <ToggleRight className="h-4 w-4 text-[var(--success)]" aria-hidden="true" />
+                      ) : (
+                        <ToggleLeft className="h-4 w-4 text-[var(--ink-muted)]" aria-hidden="true" />
+                      )}
+                      {maintenanceEnabled ? "On" : "Off"}
+                    </span>
+                  </h3>
+                  <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                    Internal work orders for your own assets: tasks, labour, parts from inventory, outside costs and
+                    a cost to date per asset. Preventive work is raised from scheduled service, and a failed inspection
+                    item can raise a work order on its own. Turn off if you track repairs another way.
+                  </p>
+                  {maintenanceEnabled ? (
+                    <Link
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+                      href="/admin/maintenance"
+                    >
+                      Open Maintenance
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+              <div className="inline-grid w-full grid-cols-2 overflow-hidden rounded-md border border-[var(--border)] sm:w-auto">
+                  <form action={updateMaintenanceSetting}>
+                    <input name="enabled" type="hidden" value="true" />
+                    <button
+                      aria-pressed={maintenanceEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none ${
+                        maintenanceEnabled
+                          ? "bg-[var(--primary)] text-white"
+                          : "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                      }`}
+                      disabled={maintenanceEnabled}
+                      type="submit"
+                    >
+                      <ToggleRight className="h-4 w-4" aria-hidden="true" />
+                      On
+                    </button>
+                  </form>
+                  <form action={updateMaintenanceSetting}>
+                    <input name="enabled" type="hidden" value="false" />
+                    <button
+                      aria-pressed={!maintenanceEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none border-l border-[var(--border)] ${
+                        maintenanceEnabled
+                          ? "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                          : "bg-[var(--surface-muted)] text-[var(--ink)]"
+                      }`}
+                      disabled={!maintenanceEnabled}
                       type="submit"
                     >
                       <ToggleLeft className="h-4 w-4" aria-hidden="true" />

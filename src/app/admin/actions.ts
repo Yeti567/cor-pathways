@@ -2662,6 +2662,32 @@ export async function updatePurchasingSetting(formData: FormData) {
   redirect(`/admin/setup?notice=Purchasing%20module%20${enabled ? "enabled" : "disabled"}.`);
 }
 
+export async function updateMaintenanceSetting(formData: FormData) {
+  const context = await requireFormManager();
+  const enabled = stringValue(formData, "enabled") === "true";
+  const supabase = await createSupabaseServerClient();
+
+  // Nothing is seeded on the way in. Work orders need no setup: managers raise them,
+  // scheduled service raises preventive ones, and inspection items opt in through their
+  // own settings. Switching off hides the module and stops new inspection work orders;
+  // the work orders already raised stay where they are.
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { maintenance_enabled: enabled });
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "maintenance.setting.update",
+    entityId: context.appUser.tenant_id,
+    entityTable: "tenants",
+    metadata: {
+      maintenance_enabled: enabled,
+    },
+  });
+
+  revalidatePath("/admin/maintenance");
+  revalidatePath("/admin", "layout");
+  revalidatePath("/web");
+  redirect(`/admin/setup?notice=Maintenance%20module%20${enabled ? "enabled" : "disabled"}.`);
+}
+
 export async function updateInventorySetting(formData: FormData) {
   const context = await requireFormManager();
   const enabled = stringValue(formData, "enabled") === "true";

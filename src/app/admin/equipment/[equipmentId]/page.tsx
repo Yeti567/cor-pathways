@@ -69,7 +69,9 @@ import {
   type EquipmentDueStatus,
   type EquipmentTab,
 } from "@/lib/equipment";
+import { assetCostToDate, formatWorkOrderNumber, maintenanceStatuses } from "@/lib/maintenance";
 import { AWAITING_PROOF_DESCRIPTION, hasAttachedProof } from "@/lib/proof-status";
+import { formatMoney } from "@/lib/purchasing";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildUnitFinish } from "@/lib/unit-finish";
 import type { Database } from "@/types/database";
@@ -94,6 +96,10 @@ type SubmissionRow = Pick<
   "created_at" | "form_id" | "id" | "status" | "submitted_at" | "submitted_by" | "sync_state"
 >;
 type FormRow = Pick<Database["public"]["Tables"]["forms"]["Row"], "code" | "id" | "name">;
+type WorkOrderSummaryRow = Pick<
+  Database["public"]["Tables"]["maintenance_work_order"]["Row"],
+  "completed_at" | "due_date" | "id" | "number" | "status" | "title" | "total_cost"
+>;
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -171,6 +177,8 @@ function sourceLabel(value: string) {
       return "Inspection";
     case "maintenance":
       return "Maintenance";
+    case "work_orders":
+      return "Work orders";
     case "eld":
       return "ELD";
     default:
@@ -239,7 +247,7 @@ const panelClass = "rounded-lg border border-[var(--border)] bg-[var(--surface)]
 export default async function EquipmentDetailPage({ params, searchParams }: EquipmentDetailPageProps) {
   const { equipmentId } = await params;
   const queryParams = await searchParams;
-  const activeTab = coerceEquipmentTab(firstParam(queryParams.tab));
+  const requestedTab = coerceEquipmentTab(firstParam(queryParams.tab));
   const notice = firstParam(queryParams.notice);
   const error = firstParam(queryParams.error);
   const context = await requireAppUser();
@@ -247,6 +255,11 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
   if (!canUseAdminPanel(context.appUser)) {
     redirect("/choose");
   }
+
+  // The Work orders tab belongs to the maintenance module and hides with it.
+  const maintenanceEnabled = Boolean(context.tenant?.maintenance_enabled);
+  const activeTab: EquipmentTab = requestedTab === "work_orders" && !maintenanceEnabled ? "overview" : requestedTab;
+  const visibleTabs = equipmentTabs.filter((tab) => tab !== "work_orders" || maintenanceEnabled);
 
   const supabase = await createSupabaseServerClient();
   const { data: equipment } = await supabase
@@ -271,6 +284,7 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
     { data: meterRows },
     { data: documents },
     { data: linkedSubmissions },
+    { data: workOrderRows },
   ] = await Promise.all([
     equipment.location_id
       ? supabase
@@ -340,7 +354,17 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
       .eq("tenant_id", context.appUser.tenant_id)
       .order("linked_at", { ascending: false })
       .returns<EquipmentSubmissionLinkRow[]>(),
+    maintenanceEnabled
+      ? supabase
+          .from("maintenance_work_order")
+          .select("id, number, title, status, due_date, completed_at, total_cost")
+          .eq("equipment_id", equipment.id)
+          .eq("tenant_id", context.appUser.tenant_id)
+          .order("number", { ascending: false })
+          .returns<WorkOrderSummaryRow[]>()
+      : Promise.resolve({ data: [] as WorkOrderSummaryRow[] }),
   ]);
+  const workOrders = workOrderRows ?? [];
 
   // A linked ELD (Motive) vehicle, if this unit was matched during sync.
   const { data: eldVehicleLink } = await supabase
@@ -653,7 +677,7 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
       </div>
 
       <nav className="mt-5 flex gap-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-sm">
-        {equipmentTabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <Link
             className={`whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold transition ${
               activeTab === tab ? "bg-[var(--primary)] text-white" : "text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
@@ -1666,6 +1690,42 @@ export default async function EquipmentDetailPage({ params, searchParams }: Equi
             )}
           </section>
         </div>
+      ) : null}
+      {activeTab === "work_orders" && maintenanceEnabled ? (
+        <section className="mt-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3">
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--ink)]">Work orders</h2>
+              <p className="text-sm text-[var(--ink-muted)]">
+                Cost to date {formatMoney(assetCostToDate(workOrders))} across {workOrders.filter((row) => row.status !== "cancelled").length}{" "}
+                work order{workOrders.filter((row) => row.status !== "cancelled").length === 1 ? "" : "s"}, cancelled ones aside.
+              </p>
+            </div>
+            <Link className={primaryButtonClass} href={`/admin/maintenance/new?asset=${equipment.id}`}>
+              <Wrench className="h-4 w-4" aria-hidden="true" />
+              New work order
+            </Link>
+          </div>
+          {workOrders.length > 0 ? (
+            <div className="divide-y divide-[var(--border)]">
+              {workOrders.map((row) => (
+                <Link
+                  className="grid gap-2 px-4 py-3 text-sm transition hover:bg-[var(--surface-muted)] lg:grid-cols-[140px_1fr_140px_120px_120px] lg:items-center"
+                  href={`/admin/maintenance/${row.id}`}
+                  key={row.id}
+                >
+                  <span className="font-semibold text-[var(--primary)]">{formatWorkOrderNumber(row.number)}</span>
+                  <span className="text-[var(--ink)]">{row.title}</span>
+                  <span className="text-[var(--ink-muted)]">{maintenanceStatuses[row.status].label}</span>
+                  <span className="text-[var(--ink-muted)]">{row.completed_at ? row.completed_at.slice(0, 10) : (row.due_date ?? "")}</span>
+                  <span className="text-right tabular-nums text-[var(--ink)]">{formatMoney(row.total_cost)}</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={<Wrench className="h-8 w-8" aria-hidden="true" />} title="No work orders yet" />
+          )}
+        </section>
       ) : null}
     </AdminShell>
   );

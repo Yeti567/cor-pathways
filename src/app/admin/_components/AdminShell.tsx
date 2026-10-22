@@ -13,6 +13,7 @@ import {
   FileWarning,
   FolderUp,
   Forklift,
+  Hammer,
   Handshake,
   LayoutDashboard,
   LifeBuoy,
@@ -51,6 +52,7 @@ const TRADES_NAV_HREF = "/admin/trades";
 const GC_NAV_HREF = "/admin/projects";
 const INVENTORY_NAV_HREF = "/admin/inventory";
 const PURCHASING_NAV_HREF = "/admin/purchasing";
+const MAINTENANCE_NAV_HREF = "/admin/maintenance";
 const SUBCONTRACTORS_NAV_HREF = "/admin/subcontractors";
 // Contracted units and drivers hang off a carrier record, so they ride the same flag.
 // A flag of their own would only create a state where half the module works.
@@ -80,6 +82,7 @@ const navItems = [
   { href: GC_NAV_HREF, label: "Projects", icon: Building2 },
   { href: INVENTORY_NAV_HREF, label: "Inventory", icon: Package },
   { href: PURCHASING_NAV_HREF, label: "Purchasing", icon: ShoppingCart },
+  { href: MAINTENANCE_NAV_HREF, label: "Maintenance", icon: Hammer },
   { href: SUBCONTRACTORS_NAV_HREF, label: "Subcontractors", icon: Handshake },
   { href: CONTRACTED_EQUIPMENT_NAV_HREF, label: "Contracted Equipment", icon: Truck },
   { href: CONTRACTED_DRIVERS_NAV_HREF, label: "Contracted Drivers", icon: IdCard },
@@ -144,6 +147,7 @@ export async function AdminShell({
   const gcEnabled = Boolean(context.tenant?.gc_enabled);
   const inventoryEnabled = Boolean(context.tenant?.inventory_enabled);
   const purchasingEnabled = Boolean(context.tenant?.purchasing_enabled);
+  const maintenanceEnabled = Boolean(context.tenant?.maintenance_enabled);
   const subcontractorsEnabled = Boolean(context.tenant?.subcontractors_enabled);
   // OSHA is the US equivalent of COR; it shows only for United States workspaces.
   const country = coerceCountry(context.tenant?.country);
@@ -170,6 +174,7 @@ export async function AdminShell({
     .filter((item) => item.href !== GC_NAV_HREF || gcEnabled)
     .filter((item) => item.href !== INVENTORY_NAV_HREF || inventoryEnabled)
     .filter((item) => item.href !== PURCHASING_NAV_HREF || purchasingEnabled)
+    .filter((item) => item.href !== MAINTENANCE_NAV_HREF || maintenanceEnabled)
     .filter((item) => item.href !== SUBCONTRACTORS_NAV_HREF || subcontractorsEnabled)
     .filter((item) => item.href !== CONTRACTED_EQUIPMENT_NAV_HREF || subcontractorsEnabled)
     .filter((item) => item.href !== CONTRACTED_DRIVERS_NAV_HREF || subcontractorsEnabled);

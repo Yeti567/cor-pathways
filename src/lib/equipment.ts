@@ -162,7 +162,8 @@ export const equipmentTankSpecOptions = [
   { value: "tc407", label: "TC/MC 407" },
 ] as const;
 
-export const equipmentTabs = ["overview", "service", "maintenance", "meter", "documents", "forms"] as const;
+// work_orders shows only when the maintenance module is on; the page hides it otherwise.
+export const equipmentTabs = ["overview", "service", "maintenance", "work_orders", "meter", "documents", "forms"] as const;
 
 export type EquipmentCategory = (typeof equipmentCategoryOptions)[number]["value"];
 export type EquipmentStatus = (typeof equipmentStatusOptions)[number]["value"];

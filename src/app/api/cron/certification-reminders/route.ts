@@ -6,6 +6,7 @@ import { sendDocumentReviewNotifications } from "@/lib/document-reminders";
 import { sendSubcontractorExpiryNotifications } from "@/lib/subcontractor-reminders";
 import { sendTransportExpiryNotifications } from "@/lib/transport-reminders";
 import { sendHosViolationNotifications } from "@/lib/hos-reminders";
+import { raiseDuePreventiveWorkOrders } from "@/lib/maintenance-preventive";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recordTenantAuditEvent } from "@/lib/tenant-audit";
 import { sendTicketCheckDigest } from "@/lib/ticket-review";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 type TenantRow = Pick<
   Database["public"]["Tables"]["tenants"]["Row"],
-  "id" | "name" | "transport_enabled" | "daily_inspection_enabled" | "subcontractors_enabled"
+  "id" | "name" | "transport_enabled" | "daily_inspection_enabled" | "subcontractors_enabled" | "maintenance_enabled"
 >;
 
 export async function GET(request: Request) {
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
 
   const { data: tenants, error: tenantError } = await supabase
     .from("tenants")
-    .select("id, name, transport_enabled, daily_inspection_enabled, subcontractors_enabled")
+    .select("id, name, transport_enabled, daily_inspection_enabled, subcontractors_enabled, maintenance_enabled")
     .order("name", { ascending: true })
     .returns<TenantRow[]>();
 
@@ -275,6 +276,46 @@ export async function GET(request: Request) {
         tenantName: tenant.name,
       });
     }
+  }
+
+  // Maintenance: raise the preventive work orders that scheduled service has come due for.
+  // The same run as the "Check scheduled service now" button; create_preventive_work_order
+  // refuses a duplicate, so a cron that overlaps a person pressing the button is harmless.
+  for (const tenant of tenants ?? []) {
+    if (!tenant.maintenance_enabled) {
+      continue;
+    }
+
+    const preventive = await raiseDuePreventiveWorkOrders(supabase, tenant.id, now);
+
+    if (preventive.raised > 0 || preventive.failed.length > 0) {
+      await recordTenantAuditEvent(
+        {
+          action: "maintenance.preventive.run",
+          actorRole: "system",
+          entityTable: "maintenance_work_order",
+          metadata: {
+            failed_count: preventive.failed.length,
+            raised_count: preventive.raised,
+            tenant_name: tenant.name,
+          },
+          tenantId: tenant.id,
+        },
+        supabase,
+      );
+    }
+
+    results.push({
+      auditError: null,
+      created: preventive.raised,
+      error:
+        preventive.failed.length > 0
+          ? preventive.failed.map((entry) => `${entry.title}: ${entry.error}`).join("; ")
+          : null,
+      skipped: preventive.failed.length,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+    });
   }
 
   const created = results.reduce((total, result) => total + result.created, 0);

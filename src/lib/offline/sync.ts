@@ -11,6 +11,7 @@ import {
 import { reportDeadSyncMutation } from "@/lib/error-reporter";
 import { getOfflineDatabase, type OfflineSubmissionSourceAssignment, type QueuedMutation } from "./db";
 import { normalizeFieldMovementPayload } from "./inventory";
+import { normalizeWorkOrderLabourPayload } from "./maintenance";
 import { getSyncSummary, markOfflineSyncComplete } from "./sync-queue";
 
 type BrowserSupabaseClient = ReturnType<typeof createSupabaseBrowserClient>;
@@ -2196,6 +2197,35 @@ async function flushInventoryMovementMutation(mutation: QueuedMutation) {
   await db.queuedMutations.delete(mutation.id);
 }
 
+async function flushWorkOrderLabourMutation(mutation: QueuedMutation) {
+  const payload = normalizeWorkOrderLabourPayload(mutation.payload);
+
+  if (!payload) {
+    await markMutationFailed(mutation, "Queued time entry is invalid.");
+    return;
+  }
+
+  const db = getOfflineDatabase();
+  const supabase = createSupabaseBrowserClient();
+
+  await db.queuedMutations.update(mutation.id, {
+    status: "syncing",
+    updatedAt: new Date().toISOString(),
+  });
+
+  const { error } = await supabase.from("maintenance_work_order_labour").insert(payload);
+
+  // Idempotency, as for stock moves: a unique index on (tenant_id, client_uuid) means an
+  // entry that already posted on an earlier sync comes back as a duplicate key, which is
+  // success. Any other refusal (the work order was closed, or reassigned) is reported.
+  if (error && error.code !== "23505") {
+    await markMutationFailed(mutation, error.message);
+    return;
+  }
+
+  await db.queuedMutations.delete(mutation.id);
+}
+
 export async function flushQueuedMutations() {
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return getSyncSummary();
@@ -2224,6 +2254,8 @@ export async function flushQueuedMutations() {
       await flushEquipmentDocumentMutation(mutation);
     } else if (mutation.table === "inventory_movement" && mutation.operation === "insert") {
       await flushInventoryMovementMutation(mutation);
+    } else if (mutation.table === "maintenance_work_order_labour" && mutation.operation === "insert") {
+      await flushWorkOrderLabourMutation(mutation);
     } else {
       await markMutationFailed(mutation, `Unsupported offline mutation: ${mutation.table} ${mutation.operation}.`);
     }

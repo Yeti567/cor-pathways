@@ -2,10 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CalendarClock, Camera, ClipboardList, Filter, UserRound, Wrench } from "lucide-react";
 import { updateFollowUp } from "@/app/admin/actions";
+import { createWorkOrderFromFollowUp } from "@/app/admin/maintenance/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel, canUseDesktopMonitor } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
 import { followUpStatusClass, followUpStatusOptions, formatFollowUpStatus, isClosedFollowUpStatus } from "@/lib/follow-ups";
+import { formatWorkOrderNumber, isOpenMaintenanceStatus, maintenancePriorities, maintenanceStatuses } from "@/lib/maintenance";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -157,6 +159,43 @@ export default async function FollowUpsPage({ searchParams }: FollowUpsPageProps
           .returns<FormRow[]>()
       : { data: [] as FormRow[] };
 
+  // The maintenance module adds a "Create work order" button and a link to the work order
+  // each action raised. Read only when the module is on, so a tenant without it runs
+  // exactly the queries it always has.
+  const maintenanceEnabled = Boolean(context.tenant?.maintenance_enabled) && canUseAdminPanel(context.appUser);
+  const workOrderByFollowUp = new Map<string, { id: string; number: number; status: keyof typeof maintenanceStatuses }>();
+
+  if (maintenanceEnabled && followUpRows.length > 0) {
+    const followUpIds = followUpRows.map((followUp) => followUp.id);
+    const { data: links } = await supabase
+      .from("follow_ups")
+      .select("id, maintenance_work_order_id")
+      .eq("tenant_id", context.appUser.tenant_id)
+      .in("id", followUpIds)
+      .not("maintenance_work_order_id", "is", null)
+      .returns<{ id: string; maintenance_work_order_id: string | null }[]>();
+    const workOrderIds = Array.from(
+      new Set((links ?? []).map((link) => link.maintenance_work_order_id).filter((id): id is string => Boolean(id))),
+    );
+    const { data: workOrders } =
+      workOrderIds.length > 0
+        ? await supabase
+            .from("maintenance_work_order")
+            .select("id, number, status")
+            .eq("tenant_id", context.appUser.tenant_id)
+            .in("id", workOrderIds)
+            .returns<{ id: string; number: number; status: keyof typeof maintenanceStatuses }[]>()
+        : { data: [] as { id: string; number: number; status: keyof typeof maintenanceStatuses }[] };
+    const workOrderById = new Map((workOrders ?? []).map((workOrder) => [workOrder.id, workOrder]));
+
+    for (const link of links ?? []) {
+      const workOrder = link.maintenance_work_order_id ? workOrderById.get(link.maintenance_work_order_id) : null;
+      if (workOrder) {
+        workOrderByFollowUp.set(link.id, workOrder);
+      }
+    }
+  }
+
   const userById = new Map((users ?? []).map((user) => [user.id, user]));
   const submissionById = new Map((submissions ?? []).map((submission) => [submission.id, submission]));
   const formById = new Map((forms ?? []).map((form) => [form.id, form]));
@@ -266,6 +305,7 @@ export default async function FollowUpsPage({ searchParams }: FollowUpsPageProps
               const sourceItem = followUp.form_item_id ? itemById.get(followUp.form_item_id) : null;
               const overdue = isOverdue(followUp);
               const photoUrl = photoUrlForPath(followUpPhotoUrls, followUp.photo_path);
+              const linkedWorkOrder = workOrderByFollowUp.get(followUp.id) ?? null;
 
               return (
                 <article className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_420px]" key={followUp.id}>
@@ -301,6 +341,44 @@ export default async function FollowUpsPage({ searchParams }: FollowUpsPageProps
                       </p>
                       <p className="truncate">Field: {sourceItem?.label ?? "Unknown field"}</p>
                     </div>
+                    {maintenanceEnabled ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                        {linkedWorkOrder ? (
+                          <Link
+                            className="inline-flex items-center gap-1 font-semibold text-[var(--primary)] hover:underline"
+                            href={`/admin/maintenance/${linkedWorkOrder.id}`}
+                          >
+                            <Wrench className="h-4 w-4" aria-hidden="true" />
+                            {formatWorkOrderNumber(linkedWorkOrder.number)} ({maintenanceStatuses[linkedWorkOrder.status].label.toLowerCase()})
+                          </Link>
+                        ) : null}
+                        {!isClosedFollowUpStatus(followUp.status) &&
+                        !(linkedWorkOrder && isOpenMaintenanceStatus(linkedWorkOrder.status)) ? (
+                          <form action={createWorkOrderFromFollowUp} className="flex items-center gap-2">
+                            <input name="followUpId" type="hidden" value={followUp.id} />
+                            <select
+                              aria-label="Work order priority"
+                              className="h-9 rounded-md border border-[var(--border)] bg-white px-2 text-sm text-[var(--ink)]"
+                              defaultValue="normal"
+                              name="priority"
+                            >
+                              {maintenancePriorities.map((priority) => (
+                                <option key={priority.value} value={priority.value}>
+                                  {priority.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border)] bg-white px-3 text-sm font-semibold text-[var(--ink)] transition hover:bg-[var(--surface-muted)]"
+                              type="submit"
+                            >
+                              <Wrench className="h-4 w-4" aria-hidden="true" />
+                              Create work order
+                            </button>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {followUp.photo_path ? (
                       <div className="mt-4 rounded-md border border-[var(--border)] bg-white p-3">
                         <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--ink)]">
