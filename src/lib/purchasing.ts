@@ -220,6 +220,11 @@ export type PurchaseLineInput = {
   accountCode: string | null;
   /** How much has already been received against the line being edited. */
   qtyReceived?: number;
+  /**
+   * The line being edited is already a work order part line. Its quantity and cost can
+   * still be adjusted on the order; a new one is only ever added from the work order.
+   */
+  editingWorkOrderPart?: boolean;
 };
 
 export type PurchaseLineWrite = {
@@ -236,7 +241,7 @@ export type PurchaseLineWrite = {
 export type PurchaseLineWriteResult = { ok: false; error: string } | { ok: true; write: PurchaseLineWrite };
 
 export function buildPurchaseOrderLineWrite(input: PurchaseLineInput): PurchaseLineWriteResult {
-  if (input.kind === "work_order_part") {
+  if (input.kind === "work_order_part" && !input.editingWorkOrderPart) {
     return { ok: false, error: "Work order parts are added from a work order, not here." };
   }
 

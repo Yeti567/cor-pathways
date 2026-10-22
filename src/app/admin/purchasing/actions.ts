@@ -791,7 +791,11 @@ export async function savePurchaseOrderLine(formData: FormData) {
     back(path, "That line is no longer on the order.");
   }
 
-  const kind = coercePurchaseOrderLineKind(stringValue(formData, "kind")) ?? "non_stock";
+  // A work order part line keeps its kind; only its quantity, cost and wording change here.
+  const kind =
+    existing?.kind === "work_order_part"
+      ? "work_order_part"
+      : (coercePurchaseOrderLineKind(stringValue(formData, "kind")) ?? "non_stock");
 
   if (kind === "stock" && !context.tenant?.inventory_enabled) {
     back(path, "Stock lines need the Inventory module. Turn it on under Setup, or add this as another purchase.");
@@ -840,6 +844,7 @@ export async function savePurchaseOrderLine(formData: FormData) {
   const result = buildPurchaseOrderLineWrite({
     accountCode: optionalString(formData, "accountCode"),
     description: stringValue(formData, "description"),
+    editingWorkOrderPart: existing?.kind === "work_order_part",
     item,
     itemId,
     kind,

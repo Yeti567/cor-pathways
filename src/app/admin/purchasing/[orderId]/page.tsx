@@ -293,6 +293,20 @@ export default async function PurchaseOrderPage({ params, searchParams }: Detail
                 <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">Account code</dt>
                 <dd className="text-[var(--ink)]">{order.account_code ?? "None"}</dd>
               </div>
+              {order.work_order_id ? (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">For work order</dt>
+                  <dd className="text-[var(--ink)]">
+                    {context.tenant?.maintenance_enabled ? (
+                      <Link className="font-semibold text-[var(--primary)] hover:underline" href={`/admin/maintenance/${order.work_order_id}`}>
+                        Open the work order
+                      </Link>
+                    ) : (
+                      "Linked"
+                    )}
+                  </dd>
+                </div>
+              ) : null}
               {inventoryEnabled ? (
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">Deliver stock to</dt>
@@ -431,7 +445,13 @@ export default async function PurchaseOrderPage({ params, searchParams }: Detail
                       <td className="px-4 py-3">
                         <span className="font-medium text-[var(--ink)]">{line.description}</span>
                         <span className="block text-xs text-[var(--ink-muted)]">
-                          {line.kind === "stock" ? `Stock${item?.sku ? `, ${item.sku}` : ""}` : "Other purchase"}
+                          {line.kind === "stock"
+                            ? `Stock${item?.sku ? `, ${item.sku}` : ""}`
+                            : line.kind === "work_order_part"
+                              ? "Part for the work order, delivered to the job"
+                              : order.work_order_id
+                                ? "Other purchase, charged to the work order"
+                                : "Other purchase"}
                           {line.account_code ? `, account ${line.account_code}` : ""}
                         </span>
                         {editable ? (
