@@ -7,7 +7,10 @@ import { describe, expect, it } from "vitest";
 // itself, the worker app hides its panel, and Setup can flip it. Static source assertions
 // on purpose, matching tests/purchasing-toggle.test.ts: no database, and they catch the
 // wiring drifting apart.
-const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
+// Normalised to LF: a Windows checkout with core.autocrlf stores CRLF, and these checks
+// match multi-line source text, so they must not depend on how git wrote the file.
+const read = (relativePath: string) =>
+  readFileSync(join(process.cwd(), relativePath), "utf8").replace(/\r\n/g, "\n");
 
 // Built from char codes so this file never contains the characters it looks for.
 const DASHES = new RegExp(`[${String.fromCharCode(0x2013)}${String.fromCharCode(0x2014)}]`);

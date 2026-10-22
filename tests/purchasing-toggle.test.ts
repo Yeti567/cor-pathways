@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 // column exists, the nav hides the entry, every route guards itself, and Setup can flip
 // it. These are static source assertions on purpose, matching tests/inventory-toggle.test.ts:
 // they run with no database and catch the wiring drifting apart.
-const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
+// Normalised to LF: a Windows checkout with core.autocrlf stores CRLF, and these checks
+// match multi-line source text, so they must not depend on how git wrote the file.
+const read = (relativePath: string) =>
+  readFileSync(join(process.cwd(), relativePath), "utf8").replace(/\r\n/g, "\n");
 
 // Built from char codes so this file never contains the characters it looks for.
 const DASHES = new RegExp(`[${String.fromCharCode(0x2013)}${String.fromCharCode(0x2014)}]`);

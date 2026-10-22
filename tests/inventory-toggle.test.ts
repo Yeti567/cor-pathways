@@ -9,7 +9,10 @@ import { describe, expect, it } from "vitest";
 //
 // These are static source assertions on purpose, matching tests/schema-rls.test.ts:
 // they run with no database and catch the wiring drifting apart.
-const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
+// Normalised to LF: a Windows checkout with core.autocrlf stores CRLF, and these checks
+// match multi-line source text, so they must not depend on how git wrote the file.
+const read = (relativePath: string) =>
+  readFileSync(join(process.cwd(), relativePath), "utf8").replace(/\r\n/g, "\n");
 
 const migration = read("supabase/migrations/20260723000000_inventory_module_toggle.sql");
 const stockingMigration = read("supabase/migrations/20260723020000_inventory_stocking_locations.sql");

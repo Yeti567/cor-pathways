@@ -8,7 +8,10 @@ import { describe, expect, it } from "vitest";
 // status, every maintenance table refuses the direct writes that would skip the functions,
 // parts move only through the stock ledger, and purchasing lands its costs on the job.
 // supabase/tests/maintenance-work-orders.sql exercises the same rules against a database.
-const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
+// Normalised to LF: a Windows checkout with core.autocrlf stores CRLF, and these checks
+// match multi-line source text, so they must not depend on how git wrote the file.
+const read = (relativePath: string) =>
+  readFileSync(join(process.cwd(), relativePath), "utf8").replace(/\r\n/g, "\n");
 
 // Lowercase, quotes and line comments gone, whitespace flattened: the same reading
 // schema-rls uses, so phrasing does not decide the result.

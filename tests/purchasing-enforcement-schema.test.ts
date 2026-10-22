@@ -7,7 +7,10 @@ import { describe, expect, it } from "vitest";
 // there: no function trusts the caller for the actor or the destination status, and
 // every purchasing table refuses the direct writes that would skip the functions.
 // supabase/tests/purchasing-approvals.sql exercises the same rules against a database.
-const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
+// Normalised to LF: a Windows checkout with core.autocrlf stores CRLF, and these checks
+// match multi-line source text, so they must not depend on how git wrote the file.
+const read = (relativePath: string) =>
+  readFileSync(join(process.cwd(), relativePath), "utf8").replace(/\r\n/g, "\n");
 
 // Built from char codes so this file never contains the characters it looks for.
 const DASHES = new RegExp(`[${String.fromCharCode(0x2013)}${String.fromCharCode(0x2014)}]`);
