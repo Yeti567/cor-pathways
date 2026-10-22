@@ -8,6 +8,9 @@ output/playwright
 .env.development.local
 .env.test.local
 .env.production.local
+# Any other env file (vercel env pull writes .env.production and similar); the example stays tracked
+.env*
+!.env.example
 .vercel
 
 # Local-only MCP / client connection config. Machine-specific; keep out of the
