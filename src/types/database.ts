@@ -446,11 +446,176 @@ type InventoryItemRow = TenantScopedRow & {
   default_rate: number | null;
   rate_basis: InventoryRateBasis | null;
   reorder_point: number | null;
+  /** How many to order at a time. Used as a purchase line's starting quantity. */
+  reorder_qty: number | null;
+  /** Last received cost per unit, written by receiving a purchase order line. */
+  unit_cost: number | null;
   equipment_id: string | null;
   notes: string | null;
   active: boolean;
   created_by: string | null;
   deleted_at: string | null;
+};
+
+/** A purchase order's place on the status ladder. See src/lib/purchasing.ts. */
+export type PurchaseOrderStatus =
+  | "draft"
+  | "pending_approval"
+  | "rejected"
+  | "approved"
+  | "ordered"
+  | "partially_received"
+  | "received"
+  | "closed"
+  | "cancelled";
+
+/** stock: an inventory item; non_stock: anything else; work_order_part: reserved for work orders. */
+export type PurchaseOrderLineKind = "stock" | "non_stock" | "work_order_part";
+
+/** band: one approver from the matching band or above; sequential: every level in order. */
+export type PurchaseApprovalStyle = "band" | "sequential";
+
+/** What happened to a purchase order, as recorded in its append-only trail. */
+export type PurchaseOrderEventAction =
+  | "created"
+  | "submitted"
+  | "withdrawn"
+  | "approved"
+  | "rejected"
+  | "ordered"
+  | "order_undone"
+  | "received"
+  | "closed"
+  | "cancelled"
+  | "reopened"
+  | "exported";
+
+type SupplierRow = TenantScopedRow & {
+  name: string;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  account_number: string | null;
+  terms_notes: string | null;
+  categories: string[];
+  active: boolean;
+  notes: string | null;
+  created_by: string | null;
+};
+
+type SupplierItemRow = TenantScopedRow & {
+  supplier_id: string;
+  item_id: string;
+  supplier_part_number: string | null;
+  pack_size: number | null;
+  lead_time_days: number | null;
+  last_unit_cost: number | null;
+  preferred: boolean;
+};
+
+type PurchaseOrderRow = TenantScopedRow & {
+  number: number;
+  title: string;
+  status: PurchaseOrderStatus;
+  requester_id: string | null;
+  location_id: string | null;
+  supplier_id: string | null;
+  account_code: string | null;
+  /** Reserved for maintenance work orders; always null until that slice ships. */
+  work_order_id: string | null;
+  needed_by: string | null;
+  ship_to_location_id: string | null;
+  notes: string | null;
+  emergency: boolean;
+  discount: number;
+  shipping: number;
+  tax: number;
+  subtotal: number;
+  total: number;
+  submitted_at: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  ordered_at: string | null;
+  received_at: string | null;
+  closed_at: string | null;
+  cancelled_at: string | null;
+  exported_at: string | null;
+  created_by: string | null;
+};
+
+type PurchaseOrderLineRow = TenantScopedRow & {
+  purchase_order_id: string;
+  line_number: number;
+  kind: PurchaseOrderLineKind;
+  item_id: string | null;
+  description: string;
+  unit: string;
+  qty_ordered: number;
+  qty_received: number;
+  unit_cost: number;
+  line_total: number;
+  account_code: string | null;
+};
+
+type PurchaseApprovalRuleRow = TenantScopedRow & {
+  name: string;
+  threshold: number;
+  approver_user_ids: string[];
+  style: PurchaseApprovalStyle;
+  level: number;
+  active: boolean;
+  location_id: string | null;
+  created_by: string | null;
+};
+
+/** One row per tenant, keyed by tenant_id, so it carries no id of its own. */
+type PurchaseSettingsRow = {
+  tenant_id: string;
+  auto_approve_below_lowest: boolean;
+  require_reject_reason: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Append-only, so no updated_at. */
+type PurchaseOrderEventRow = {
+  id: string;
+  tenant_id: string;
+  purchase_order_id: string;
+  action: PurchaseOrderEventAction;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  rule_id: string | null;
+  level: number | null;
+  reason: string | null;
+  emergency: boolean;
+  created_at: string;
+};
+
+type PurchaseReceiptRow = {
+  id: string;
+  tenant_id: string;
+  purchase_order_id: string;
+  received_on: string;
+  received_by: string | null;
+  packing_slip: string | null;
+  invoice_reference: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+type PurchaseReceiptLineRow = {
+  id: string;
+  tenant_id: string;
+  receipt_id: string;
+  purchase_order_line_id: string;
+  qty: number;
+  place_id: string | null;
+  movement_id: string | null;
+  unit_cost: number;
+  created_at: string;
 };
 
 /**
@@ -808,6 +973,7 @@ export type Database = {
           trades_enabled: boolean;
           gc_enabled: boolean;
           inventory_enabled: boolean;
+          purchasing_enabled: boolean;
           subcontractors_enabled: boolean;
           demo_mode: boolean;
           demo_uploads_enabled: boolean;
@@ -1359,6 +1525,67 @@ export type Database = {
         Row: InventoryCategoryRow;
         Insert: Partial<InventoryCategoryRow> & Pick<InventoryCategoryRow, "tenant_id" | "name">;
         Update: Partial<InventoryCategoryRow>;
+        Relationships: [];
+      };
+      supplier: {
+        Row: SupplierRow;
+        Insert: Partial<SupplierRow> & Pick<SupplierRow, "tenant_id" | "name">;
+        Update: Partial<SupplierRow>;
+        Relationships: [];
+      };
+      supplier_item: {
+        Row: SupplierItemRow;
+        Insert: Partial<SupplierItemRow> & Pick<SupplierItemRow, "tenant_id" | "supplier_id" | "item_id">;
+        Update: Partial<SupplierItemRow>;
+        Relationships: [];
+      };
+      purchase_order: {
+        Row: PurchaseOrderRow;
+        // number is assigned by trigger, so an insert leaves it out.
+        Insert: Partial<PurchaseOrderRow> & Pick<PurchaseOrderRow, "tenant_id" | "title">;
+        Update: Partial<PurchaseOrderRow>;
+        Relationships: [];
+      };
+      purchase_order_line: {
+        Row: PurchaseOrderLineRow;
+        Insert: Partial<PurchaseOrderLineRow> &
+          Pick<PurchaseOrderLineRow, "tenant_id" | "purchase_order_id" | "description" | "qty_ordered">;
+        Update: Partial<PurchaseOrderLineRow>;
+        Relationships: [];
+      };
+      purchase_approval_rule: {
+        Row: PurchaseApprovalRuleRow;
+        Insert: Partial<PurchaseApprovalRuleRow> & Pick<PurchaseApprovalRuleRow, "tenant_id" | "name">;
+        Update: Partial<PurchaseApprovalRuleRow>;
+        Relationships: [];
+      };
+      purchase_settings: {
+        Row: PurchaseSettingsRow;
+        Insert: Partial<PurchaseSettingsRow> & Pick<PurchaseSettingsRow, "tenant_id">;
+        Update: Partial<PurchaseSettingsRow>;
+        Relationships: [];
+      };
+      purchase_order_event: {
+        Row: PurchaseOrderEventRow;
+        Insert: Partial<PurchaseOrderEventRow> & Pick<PurchaseOrderEventRow, "tenant_id" | "purchase_order_id" | "action">;
+        // The trail is append-only. Update exists to satisfy the client's generic
+        // signature; there is no grant behind it.
+        Update: never;
+        Relationships: [];
+      };
+      purchase_receipt: {
+        Row: PurchaseReceiptRow;
+        // Written through receive_purchase_order, so a receipt and its movements share a
+        // transaction.
+        Insert: Partial<PurchaseReceiptRow> & Pick<PurchaseReceiptRow, "tenant_id" | "purchase_order_id">;
+        Update: never;
+        Relationships: [];
+      };
+      purchase_receipt_line: {
+        Row: PurchaseReceiptLineRow;
+        Insert: Partial<PurchaseReceiptLineRow> &
+          Pick<PurchaseReceiptLineRow, "tenant_id" | "receipt_id" | "purchase_order_line_id" | "qty" | "unit_cost">;
+        Update: never;
         Relationships: [];
       };
       inventory_item: {
