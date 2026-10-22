@@ -109,7 +109,7 @@ describe("form import AI helpers", () => {
         text,
       }),
     ).toContain("Inspection date");
-  });
+  }, 30_000); // The no-text path tries OCR first; its cold start alone can pass 5s when the whole suite runs in parallel.
 
   it("parses Gemini field JSON and normalizes field types", () => {
     expect(
