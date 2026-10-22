@@ -1,8 +1,11 @@
 # Municipal operations: build plan
 
-Status: slice 0 (tenant RLS coverage) done. Slice 1 (purchasing) built 2026-10-22: migrations
-written but not yet applied to any database. Slices 2 and 3 in progress. Written 2026-10-22,
-kept current as it is built.
+Status: slice 0 (tenant RLS coverage) done. Slice 1 (purchasing) built 2026-10-22. Slices 2
+(maintenance work orders) and 3 (inspection deficiency loop) built 2026-10-22, with offline time
+logging; starting, completing and parts in the worker app still need signal. Migrations for all
+three (20261022000000 to 20261022150000) are written but not yet applied to any database, and
+the pgTAP scenarios (npm run supabase:test:purchasing, supabase:test:maintenance) have not yet
+been run against one. Written 2026-10-22, kept current as it is built.
 
 ## Why this exists
 
