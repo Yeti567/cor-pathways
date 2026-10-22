@@ -1,6 +1,7 @@
 # Municipal operations: build plan
 
-Status: slice 0 (tenant RLS coverage) done. Slices 1 to 3 in progress. Written 2026-10-22,
+Status: slice 0 (tenant RLS coverage) done. Slice 1 (purchasing) built 2026-10-22: migrations
+written but not yet applied to any database. Slices 2 and 3 in progress. Written 2026-10-22,
 kept current as it is built.
 
 ## Why this exists

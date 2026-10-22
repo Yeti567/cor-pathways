@@ -163,6 +163,23 @@ function ItemFields({
         </span>
       </label>
 
+      <label className={labelClass}>
+        <span className={labelTextClass}>Reorder quantity (optional)</span>
+        <input
+          className={inputClass}
+          defaultValue={item?.reorder_qty ?? ""}
+          inputMode="decimal"
+          min="0"
+          name="reorderQty"
+          placeholder="e.g. 50"
+          step="0.001"
+          type="number"
+        />
+        <span className="block text-xs text-[var(--ink-muted)]">
+          How many to buy at a time. When Purchasing is on, a new order line for this item starts from this number.
+        </span>
+      </label>
+
       {equipment.length > 0 ? (
         <label className={labelClass}>
           <span className={labelTextClass}>Equipment record (serialized items only)</span>
@@ -308,6 +325,8 @@ export default async function InventoryItemsPage({ searchParams }: ItemsPageProp
                         {item.sku ? ` · ${item.sku}` : ""}
                         {item.category_id ? ` · ${categoryNameById.get(item.category_id) ?? "Uncategorised"}` : ""}
                         {item.reorder_point !== null ? ` · Reorder at ${formatInventoryQty(Number(item.reorder_point))}` : ""}
+                        {item.reorder_qty !== null ? ` · Order ${formatInventoryQty(Number(item.reorder_qty))} at a time` : ""}
+                        {item.unit_cost !== null ? ` · Last cost $${Number(item.unit_cost).toFixed(2)}` : ""}
                       </p>
                     </div>
                     <form action={deleteInventoryItem}>

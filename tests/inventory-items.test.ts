@@ -17,6 +17,7 @@ const baseInput: InventoryItemInput = {
   notes: null,
   rateBasis: null,
   reorderPoint: null,
+  reorderQty: null,
   returnable: true,
   sku: null,
   trackingMode: "bulk",
@@ -125,6 +126,13 @@ describe("buildInventoryItemWrite", () => {
   it("allows a reorder point of zero, but refuses a negative one", () => {
     expect(writeOf(build({ reorderPoint: 0 })).reorder_point).toBe(0);
     expect(expectError(build({ reorderPoint: -1 }))).toContain("reorder point cannot be negative");
+  });
+
+  it("keeps a reorder quantity for purchasing, and refuses zero or less", () => {
+    expect(writeOf(build({ reorderQty: 24 })).reorder_qty).toBe(24);
+    expect(writeOf(build({})).reorder_qty).toBeNull();
+    expect(expectError(build({ reorderQty: 0 }))).toContain("reorder quantity has to be more than zero");
+    expect(expectError(build({ reorderQty: -3 }))).toContain("reorder quantity has to be more than zero");
   });
 
   it("produces a write that satisfies every database check constraint", () => {

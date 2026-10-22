@@ -2638,6 +2638,30 @@ export async function updateSubcontractorsSetting(formData: FormData) {
   redirect(`/admin/setup?notice=Subcontractor%20module%20${enabled ? "enabled" : "disabled"}.`);
 }
 
+export async function updatePurchasingSetting(formData: FormData) {
+  const context = await requireFormManager();
+  const enabled = stringValue(formData, "enabled") === "true";
+  const supabase = await createSupabaseServerClient();
+
+  // Nothing is seeded on the way in. Purchasing works with no rules at all (any admin
+  // approves), and its settings row is created the first time an admin saves it, so a
+  // tenant that switches the module on and off again carries no furniture.
+  await applyTenantSettingsPatch(supabase, context.appUser.tenant_id, { purchasing_enabled: enabled });
+
+  await recordAppUserAuditEvent(context.appUser, {
+    action: "purchasing.setting.update",
+    entityId: context.appUser.tenant_id,
+    entityTable: "tenants",
+    metadata: {
+      purchasing_enabled: enabled,
+    },
+  });
+
+  revalidatePath("/admin/purchasing");
+  revalidatePath("/admin", "layout");
+  redirect(`/admin/setup?notice=Purchasing%20module%20${enabled ? "enabled" : "disabled"}.`);
+}
+
 export async function updateInventorySetting(formData: FormData) {
   const context = await requireFormManager();
   const enabled = stringValue(formData, "enabled") === "true";

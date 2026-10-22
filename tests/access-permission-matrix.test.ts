@@ -41,6 +41,7 @@ const actionGroups = [
       "updateTradesLaborRate",
       "updateGcSetting",
       "updateInventorySetting",
+      "updatePurchasingSetting",
       "updateSubcontractorsSetting",
       "createGcProject",
       "createRfi",

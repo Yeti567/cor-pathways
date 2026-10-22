@@ -17,6 +17,7 @@ import {
   Package,
   Share2,
   ShieldCheck,
+  ShoppingCart,
   ToggleLeft,
   ToggleRight,
   Truck,
@@ -32,6 +33,7 @@ import {
   updateGcSetting,
   updateInventorySetting,
   updateMaintenanceContact,
+  updatePurchasingSetting,
   updateSubcontractorsSetting,
   updateTradesSetting,
   updateTransportSetting,
@@ -293,6 +295,7 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
   const dailyInspectionEnabled = Boolean(context.tenant?.daily_inspection_enabled);
   const tradesEnabled = Boolean(context.tenant?.trades_enabled);
   const inventoryEnabled = Boolean(context.tenant?.inventory_enabled);
+  const purchasingEnabled = Boolean(context.tenant?.purchasing_enabled);
   const subcontractorsEnabled = Boolean(context.tenant?.subcontractors_enabled);
   const gcEnabled = Boolean(context.tenant?.gc_enabled);
   // Region (country) decides which safety framework a tenant sees. COR is a
@@ -976,6 +979,74 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
                           : "bg-[var(--surface-muted)] text-[var(--ink)]"
                       }`}
                       disabled={!inventoryEnabled}
+                      type="submit"
+                    >
+                      <ToggleLeft className="h-4 w-4" aria-hidden="true" />
+                      Off
+                    </button>
+                  </form>
+                </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 rounded-md border border-[var(--border)] bg-white p-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-[var(--primary)]">
+                  <ShoppingCart className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--ink)]">
+                    Purchasing
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--ink-muted)]">
+                      {purchasingEnabled ? (
+                        <ToggleRight className="h-4 w-4 text-[var(--success)]" aria-hidden="true" />
+                      ) : (
+                        <ToggleLeft className="h-4 w-4 text-[var(--ink-muted)]" aria-hidden="true" />
+                      )}
+                      {purchasingEnabled ? "On" : "Off"}
+                    </span>
+                  </h3>
+                  <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                    Purchase requests and orders with approval rules, suppliers and their prices, receiving straight
+                    into inventory, and a CSV export for your finance system. Nothing is posted to your books. Turn off
+                    if you buy through another system.
+                  </p>
+                  {purchasingEnabled ? (
+                    <Link
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+                      href="/admin/purchasing"
+                    >
+                      Open Purchasing
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+              <div className="inline-grid w-full grid-cols-2 overflow-hidden rounded-md border border-[var(--border)] sm:w-auto">
+                  <form action={updatePurchasingSetting}>
+                    <input name="enabled" type="hidden" value="true" />
+                    <button
+                      aria-pressed={purchasingEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none ${
+                        purchasingEnabled
+                          ? "bg-[var(--primary)] text-white"
+                          : "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                      }`}
+                      disabled={purchasingEnabled}
+                      type="submit"
+                    >
+                      <ToggleRight className="h-4 w-4" aria-hidden="true" />
+                      On
+                    </button>
+                  </form>
+                  <form action={updatePurchasingSetting}>
+                    <input name="enabled" type="hidden" value="false" />
+                    <button
+                      aria-pressed={!purchasingEnabled}
+                      className={`${moduleToggleButtonBase} w-full rounded-none border-l border-[var(--border)] ${
+                        purchasingEnabled
+                          ? "bg-white text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                          : "bg-[var(--surface-muted)] text-[var(--ink)]"
+                      }`}
+                      disabled={!purchasingEnabled}
                       type="submit"
                     >
                       <ToggleLeft className="h-4 w-4" aria-hidden="true" />

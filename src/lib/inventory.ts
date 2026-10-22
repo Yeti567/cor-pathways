@@ -52,6 +52,7 @@ export type InventoryItemInput = {
   defaultRate: number | null;
   rateBasis: InventoryRateBasis | null;
   reorderPoint: number | null;
+  reorderQty: number | null;
   equipmentId: string | null;
   notes: string | null;
   active: boolean;
@@ -67,6 +68,7 @@ export type InventoryItemWrite = {
   notes: string | null;
   rate_basis: InventoryRateBasis | null;
   reorder_point: number | null;
+  reorder_qty: number | null;
   returnable: boolean;
   sku: string | null;
   tracking_mode: InventoryTrackingMode;
@@ -110,6 +112,10 @@ export function buildInventoryItemWrite(input: InventoryItemInput): InventoryIte
     return { ok: false, error: "A reorder point cannot be negative." };
   }
 
+  if (input.reorderQty !== null && (!Number.isFinite(input.reorderQty) || input.reorderQty <= 0)) {
+    return { ok: false, error: "A reorder quantity has to be more than zero. Leave it blank if you do not reorder this." };
+  }
+
   // A billable item priced at nothing is almost always an unfinished form rather than a
   // deliberate zero, and it would bill nothing without ever looking wrong.
   if (input.billable && input.defaultRate !== null && input.rateBasis === null) {
@@ -134,6 +140,8 @@ export function buildInventoryItemWrite(input: InventoryItemInput): InventoryIte
       rate_basis: billable ? input.rateBasis : null,
       // A reorder point is watched independently of billing; keep it whatever the item does.
       reorder_point: input.reorderPoint,
+      // How many to buy at a time. Purchasing starts a new line from it.
+      reorder_qty: input.reorderQty,
       returnable: input.returnable,
       sku,
       tracking_mode: input.trackingMode,
