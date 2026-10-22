@@ -1,0 +1,274 @@
+{
+  "formCode": "MUN-PLAY-OPS",
+  "name": "Playground monthly operational inspection",
+  "description": "A closer monthly check of wear, moving parts, fasteners and surfacing depth. Severity on each item sets the priority of the work order it raises.",
+  "sections": [
+    {
+      "title": "Inspection details",
+      "items": [
+        {
+          "label": "Date",
+          "fieldType": "date",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspected by",
+          "fieldType": "worker_select",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "workerPickerScope": "current_worker"
+          }
+        },
+        {
+          "label": "Playground name or site",
+          "fieldType": "short_text",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Location",
+          "fieldType": "gps_coordinates",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "About this form",
+      "items": [
+        {
+          "label": "Starter form, not a certified checklist. Canadian playgrounds are built and maintained to the CSA Z614 standard: check this form against your own inspection programme and add what your equipment and manufacturer instructions require.",
+          "fieldType": "text_info",
+          "required": false,
+          "flaggable": false,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Surfacing",
+      "items": [
+        {
+          "label": "Shallowest loose-fill depth measured (cm)",
+          "fieldType": "number",
+          "required": false,
+          "flaggable": false,
+          "helperText": "Measure in the most worn spots: swing pits, slide exits, under climbers.",
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Surfacing depth meets your programme's minimum in every use zone",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Unitary surfacing (mats, poured rubber) has no gaps, lifted edges or holes",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Edging and borders are secure and not a trip hazard",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Structure and moving parts",
+      "items": [
+        {
+          "label": "Posts and footings are solid, with no rot, rust-through or movement",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Bearings, hinges and moving parts turn freely without excessive play",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Swing hangers, chains and S-hooks are closed and not worn thin",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Guardrails and barriers are secure",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Openings that could trap a head or fingers have not been created by wear or damage",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Paint and coatings are intact, with no flaking over rust",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Plastic and wood components are not cracked or splintered",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Records",
+      "items": [
+        {
+          "label": "Manufacturer maintenance items for this equipment were checked",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Result and sign-off",
+      "items": [
+        {
+          "label": "Overall result",
+          "fieldType": "dropdown_select_one",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "options": [
+              "Safe to use",
+              "Safe with minor items noted",
+              "Not safe: taken out of use"
+            ]
+          }
+        },
+        {
+          "label": "Notes and follow-up needed",
+          "fieldType": "long_text",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Photo of any problem found",
+          "fieldType": "photo",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspector signature",
+          "fieldType": "signature",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    }
+  ]
+}

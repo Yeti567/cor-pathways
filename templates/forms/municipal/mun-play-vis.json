@@ -1,0 +1,259 @@
+{
+  "formCode": "MUN-PLAY-VIS",
+  "name": "Playground routine visual inspection",
+  "description": "Quick walk-around for daily or weekly checks of a playground. Any failed item raises a corrective action and, with maintenance on, a work order.",
+  "sections": [
+    {
+      "title": "Inspection details",
+      "items": [
+        {
+          "label": "Date",
+          "fieldType": "date",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspected by",
+          "fieldType": "worker_select",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "workerPickerScope": "current_worker"
+          }
+        },
+        {
+          "label": "Playground name or site",
+          "fieldType": "short_text",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Location",
+          "fieldType": "gps_coordinates",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "About this form",
+      "items": [
+        {
+          "label": "Starter form, not a certified checklist. Canadian playgrounds are built and maintained to the CSA Z614 standard: check this form against your own inspection programme and add what your equipment and manufacturer instructions require.",
+          "fieldType": "text_info",
+          "required": false,
+          "flaggable": false,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Site and surfacing",
+      "items": [
+        {
+          "label": "Ground under and around equipment is free of glass, litter, needles and sharp debris",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Loose surfacing is level and has not been kicked out under swings, slides and exits",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": "Look for bare spots or shallow areas where children land.",
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No standing water, ice or washouts in play areas",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Fences, gates and latches are intact and close properly",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Signs are in place and readable",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Equipment",
+      "items": [
+        {
+          "label": "No broken, missing or vandalized parts",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No loose or missing bolts, caps or fasteners",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No sharp edges, splinters or protruding hardware",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No ropes, cords or items tied to equipment that could entangle a child",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Swing seats, chains and hangers show no obvious damage or wear",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Slides, decks and steps are clean, dry enough to use, and undamaged",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Result and sign-off",
+      "items": [
+        {
+          "label": "Overall result",
+          "fieldType": "dropdown_select_one",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "options": [
+              "Safe to use",
+              "Safe with minor items noted",
+              "Not safe: taken out of use"
+            ]
+          }
+        },
+        {
+          "label": "Notes and follow-up needed",
+          "fieldType": "long_text",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Photo of any problem found",
+          "fieldType": "photo",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspector signature",
+          "fieldType": "signature",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,250 @@
+{
+  "formCode": "MUN-EQ-PRE",
+  "name": "Heavy equipment pre-use inspection",
+  "description": "Before-shift check for loaders, graders, backhoes, mowers and similar equipment.",
+  "sections": [
+    {
+      "title": "Inspection details",
+      "items": [
+        {
+          "label": "Date",
+          "fieldType": "date",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspected by",
+          "fieldType": "worker_select",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "workerPickerScope": "current_worker"
+          }
+        },
+        {
+          "label": "Machine",
+          "fieldType": "equipment_select",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Readings",
+      "items": [
+        {
+          "label": "Engine hours",
+          "fieldType": "number",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Walk-around",
+      "items": [
+        {
+          "label": "Engine oil, coolant and hydraulic levels are good",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No hydraulic, fuel or oil leaks",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Hoses and fittings are not cracked, rubbing or bulging",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Tires or tracks, and their hardware, are in good condition",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Attachments, pins and retainers are secure",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Lights, beacon and reverse alarm work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Operator station",
+      "items": [
+        {
+          "label": "Steps and handholds are clean and secure",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Seat belt works",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Brakes and park brake work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Controls and safety interlocks work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Fire extinguisher is in place and charged",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Result and sign-off",
+      "items": [
+        {
+          "label": "Overall result",
+          "fieldType": "dropdown_select_one",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "options": [
+              "Safe to use",
+              "Safe with minor items noted",
+              "Not safe: taken out of use"
+            ]
+          }
+        },
+        {
+          "label": "Notes and follow-up needed",
+          "fieldType": "long_text",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Photo of any problem found",
+          "fieldType": "photo",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspector signature",
+          "fieldType": "signature",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    }
+  ]
+}

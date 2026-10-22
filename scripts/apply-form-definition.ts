@@ -60,7 +60,8 @@ type SectionDefinition = {
 };
 
 type FormDefinition = {
-  tenantId: string;
+  /** Omitted in shared starter forms; pass --tenant instead. */
+  tenantId?: string;
   formCode: string;
   name?: string;
   description?: string;
@@ -90,11 +91,18 @@ function parseArgs(argv: string[]) {
   const definition = read("--definition");
 
   if (!definition) {
-    console.error("Usage: npx tsx scripts/apply-form-definition.ts --definition <file.json> [--apply]");
+    console.error(
+      "Usage: npx tsx scripts/apply-form-definition.ts --definition <file.json> [--tenant <uuid>] [--create] [--apply]",
+    );
     process.exit(1);
   }
 
-  return { definition, apply: argv.includes("--apply") };
+  return {
+    definition,
+    tenant: read("--tenant"),
+    create: argv.includes("--create"),
+    apply: argv.includes("--apply"),
+  };
 }
 
 async function main(): Promise<void> {
@@ -110,18 +118,60 @@ async function main(): Promise<void> {
   }
 
   const supabase = createClient<Database>(url, key, { auth: { persistSession: false } });
-  const definition = JSON.parse(readFileSync(args.definition, "utf8")) as FormDefinition;
+  const parsed = JSON.parse(readFileSync(args.definition, "utf8")) as FormDefinition;
+  // A shared starter form (templates/forms/*) carries no tenant; the tenant comes from the
+  // command line so the same file can be installed for any company.
+  const tenantId = args.tenant ?? parsed.tenantId;
 
-  const { data: form } = await supabase
+  if (!tenantId) {
+    console.error("This definition names no tenant. Pass --tenant <uuid>.");
+    process.exit(1);
+  }
+
+  const definition: FormDefinition = { ...parsed, tenantId };
+
+  const { data: existing } = await supabase
     .from("forms")
     .select("id, code, name, description")
-    .eq("tenant_id", definition.tenantId)
+    .eq("tenant_id", tenantId)
     .eq("code", definition.formCode)
     .maybeSingle<FormRow>();
 
-  if (!form) {
-    console.error(`No form with code ${definition.formCode} in this tenant.`);
+  let form = existing;
+
+  if (!form && !args.create) {
+    console.error(`No form with code ${definition.formCode} in this tenant. Pass --create to install it.`);
     process.exit(1);
+  }
+
+  if (!form) {
+    const itemCount = definition.sections.reduce((sum, section) => sum + section.items.length, 0);
+    console.log(`Form:     ${definition.formCode} "${definition.name ?? definition.formCode}" (new)`);
+    console.log(`  would create ${definition.sections.length} sections and ${itemCount} items`);
+
+    if (!args.apply) {
+      console.log("Dry run. Re-run with --apply to create it.");
+      return;
+    }
+
+    const { data: created, error } = await supabase
+      .from("forms")
+      .insert({
+        tenant_id: tenantId,
+        code: definition.formCode,
+        name: definition.name ?? definition.formCode,
+        description: definition.description ?? null,
+        status: "published",
+      })
+      .select("id, code, name, description")
+      .single<FormRow>();
+
+    if (error || !created) {
+      console.error(`Could not create the form: ${error?.message ?? "no row returned"}`);
+      process.exit(1);
+    }
+
+    form = created;
   }
 
   const { data: sectionRows } = await supabase
@@ -221,7 +271,7 @@ async function main(): Promise<void> {
       if (args.apply) {
         const { data, error } = await supabase
           .from("form_sections")
-          .insert({ ...wantedSection, form_id: form.id, tenant_id: definition.tenantId })
+          .insert({ ...wantedSection, form_id: form.id, tenant_id: tenantId })
           .select("id")
           .single<{ id: string }>();
 
@@ -299,7 +349,7 @@ async function main(): Promise<void> {
           const { error } = await supabase.from("form_items").insert({
             ...wantedItem,
             form_id: form.id,
-            tenant_id: definition.tenantId,
+            tenant_id: tenantId,
           });
 
           if (error) {

@@ -1,0 +1,250 @@
+{
+  "formCode": "MUN-VEH-PRE",
+  "name": "Light vehicle pre-use inspection",
+  "description": "Before-shift check for pickups, vans and cars. A critical failure takes the unit out of service.",
+  "sections": [
+    {
+      "title": "Inspection details",
+      "items": [
+        {
+          "label": "Date",
+          "fieldType": "date",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspected by",
+          "fieldType": "worker_select",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "workerPickerScope": "current_worker"
+          }
+        },
+        {
+          "label": "Vehicle",
+          "fieldType": "equipment_select",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Readings",
+      "items": [
+        {
+          "label": "Odometer (km)",
+          "fieldType": "number",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Walk-around",
+      "items": [
+        {
+          "label": "Tires have no visible damage and look properly inflated",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Head, tail, brake and signal lights work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Windshield is not cracked in the driver's view and wipers work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Mirrors are in place and adjusted",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No fluid leaks under the vehicle",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Body damage since last use reported",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "In the cab",
+      "items": [
+        {
+          "label": "Brakes and parking brake work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Horn works",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Seat belts work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No warning lights on the dash",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Fire extinguisher, first aid kit and warning triangles are on board",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Result and sign-off",
+      "items": [
+        {
+          "label": "Overall result",
+          "fieldType": "dropdown_select_one",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "options": [
+              "Safe to use",
+              "Safe with minor items noted",
+              "Not safe: taken out of use"
+            ]
+          }
+        },
+        {
+          "label": "Notes and follow-up needed",
+          "fieldType": "long_text",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Photo of any problem found",
+          "fieldType": "photo",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspector signature",
+          "fieldType": "signature",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    }
+  ]
+}

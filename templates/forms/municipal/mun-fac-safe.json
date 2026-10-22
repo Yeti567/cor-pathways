@@ -1,0 +1,286 @@
+{
+  "formCode": "MUN-FAC-SAFE",
+  "name": "Facility safety inspection",
+  "description": "Monthly safety walk-through of a municipal building, arena, hall or shop.",
+  "sections": [
+    {
+      "title": "Inspection details",
+      "items": [
+        {
+          "label": "Date",
+          "fieldType": "date",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspected by",
+          "fieldType": "worker_select",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "workerPickerScope": "current_worker"
+          }
+        },
+        {
+          "label": "Building or facility",
+          "fieldType": "short_text",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Location",
+          "fieldType": "gps_coordinates",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    },
+    {
+      "title": "Exits and fire safety",
+      "items": [
+        {
+          "label": "Exit doors open freely and exit routes are clear",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Exit signs and emergency lights work",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Fire extinguishers are in place, charged and tagged within the last year",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Fire alarm panel shows no trouble",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "critical",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Sprinkler heads are unobstructed and storage is clear of them",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Building condition",
+      "items": [
+        {
+          "label": "Floors, stairs and ramps are free of trip and slip hazards",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Handrails and guards are secure",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Lighting works in all areas",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "No signs of roof leaks, water damage or mould",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Electrical panels are closed, labelled and clear for one metre",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Workplace safety",
+      "items": [
+        {
+          "label": "First aid kit is stocked and its location is posted",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Chemicals are labelled and safety data sheets are available",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "major",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Eyewash station or bottles are in place and in date",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        },
+        {
+          "label": "Ladders and step stools are in good condition",
+          "fieldType": "pass_fail_na",
+          "required": true,
+          "flaggable": true,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "severity": "minor",
+            "autoWorkOrder": true
+          }
+        }
+      ]
+    },
+    {
+      "title": "Result and sign-off",
+      "items": [
+        {
+          "label": "Overall result",
+          "fieldType": "dropdown_select_one",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false,
+            "options": [
+              "Safe to use",
+              "Safe with minor items noted",
+              "Not safe: taken out of use"
+            ]
+          }
+        },
+        {
+          "label": "Notes and follow-up needed",
+          "fieldType": "long_text",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Photo of any problem found",
+          "fieldType": "photo",
+          "required": false,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        },
+        {
+          "label": "Inspector signature",
+          "fieldType": "signature",
+          "required": true,
+          "flaggable": false,
+          "helperText": null,
+          "settings": {
+            "allowEvidencePhotos": false
+          }
+        }
+      ]
+    }
+  ]
+}
