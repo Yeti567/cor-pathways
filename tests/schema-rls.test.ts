@@ -31,7 +31,13 @@ const schema = rawSchema.toLowerCase().replace(/"/g, "");
 // migration wraps them across several, and an invariant that only holds for one of those
 // formattings is not an invariant. Splitting on the statement terminator and flattening
 // whitespace lets both shapes be read the same way.
+//
+// Line comments go first. A comment above a policy lands in the same chunk as the
+// policy once the text is split on ";", so the chunk starts with the comment and not
+// with "create policy", and a check reading it would decide the table had no policy.
+// inventory_balance has exactly that shape and was invisible to this file until 2026-10-22.
 const schemaStatements = schema
+  .replace(/--[^\n]*/g, "")
   .split(";")
   .map((statement) => statement.replace(/\s+/g, " ").trim())
   .filter(Boolean);
@@ -89,6 +95,68 @@ const tenantScopedTables: TenantScopedTable[] = [
   "inventory_transfer",
   "inventory_count",
 ];
+
+// The hand-kept list above stopped growing at the inventory tables, so trades, transport,
+// change orders and subcontractors were never checked by name. Rather than keep chasing a
+// list, every table that carries a tenant_id column is found from the schema itself and
+// held to the same rule. A table that is guarded by something stricter than plain
+// membership has to say so here, with the reason, or the suite fails.
+const tablesWithTenantId = (() => {
+  const found = new Set<string>();
+
+  for (const statement of schemaStatements) {
+    const created = statement.match(/^create table (?:if not exists )?public\.([a-z0-9_]+) \((.*)\)/);
+
+    if (created && /\btenant_id uuid\b/.test(created[2])) {
+      found.add(created[1]);
+    }
+
+    const added = statement.match(/^alter table (?:only )?public\.([a-z0-9_]+) add column (?:if not exists )?tenant_id uuid/);
+
+    if (added) {
+      found.add(added[1]);
+    }
+  }
+
+  return [...found].sort();
+})();
+
+const stricterThanMembership: Record<string, string> = {
+  eld_connection_secret: "ELD credentials: no policy at all, so only the service role can read them",
+  tenant_audit_log: "Readable by the tenant's admins only, and append-only",
+  transport_medical_record: "Medical vault: the vault-access check, which is narrower than membership",
+  app_error: "Members may write their own tenant's errors; only admins and consultants read them",
+  app_error_signature: "Error grouping: admins and consultants of the tenant only",
+};
+
+describe("every table with a tenant_id", () => {
+  it("finds the tenant tables in the schema", () => {
+    expect(tablesWithTenantId.length).toBeGreaterThan(80);
+  });
+
+  it.each(tablesWithTenantId)("enables row level security on %s", (table) => {
+    expect(schema).toContain(`alter table public.${table} enable row level security`);
+  });
+
+  it.each(tablesWithTenantId)("scopes %s to the tenant", (table) => {
+    const policies = policiesFor(table);
+
+    if (table in stricterThanMembership) {
+      // Either no policy (service role only) or every policy names the tenant.
+      expect(policies.every((policy) => policy.includes("tenant_id"))).toBe(true);
+      return;
+    }
+
+    expect(policies.length).toBeGreaterThan(0);
+    expect(policies.some((policy) => policy.includes("is_tenant_member"))).toBe(true);
+  });
+
+  it("lists no exception for a table that no longer exists", () => {
+    for (const table of Object.keys(stricterThanMembership)) {
+      expect(tablesWithTenantId).toContain(table);
+    }
+  });
+});
 
 describe("tenant-scoped schema", () => {
   it.each(tenantScopedTables)("enables row level security on %s", (table) => {
