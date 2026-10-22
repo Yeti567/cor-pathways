@@ -350,6 +350,7 @@ export async function createDraftSubmission(input: {
   evidencePhotos?: OfflineEvidencePhotos;
   form: OfflineFormSummary;
   locationId?: string | null;
+  maintenanceEnabled?: boolean;
   sourceAssignment?: OfflineSubmissionSourceAssignment | null;
   userId: string;
   values?: Record<string, Json>;
@@ -429,6 +430,7 @@ export async function createDraftSubmission(input: {
     equipmentId: inspectedEquipmentId,
     excludeItemIds: manualActionItemIds,
     form: input.form,
+    maintenanceEnabled: input.maintenanceEnabled ?? false,
     submissionId: draftId,
     tenantId: input.form.tenantId,
     values: input.values ?? {},

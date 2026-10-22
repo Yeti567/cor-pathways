@@ -48,6 +48,13 @@ import { flushQueuedMutations } from "@/lib/offline/sync";
 import { listDraftSubmissions } from "@/lib/offline/sync-queue";
 import type { OfflineDraftSubmission, OfflineSubmissionSourceAssignment } from "@/lib/offline/db";
 import type { Json } from "@/types/database";
+import {
+  formatWorkOrderNumber,
+  maintenanceStatuses,
+  openDeficienciesForAsset,
+  repeatDeficiencyItemIds,
+  type OpenDeficiency,
+} from "@/lib/maintenance";
 
 type OfflineWorkerOption = {
   fullName: string;
@@ -66,7 +73,12 @@ type AssignedFormsPanelProps = {
   initialForms: OfflineFormSummary[];
   locations: OfflineLocationOption[];
   maintenanceContactUserId?: string | null;
+  // The maintenance module is on: a failed item can raise a work order, a critical one
+  // keeps the out-of-service behaviour, and open deficiencies on an asset are shown when
+  // it is inspected again. Off (the default) leaves the form exactly as it was.
+  maintenanceEnabled?: boolean;
   offlineSyncDays: number;
+  openDeficiencies?: OpenDeficiency[];
   scheduledAssignments?: ScheduledFormAssignment[];
   tenantId: string;
   userId: string;
@@ -857,6 +869,7 @@ function EquipmentSelectField({
   activeLocationId,
   equipment,
   onChange,
+  openDeficiencies = [],
   requireMeter = false,
   scope,
   userId,
@@ -865,6 +878,7 @@ function EquipmentSelectField({
   activeLocationId: string;
   equipment: OfflineEquipmentSummary[];
   onChange: (value: Json) => void;
+  openDeficiencies?: OpenDeficiency[];
   requireMeter?: boolean;
   scope: ReturnType<typeof coerceEquipmentPickerScope>;
   userId: string;
@@ -991,6 +1005,9 @@ function EquipmentSelectField({
           />
         </label>
       ) : null}
+      {selectedEquipment ? (
+        <OpenDeficiencyList deficiencies={openDeficienciesForAsset(openDeficiencies, selectedEquipment.id)} />
+      ) : null}
       {scopedEquipment.length === 0 ? (
         <p className="rounded-md border border-dashed border-[var(--border)] p-3 text-sm text-[var(--ink-muted)]">
           No matching equipment is cached on this device yet.
@@ -1000,12 +1017,55 @@ function EquipmentSelectField({
   );
 }
 
+// Deficiencies still open on this asset from earlier inspections, so the inspector can look
+// at each one again and confirm the repair. Shown only when the maintenance module is on
+// (the list is empty otherwise).
+function OpenDeficiencyList({ deficiencies }: { deficiencies: OpenDeficiency[] }) {
+  if (deficiencies.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-md border border-[var(--warning)] bg-amber-50 p-3">
+      <p className="text-sm font-semibold text-[var(--ink)]">
+        Open from earlier inspections ({deficiencies.length})
+      </p>
+      <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+        Look at each one again. If it is repaired, pass it below and say so in your notes; if not, fail it again and it joins
+        the work already open.
+      </p>
+      <ul className="mt-2 space-y-1 text-sm">
+        {deficiencies.map((deficiency) => (
+          <li className="text-[var(--ink)]" key={deficiency.id}>
+            {deficiency.title}
+            <span className="block text-xs text-[var(--ink-muted)]">
+              {[
+                deficiency.formName,
+                deficiency.raisedAt.slice(0, 10),
+                deficiency.workOrderNumber
+                  ? `${formatWorkOrderNumber(deficiency.workOrderNumber)}${
+                      deficiency.workOrderStatus ? `, ${maintenanceStatuses[deficiency.workOrderStatus].label.toLowerCase()}` : ""
+                    }`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function AssignedFormsPanel({
   equipment,
   initialForms,
   locations,
   maintenanceContactUserId = null,
+  maintenanceEnabled = false,
   offlineSyncDays,
+  openDeficiencies = [],
   scheduledAssignments = [],
   tenantId,
   userId,
@@ -1033,6 +1093,26 @@ export function AssignedFormsPanel({
   const handledRequestedAssignmentRef = useRef<string | null>(null);
   const expiresAt = useMemo(() => addDays(new Date(), offlineSyncDays).toISOString(), [offlineSyncDays]);
   const locationById = useMemo(() => new Map(locations.map((location) => [location.id, location])), [locations]);
+  // The items on the open form that failed on an earlier inspection of the asset chosen
+  // in it and are still open. Empty unless the maintenance module is on.
+  const repeatDeficiencyIds = useMemo(() => {
+    if (!maintenanceEnabled || !activeForm || openDeficiencies.length === 0) {
+      return new Set<string>();
+    }
+
+    const items = activeForm.sections.flatMap((section) => section.items);
+    const equipmentItem = items.find((item) => item.fieldType === "equipment_select");
+    const selected = equipmentItem ? draftValues[equipmentItem.id] : undefined;
+    const equipmentId =
+      selected && typeof selected === "object" && !Array.isArray(selected) && typeof selected.equipmentId === "string"
+        ? selected.equipmentId
+        : null;
+
+    return repeatDeficiencyItemIds(
+      openDeficienciesForAsset(openDeficiencies, equipmentId),
+      new Set(items.map((item) => item.id)),
+    );
+  }, [activeForm, draftValues, maintenanceEnabled, openDeficiencies]);
   const formAssignmentsByFormId = useMemo(() => {
     const assignmentsByFormId = new Map<string, FormAssignmentSummary[]>();
 
@@ -1536,6 +1616,7 @@ export function AssignedFormsPanel({
         evidencePhotos,
         form,
         locationId: activeLocationId || null,
+        maintenanceEnabled,
         sourceAssignment: activeAssignment,
         userId,
         // Answers to items a rule now hides are not filed.
@@ -1658,6 +1739,11 @@ export function AssignedFormsPanel({
 
         return (
           <div className="grid gap-2">
+            {repeatDeficiencyIds.has(item.id) ? (
+              <p className="rounded-md bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-[var(--warning)]">
+                Failed on an earlier inspection of this asset and still open. Check whether it has been repaired.
+              </p>
+            ) : null}
             <select
               className={inputClass}
               onChange={(event) => {
@@ -1780,6 +1866,7 @@ export function AssignedFormsPanel({
             activeLocationId={activeLocationId}
             equipment={equipmentOptions}
             onChange={onChange}
+            openDeficiencies={maintenanceEnabled ? openDeficiencies : []}
             requireMeter={requiresEquipmentMeter(item)}
             scope={coerceEquipmentPickerScope(getFormItemSettingString(item.settings, "equipmentPickerScope"))}
             userId={userId}

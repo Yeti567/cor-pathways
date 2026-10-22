@@ -138,10 +138,20 @@ export function severityFromInspectionDefectTitle(title: string): InspectionDefe
   return null;
 }
 
-function defectSeverity(settings: Json): InspectionDefectSeverity {
+function defectSeverity(settings: Json, maintenanceEnabled: boolean): InspectionDefectSeverity {
   if (settings && typeof settings === "object" && !Array.isArray(settings)) {
-    const tagged = (settings as Record<string, Json | undefined>).defect_severity;
+    const record = settings as Record<string, Json | undefined>;
+    const tagged = record.defect_severity;
     if (tagged === "major") {
+      return "major";
+    }
+
+    // The maintenance module's own scale (settings.severity: critical, major, minor). Only
+    // read when the module is on, so a tenant without it keeps exactly the behaviour it
+    // has always had. A critical item keeps the out-of-service behaviour a major defect
+    // has; major and minor raise work orders at their own priority instead (the database
+    // trigger create_inspection_work_order does that once the action syncs).
+    if (maintenanceEnabled && record.severity === "critical") {
       return "major";
     }
   }
@@ -165,6 +175,7 @@ export function createInspectionDefectFollowUps({
   excludeItemIds = new Set<string>(),
   form,
   idFactory = defaultIdFactory,
+  maintenanceEnabled = false,
   submissionId,
   tenantId,
   values,
@@ -176,6 +187,9 @@ export function createInspectionDefectFollowUps({
   excludeItemIds?: Set<string>;
   form: OfflineFormSummary;
   idFactory?: () => string;
+  // The tenant has the maintenance module on. Off (the default) leaves every output
+  // exactly as it was before the module existed.
+  maintenanceEnabled?: boolean;
   submissionId: string;
   tenantId: string;
   values: Record<string, Json>;
@@ -199,7 +213,7 @@ export function createInspectionDefectFollowUps({
           ? "major"
           : chosenSeverities[item.id] === "minor"
             ? "minor"
-            : defectSeverity(item.settings);
+            : defectSeverity(item.settings, maintenanceEnabled);
       const isMajor = severity === "major";
 
       if (isMajor && equipmentId) {

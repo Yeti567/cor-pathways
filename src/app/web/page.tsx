@@ -37,6 +37,14 @@ import { DailyInspectionPanel } from "@/app/web/_components/DailyInspectionPanel
 import { FieldTicketsPanel } from "@/app/web/_components/FieldTicketsPanel";
 import { InventoryFieldPanel } from "@/app/web/_components/InventoryFieldPanel";
 import { MyWorkOrdersPanel } from "@/app/web/_components/MyWorkOrdersPanel";
+import { MaintenanceWorkPanel, type WorkerWorkOrder } from "@/app/web/_components/MaintenanceWorkPanel";
+import {
+  assetIsMetered,
+  formatWorkOrderNumber,
+  maintenanceStatuses,
+  priorityLabel,
+  type OpenDeficiency,
+} from "@/lib/maintenance";
 import { OfflineStatus } from "@/app/web/_components/OfflineStatus";
 import { ResourceLibraryPanel } from "@/app/web/_components/ResourceLibraryPanel";
 import { WorkerCertificationRenewForm } from "@/app/web/_components/WorkerCertificationRenewForm";
@@ -1613,6 +1621,130 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
 
   const showInventoryPanel = inventoryOn && inventoryPlaces.length >= 2 && inventoryItems.length >= 1;
 
+  // Maintenance: the worker's own assigned work orders, and the open deficiencies on each
+  // asset from earlier inspections, shown when the same asset is inspected again. Read only
+  // when the module is on, so a tenant without it runs exactly the queries it always has.
+  const maintenanceOn = Boolean(context.tenant?.maintenance_enabled);
+  let maintenanceWorkOrders: WorkerWorkOrder[] = [];
+  let openDeficiencies: OpenDeficiency[] = [];
+
+  if (maintenanceOn) {
+    const [{ data: assignedRows }, { data: deficiencyRows }] = await Promise.all([
+      supabase
+        .from("maintenance_work_order")
+        .select("id, number, title, description, status, priority, equipment_id, due_date")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .eq("assignee_id", context.appUser.id)
+        .in("status", ["approved", "assigned", "in_progress", "on_hold"])
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .limit(50)
+        .returns<
+          {
+            id: string;
+            number: number;
+            title: string;
+            description: string | null;
+            status: "approved" | "assigned" | "in_progress" | "on_hold";
+            priority: "urgent" | "high" | "normal" | "low";
+            equipment_id: string | null;
+            due_date: string | null;
+          }[]
+        >(),
+      supabase
+        .from("follow_ups")
+        .select("id, title, equipment_id, form_item_id, parent_submission_id, created_at, maintenance_work_order_id")
+        .eq("tenant_id", context.appUser.tenant_id)
+        .not("equipment_id", "is", null)
+        .not("parent_submission_id", "is", null)
+        .in("status", ["open", "assigned", "in_progress"])
+        .order("created_at", { ascending: false })
+        .limit(300)
+        .returns<
+          {
+            id: string;
+            title: string;
+            equipment_id: string;
+            form_item_id: string | null;
+            parent_submission_id: string;
+            created_at: string;
+            maintenance_work_order_id: string | null;
+          }[]
+        >(),
+    ]);
+
+    const workOrderIds = (assignedRows ?? []).map((row) => row.id);
+    const linkedIds = Array.from(
+      new Set((deficiencyRows ?? []).map((row) => row.maintenance_work_order_id).filter((id): id is string => Boolean(id))),
+    );
+    const submissionIds = Array.from(new Set((deficiencyRows ?? []).map((row) => row.parent_submission_id)));
+    const [{ data: taskRows }, { data: linkedRows }, { data: submissionRows }] = await Promise.all([
+      workOrderIds.length > 0
+        ? supabase
+            .from("maintenance_work_order_task")
+            .select("id, work_order_id, title, done, position")
+            .eq("tenant_id", context.appUser.tenant_id)
+            .in("work_order_id", workOrderIds)
+            .order("position", { ascending: true })
+            .returns<{ id: string; work_order_id: string; title: string; done: boolean; position: number }[]>()
+        : Promise.resolve({ data: [] as { id: string; work_order_id: string; title: string; done: boolean; position: number }[] }),
+      linkedIds.length > 0
+        ? supabase
+            .from("maintenance_work_order")
+            .select("id, number, status")
+            .eq("tenant_id", context.appUser.tenant_id)
+            .in("id", linkedIds)
+            .returns<{ id: string; number: number; status: keyof typeof maintenanceStatuses }[]>()
+        : Promise.resolve({ data: [] as { id: string; number: number; status: keyof typeof maintenanceStatuses }[] }),
+      submissionIds.length > 0
+        ? supabase
+            .from("submissions")
+            .select("id, form_id")
+            .eq("tenant_id", context.appUser.tenant_id)
+            .in("id", submissionIds)
+            .returns<{ id: string; form_id: string }[]>()
+        : Promise.resolve({ data: [] as { id: string; form_id: string }[] }),
+    ]);
+
+    const equipmentById = new Map(equipmentSummaries.map((equipment) => [equipment.id, equipment]));
+    maintenanceWorkOrders = (assignedRows ?? []).map((row) => {
+      const asset = row.equipment_id ? equipmentById.get(row.equipment_id) : undefined;
+      return {
+        assetLabel: row.equipment_id ? (equipmentLabelById.get(row.equipment_id) ?? "An asset") : null,
+        description: row.description,
+        dueDate: row.due_date,
+        id: row.id,
+        label: formatWorkOrderNumber(row.number),
+        lastMeter: asset?.currentMeter ?? null,
+        metered: asset ? assetIsMetered({ category: asset.category, current_meter: asset.currentMeter }) : false,
+        priorityLabel: priorityLabel(row.priority),
+        status: row.status,
+        statusLabel: maintenanceStatuses[row.status].label,
+        tasks: (taskRows ?? [])
+          .filter((task) => task.work_order_id === row.id)
+          .map((task) => ({ done: task.done, id: task.id, title: task.title })),
+        title: row.title,
+      };
+    });
+
+    const linkedById = new Map((linkedRows ?? []).map((row) => [row.id, row]));
+    const formIdBySubmission = new Map((submissionRows ?? []).map((row) => [row.id, row.form_id]));
+    const formNameById = new Map(initialForms.map((form) => [form.id, form.name]));
+    openDeficiencies = (deficiencyRows ?? []).map((row) => {
+      const linked = row.maintenance_work_order_id ? linkedById.get(row.maintenance_work_order_id) : undefined;
+      const formId = formIdBySubmission.get(row.parent_submission_id);
+      return {
+        equipmentId: row.equipment_id,
+        formItemId: row.form_item_id,
+        formName: formId ? (formNameById.get(formId) ?? null) : null,
+        id: row.id,
+        raisedAt: row.created_at,
+        title: row.title,
+        workOrderNumber: linked?.number ?? null,
+        workOrderStatus: linked?.status ?? null,
+      };
+    });
+  }
+
   return (
     <main className="min-h-screen scroll-smooth bg-[var(--background)] pb-24 md:pb-0" id="home">
       <header className="border-b border-[var(--border)] bg-[var(--surface)]">
@@ -2040,6 +2172,8 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
               userId={context.appUser.id}
               workflowAssignments={workflowFormAssignments}
               workers={workerOptions}
+              maintenanceEnabled={maintenanceOn}
+              openDeficiencies={openDeficiencies}
             />
           </div>
 
@@ -2055,6 +2189,16 @@ export default async function WebAppPage({ searchParams }: WebAppPageProps) {
 
           {tradesOn ? (
             <MyWorkOrdersPanel clockedOnWorkOrderId={clockedOnWorkOrderId} workOrders={myWorkOrders} />
+          ) : null}
+
+          {maintenanceOn ? (
+            <MaintenanceWorkPanel
+              items={inventoryItems}
+              places={inventoryPlaces}
+              tenantId={context.appUser.tenant_id}
+              userId={context.appUser.id}
+              workOrders={maintenanceWorkOrders}
+            />
           ) : null}
 
           {changeOrdersOn ? (
