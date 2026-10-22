@@ -54,7 +54,8 @@ export type TenantScopedTable =
   | "contracted_equipment_certification_requirement"
   | "contracted_driver"
   | "contracted_driver_certification"
-  | "contracted_driver_observation";
+  | "contracted_driver_observation"
+  | "maintenance_work_order_labour";
 
 type TenantScopedRow = {
   id: string;
@@ -556,6 +557,8 @@ type PurchaseOrderLineRow = TenantScopedRow & {
   unit_cost: number;
   line_total: number;
   account_code: string | null;
+  /** For a work_order_part line: the maintenance work order part it buys. */
+  work_order_part_id: string | null;
 };
 
 type PurchaseApprovalRuleRow = TenantScopedRow & {
@@ -615,6 +618,162 @@ type PurchaseReceiptLineRow = {
   place_id: string | null;
   movement_id: string | null;
   unit_cost: number;
+  created_at: string;
+};
+
+/** A maintenance work order's place on the status ladder. See src/lib/maintenance.ts. */
+export type MaintenanceWorkOrderStatus =
+  | "requested"
+  | "approved"
+  | "assigned"
+  | "in_progress"
+  | "on_hold"
+  | "completed"
+  | "closed"
+  | "cancelled";
+
+export type MaintenanceWorkOrderType = "corrective" | "preventive" | "inspection" | "project";
+
+export type MaintenanceWorkOrderPriority = "urgent" | "high" | "normal" | "low";
+
+/** Where a work order came from. source_id names the record (for an inspection, the form item). */
+export type MaintenanceWorkOrderSource = "manual" | "follow_up" | "scheduled_service" | "service_request" | "inspection";
+
+/** planned: listed; issued: used on the job; returned: put back; received: bought for the job. */
+export type MaintenanceWorkOrderPartStatus = "planned" | "issued" | "returned" | "received";
+
+export type MaintenanceWorkOrderCostKind = "vendor" | "other";
+
+/** What happened to a work order, as recorded in its append-only trail. */
+export type MaintenanceWorkOrderEventAction =
+  | "created"
+  | "approved"
+  | "assigned"
+  | "started"
+  | "held"
+  | "completed"
+  | "closed"
+  | "cancelled"
+  | "reopened"
+  | "part_issued"
+  | "part_returned"
+  | "cost_received";
+
+type MaintenanceWorkOrderRow = TenantScopedRow & {
+  number: number;
+  title: string;
+  description: string | null;
+  equipment_id: string | null;
+  location_id: string | null;
+  type: MaintenanceWorkOrderType;
+  priority: MaintenanceWorkOrderPriority;
+  status: MaintenanceWorkOrderStatus;
+  source: MaintenanceWorkOrderSource;
+  source_id: string | null;
+  follow_up_id: string | null;
+  scheduled_service_id: string | null;
+  submission_id: string | null;
+  form_item_id: string | null;
+  requester_id: string | null;
+  assignee_id: string | null;
+  scheduled_start: string | null;
+  due_date: string | null;
+  meter_at_completion: number | null;
+  completion_notes: string | null;
+  approved_at: string | null;
+  assigned_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
+  cancelled_at: string | null;
+  maintenance_log_id: string | null;
+  meter_log_id: string | null;
+  labour_cost: number;
+  parts_cost: number;
+  vendor_cost: number;
+  other_cost: number;
+  total_cost: number;
+  created_by: string | null;
+};
+
+type MaintenanceWorkOrderTaskRow = TenantScopedRow & {
+  work_order_id: string;
+  position: number;
+  title: string;
+  done: boolean;
+  done_by: string | null;
+  done_at: string | null;
+  created_by: string | null;
+};
+
+type MaintenanceWorkOrderLabourRow = TenantScopedRow & {
+  work_order_id: string;
+  worker_id: string | null;
+  worked_on: string;
+  hours: number;
+  rate: number;
+  cost: number;
+  note: string | null;
+  client_uuid: string | null;
+  created_by: string | null;
+};
+
+type MaintenanceWorkOrderPartRow = TenantScopedRow & {
+  work_order_id: string;
+  item_id: string | null;
+  description: string;
+  unit: string;
+  qty: number;
+  unit_cost: number;
+  line_total: number;
+  status: MaintenanceWorkOrderPartStatus;
+  to_order: boolean;
+  place_id: string | null;
+  movement_id: string | null;
+  return_movement_id: string | null;
+  issued_at: string | null;
+  issued_by: string | null;
+  returned_at: string | null;
+  received_at: string | null;
+  created_by: string | null;
+};
+
+type MaintenanceWorkOrderCostRow = TenantScopedRow & {
+  work_order_id: string;
+  kind: MaintenanceWorkOrderCostKind;
+  supplier_id: string | null;
+  description: string;
+  reference: string | null;
+  amount: number;
+  incurred_on: string;
+  purchase_receipt_line_id: string | null;
+  created_by: string | null;
+};
+
+/** Append-only, so no updated_at. */
+type MaintenanceWorkOrderNoteRow = {
+  id: string;
+  tenant_id: string;
+  work_order_id: string;
+  author_id: string | null;
+  author_name: string | null;
+  body: string;
+  created_at: string;
+};
+
+/** Append-only, so no updated_at. */
+type MaintenanceWorkOrderEventRow = {
+  id: string;
+  tenant_id: string;
+  work_order_id: string;
+  action: MaintenanceWorkOrderEventAction;
+  from_status: MaintenanceWorkOrderStatus | null;
+  to_status: MaintenanceWorkOrderStatus | null;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  reason: string | null;
   created_at: string;
 };
 
@@ -974,6 +1133,7 @@ export type Database = {
           gc_enabled: boolean;
           inventory_enabled: boolean;
           purchasing_enabled: boolean;
+          maintenance_enabled: boolean;
           subcontractors_enabled: boolean;
           demo_mode: boolean;
           demo_uploads_enabled: boolean;
@@ -1585,6 +1745,55 @@ export type Database = {
         Row: PurchaseReceiptLineRow;
         Insert: Partial<PurchaseReceiptLineRow> &
           Pick<PurchaseReceiptLineRow, "tenant_id" | "receipt_id" | "purchase_order_line_id" | "qty" | "unit_cost">;
+        Update: never;
+        Relationships: [];
+      };
+      maintenance_work_order: {
+        Row: MaintenanceWorkOrderRow;
+        // number is assigned by trigger, so an insert leaves it out.
+        Insert: Partial<MaintenanceWorkOrderRow> & Pick<MaintenanceWorkOrderRow, "tenant_id" | "title">;
+        Update: Partial<MaintenanceWorkOrderRow>;
+        Relationships: [];
+      };
+      maintenance_work_order_task: {
+        Row: MaintenanceWorkOrderTaskRow;
+        Insert: Partial<MaintenanceWorkOrderTaskRow> &
+          Pick<MaintenanceWorkOrderTaskRow, "tenant_id" | "work_order_id" | "title">;
+        Update: Partial<MaintenanceWorkOrderTaskRow>;
+        Relationships: [];
+      };
+      maintenance_work_order_labour: {
+        Row: MaintenanceWorkOrderLabourRow;
+        Insert: Partial<MaintenanceWorkOrderLabourRow> &
+          Pick<MaintenanceWorkOrderLabourRow, "tenant_id" | "work_order_id" | "hours">;
+        Update: Partial<MaintenanceWorkOrderLabourRow>;
+        Relationships: [];
+      };
+      maintenance_work_order_part: {
+        Row: MaintenanceWorkOrderPartRow;
+        Insert: Partial<MaintenanceWorkOrderPartRow> &
+          Pick<MaintenanceWorkOrderPartRow, "tenant_id" | "work_order_id" | "description" | "qty">;
+        Update: Partial<MaintenanceWorkOrderPartRow>;
+        Relationships: [];
+      };
+      maintenance_work_order_cost: {
+        Row: MaintenanceWorkOrderCostRow;
+        Insert: Partial<MaintenanceWorkOrderCostRow> &
+          Pick<MaintenanceWorkOrderCostRow, "tenant_id" | "work_order_id" | "description" | "amount">;
+        Update: Partial<MaintenanceWorkOrderCostRow>;
+        Relationships: [];
+      };
+      maintenance_work_order_note: {
+        Row: MaintenanceWorkOrderNoteRow;
+        // The author and time are set by the database from the session.
+        Insert: Partial<MaintenanceWorkOrderNoteRow> & Pick<MaintenanceWorkOrderNoteRow, "tenant_id" | "work_order_id" | "body">;
+        Update: never;
+        Relationships: [];
+      };
+      maintenance_work_order_event: {
+        Row: MaintenanceWorkOrderEventRow;
+        // Written only by the database functions; there is no direct insert path.
+        Insert: never;
         Update: never;
         Relationships: [];
       };
@@ -2370,6 +2579,8 @@ export type Database = {
           signoff_by: string | null;
           signoff_at: string | null;
           equipment_id: string | null;
+          /** The maintenance work order raised for this action, when the maintenance module is on. */
+          maintenance_work_order_id: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["follow_ups"]["Row"]> &
           Pick<Database["public"]["Tables"]["follow_ups"]["Row"], "tenant_id" | "title">;
