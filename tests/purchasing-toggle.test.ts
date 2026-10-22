@@ -8,6 +8,9 @@ import { describe, expect, it } from "vitest";
 // they run with no database and catch the wiring drifting apart.
 const read = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 
+// Built from char codes so this file never contains the characters it looks for.
+const DASHES = new RegExp(`[${String.fromCharCode(0x2013)}${String.fromCharCode(0x2014)}]`);
+
 const toggleMigration = read("supabase/migrations/20261022000000_purchasing_module_toggle.sql");
 const ordersMigration = read("supabase/migrations/20261022030000_purchase_orders.sql");
 const approvalsMigration = read("supabase/migrations/20261022040000_purchase_approvals.sql");
@@ -197,7 +200,7 @@ describe("public repository hygiene", () => {
   ];
 
   it.each(sources)("uses no em or en dashes in %s", (file) => {
-    expect(read(file)).not.toMatch(/[–—]/);
+    expect(read(file)).not.toMatch(DASHES);
   });
 
   it.each(sources)("carries no paywall or trial gate in %s", (file) => {

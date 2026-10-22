@@ -952,38 +952,23 @@ export async function removePurchaseOrderLine(formData: FormData) {
 
 // --- Orders: moving through the ladder ----------------------------------------
 
+/**
+ * Asks the database to make the move. The caller names the action, never the status it
+ * leads to, the rule or the actor: transition_purchase_order works all of those out from
+ * the session and the order, and re-checks every rule the app has already checked, so a
+ * direct API call cannot skip them. Returns the order's new status.
+ */
 async function transition(
   supabase: PurchasingClient,
-  context: PurchasingContext,
-  input: {
-    orderId: string;
-    expected: string;
-    next: string;
-    event: string;
-    reason?: string | null;
-    ruleId?: string | null;
-    level?: number | null;
-    emergency?: boolean;
-    markApproved?: boolean;
-    actorUserId?: string | null;
-    actorName?: string | null;
-  },
-) {
-  const { error } = await (supabase as unknown as RpcClient).rpc("transition_purchase_order", {
-    p_action: input.event,
-    p_actor_name: input.actorName === undefined ? actorName(context) : input.actorName,
-    p_actor_user_id: input.actorUserId === undefined ? context.appUser.id : input.actorUserId,
-    p_emergency: input.emergency ?? false,
-    p_expected_status: input.expected,
-    p_level: input.level ?? null,
-    p_mark_approved: input.markApproved ?? false,
-    p_next_status: input.next,
+  input: { orderId: string; action: PurchaseOrderAction; reason?: string | null },
+): Promise<{ status: string | null; error: { message: string } | null }> {
+  const { data, error } = await (supabase as unknown as RpcClient).rpc("transition_purchase_order", {
+    p_action: input.action,
     p_order_id: input.orderId,
     p_reason: input.reason ?? null,
-    p_rule_id: input.ruleId ?? null,
   });
 
-  return error;
+  return { error, status: typeof data === "string" ? data : null };
 }
 
 const actionNotices: Record<PurchaseOrderAction, string> = {
@@ -1028,8 +1013,6 @@ export async function changePurchaseOrderStatus(formData: FormData) {
     back(path, "Only the requester or an admin can withdraw an order.");
   }
 
-  let autoApproved = false;
-
   if (action === "submit") {
     const { rules, settings, users } = await loadApprovalContext(supabase, tenantId);
     const state = approvalStateFor({ events: [], order, rules, settings });
@@ -1050,39 +1033,16 @@ export async function changePurchaseOrderStatus(formData: FormData) {
         "Nobody but you could approve an order of this size. Ask an admin to add another approver under Purchasing rules.",
       );
     }
-
-    autoApproved = state.requirement.kind === "auto";
   }
 
-  const error = await transition(supabase, context, {
-    emergency: plan.emergency,
-    event: plan.event,
-    expected: order.status,
-    next: plan.next,
-    orderId: order.id,
-    reason,
-  });
+  const { error, status } = await transition(supabase, { action, orderId: order.id, reason });
 
   if (error) {
     back(path, error.message);
   }
 
-  if (autoApproved) {
-    const autoError = await transition(supabase, context, {
-      actorName: "Automatic",
-      actorUserId: null,
-      event: "approved",
-      expected: "pending_approval",
-      markApproved: true,
-      next: "approved",
-      orderId: order.id,
-      reason: "Below the lowest approval threshold, so it approved itself.",
-    });
-
-    if (autoError) {
-      back(path, `Submitted, but the automatic approval did not land: ${autoError.message}`);
-    }
-  }
+  // Below the lowest threshold the database approves the order in the same step.
+  const autoApproved = action === "submit" && status === "approved";
 
   await audit(context, {
     action: `purchasing.order.${action}`,
@@ -1093,7 +1053,7 @@ export async function changePurchaseOrderStatus(formData: FormData) {
       emergency: plan.emergency,
       from: order.status,
       reason,
-      to: autoApproved ? "approved" : plan.next,
+      to: status ?? plan.next,
     },
   });
 
@@ -1139,17 +1099,11 @@ export async function approvePurchaseOrder(formData: FormData) {
     back(path, plan.error);
   }
 
-  const note = optionalString(formData, "reason");
-  const error = await transition(supabase, context, {
-    emergency: plan.emergency,
-    event: "approved",
-    expected: order.status,
-    level: decision.level,
-    markApproved: plan.markApproved,
-    next: plan.next,
+  // The database adds the emergency wording to the note itself.
+  const { error } = await transition(supabase, {
+    action: "approve",
     orderId: order.id,
-    reason: plan.emergency ? (note ? `Approved after an emergency order. ${note}` : "Approved after an emergency order.") : note,
-    ruleId: decision.ruleId,
+    reason: optionalString(formData, "reason"),
   });
 
   if (error) {
@@ -1191,15 +1145,7 @@ export async function rejectPurchaseOrder(formData: FormData) {
     back(path, plan.error);
   }
 
-  const error = await transition(supabase, context, {
-    event: "rejected",
-    expected: order.status,
-    level: decision.level,
-    next: plan.next,
-    orderId: order.id,
-    reason,
-    ruleId: decision.ruleId,
-  });
+  const { error } = await transition(supabase, { action: "reject", orderId: order.id, reason });
 
   if (error) {
     back(path, error.message);
@@ -1263,8 +1209,6 @@ export async function receivePurchaseOrder(formData: FormData) {
   }
 
   const { data: receiptId, error } = await (supabase as unknown as RpcClient).rpc("receive_purchase_order", {
-    p_actor_name: actorName(context),
-    p_actor_user_id: context.appUser.id,
     p_invoice_reference: optionalString(formData, "invoiceReference"),
     p_lines: plan.receipts.map((receipt) => ({ line_id: receipt.lineId, place_id: receipt.placeId, qty: receipt.qty })),
     p_note: optionalString(formData, "note"),
