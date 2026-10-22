@@ -109,7 +109,7 @@ describe("form import AI helpers", () => {
         text,
       }),
     ).toContain("Inspection date");
-  }, 30_000); // The no-text path tries OCR first; its cold start alone can pass 5s when the whole suite runs in parallel.
+  });
 
   it("parses Gemini field JSON and normalizes field types", () => {
     expect(
@@ -186,7 +186,7 @@ endobj
     expect(result.providerLabel).toBe("Local starter template");
     expect(result.detectedText).toBe(buildLocalFormImportStarterText("blank-inspection.pdf"));
     expect(result.fields.map((field) => field.label)).toContain("Inspection date");
-  });
+  }, 30_000); // The no-text path tries OCR first; its cold start alone can pass 5s when the whole suite runs in parallel.
 
   it("integrates uploaded PDF text extraction with builder field parsing", async () => {
     const pdf = Buffer.from(
