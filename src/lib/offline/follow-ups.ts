@@ -159,6 +159,18 @@ function defectSeverity(settings: Json, maintenanceEnabled: boolean): Inspection
   return "minor";
 }
 
+// The maintenance module's per-item scale, when the form carries one.
+function itemSeverityTag(settings: Json): "critical" | "major" | "minor" | null {
+  if (settings && typeof settings === "object" && !Array.isArray(settings)) {
+    const value = (settings as Record<string, Json | undefined>).severity;
+    if (value === "critical" || value === "major" || value === "minor") {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 // Turn failed pass/fail inspection items into corrective actions automatically,
 // so a deficiency can never be recorded with no owner. Each action is pinned to
 // the inspected unit (equipment_id) and routed to a maintenance owner rather than
@@ -220,14 +232,24 @@ export function createInspectionDefectFollowUps({
         outOfServiceEquipmentIds.add(equipmentId);
       }
 
-      const severityNote = isMajor
-        ? " Major defect under NSC Schedule 1; the unit is taken out of service until the repair is verified."
-        : " Minor defect; repair within the allowed window.";
+      // A municipal form carries its own severity scale; quoting the trucking rule (NSC
+      // Schedule 1) on a wheel loader or a playground would be wrong. Without the module,
+      // or on a form with no severity, the wording stays exactly as it was.
+      const formSeverity = maintenanceEnabled ? itemSeverityTag(item.settings) : null;
+      const severityNote = formSeverity
+        ? formSeverity === "critical"
+          ? " Critical defect; the unit is taken out of service until the repair is verified."
+          : ` ${formSeverity === "major" ? "Major" : "Minor"} defect; a work order has been raised for the repair.`
+        : isMajor
+          ? " Major defect under NSC Schedule 1; the unit is taken out of service until the repair is verified."
+          : " Minor defect; repair within the allowed window.";
+      // "Heavy equipment pre-use inspection inspection" reads badly; most form names already say it.
+      const formLabel = /\binspection$/i.test(form.name.trim()) ? form.name.trim() : `${form.name} inspection`;
 
       followUps.push({
         assigned_to: assignedTo,
         created_at: createdAt,
-        description: `${item.label} failed the ${form.name} inspection.${severityNote}`,
+        description: `${item.label} failed the ${formLabel}.${severityNote}`,
         due_at: null,
         ...(equipmentId ? { equipment_id: equipmentId } : {}),
         form_item_id: item.id,

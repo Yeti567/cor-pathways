@@ -177,8 +177,6 @@ function sourceLabel(value: string) {
       return "Inspection";
     case "maintenance":
       return "Maintenance";
-    case "work_orders":
-      return "Work orders";
     case "eld":
       return "ELD";
     default:
@@ -186,20 +184,28 @@ function sourceLabel(value: string) {
   }
 }
 
-function tabLabel(tab: EquipmentTab) {
+// Exhaustive on purpose: the Work orders tab was added without a label and quietly fell
+// through to "Overview", so a missing case now fails the type check instead.
+function tabLabel(tab: EquipmentTab): string {
   switch (tab) {
+    case "overview":
+      return "Overview";
     case "service":
       return "Service Schedule";
     case "maintenance":
       return "Maintenance";
+    case "work_orders":
+      return "Work orders";
     case "meter":
       return "Meter History";
     case "documents":
       return "Documents";
     case "forms":
       return "Inspections and Forms";
-    default:
-      return "Overview";
+    default: {
+      const unhandled: never = tab;
+      return unhandled;
+    }
   }
 }
 

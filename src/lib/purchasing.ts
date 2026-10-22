@@ -1371,6 +1371,11 @@ function dateOnly(value: string | null): string | null {
   return value ? value.slice(0, 10) : null;
 }
 
+/** Two decimals, as finance imports expect: 112.50, not 112.5. */
+function csvMoney(value: number): string {
+  return roundMoney(value).toFixed(2);
+}
+
 /**
  * One row per order line, with the order's header repeated on each, which is the shape a
  * finance import expects. An order with no lines still gets a row so it is not lost.
@@ -1394,11 +1399,11 @@ export function buildPurchaseOrdersCsv(orders: PurchaseExportOrder[]): string {
       dateOnly(order.receivedAt),
       dateOnly(order.closedAt),
       order.emergency,
-      roundMoney(order.discount),
-      roundMoney(order.shipping),
-      roundMoney(order.tax),
-      roundMoney(order.subtotal),
-      roundMoney(order.total),
+      csvMoney(order.discount),
+      csvMoney(order.shipping),
+      csvMoney(order.tax),
+      csvMoney(order.subtotal),
+      csvMoney(order.total),
     ];
 
     if (order.lines.length === 0) {
@@ -1417,7 +1422,7 @@ export function buildPurchaseOrdersCsv(orders: PurchaseExportOrder[]): string {
         roundQty(line.qtyOrdered),
         roundQty(line.qtyReceived),
         roundUnitCost(line.unitCost),
-        roundMoney(line.lineTotal),
+        csvMoney(line.lineTotal),
         line.accountCode || order.accountCode,
       ]);
     }

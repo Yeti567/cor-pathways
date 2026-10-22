@@ -1122,7 +1122,9 @@ describe("buildPurchaseOrdersCsv", () => {
     expect(rows[1].startsWith("PO-000042,Partly received,PPE restock,\"Example Supply, Inc.\",ACCT-1,North Yard,")).toBe(true);
     expect(rows[1].endsWith(",6100")).toBe(true);
     expect(rows[2].endsWith(",5200")).toBe(true);
-    expect(rows[2]).toContain(",2026-03-02,2026-03-03,,,No,5,10,7,140,152,");
+    // Money always carries two decimals for the finance import; quantities and unit costs do not.
+    expect(rows[2]).toContain(",2026-03-02,2026-03-03,,,No,5.00,10.00,7.00,140.00,152.00,");
+    expect(rows[2]).toContain(",box,4,4,10,40.00,5200");
   });
 
   it("neutralises formula-looking text", () => {

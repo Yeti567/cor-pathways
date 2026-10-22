@@ -211,3 +211,55 @@ describe("the database side of the loop", () => {
     expect(body).toContain("exception when unique_violation then");
   });
 });
+
+describe("corrective action wording", () => {
+  // Found in a local click-through on 2026-10-22: a municipal loader inspection produced
+  // "failed the Heavy equipment pre-use inspection inspection. Major defect under NSC
+  // Schedule 1", quoting the trucking rule on a wheel loader.
+  const named = (name: string, summary: OfflineFormSummary): OfflineFormSummary => ({ ...summary, name });
+
+  it("keeps the trucking wording word for word", () => {
+    const result = createInspectionDefectFollowUps({
+      ...baseArgs,
+      form: named("Daily Pre-Trip", truckingForm),
+      values: allFail(truckingForm),
+    });
+    const brakes = result.followUps.find((followUp) => followUp.form_item_id === "brakes");
+    const lights = result.followUps.find((followUp) => followUp.form_item_id === "lights");
+
+    expect(brakes?.description).toBe(
+      "Brakes failed the Daily Pre-Trip inspection. Major defect under NSC Schedule 1; the unit is taken out of service until the repair is verified.",
+    );
+    expect(lights?.description).toBe("Lights failed the Daily Pre-Trip inspection. Minor defect; repair within the allowed window.");
+  });
+
+  it("uses the form's own severity, not the trucking rule, when maintenance is on", () => {
+    const result = createInspectionDefectFollowUps({
+      ...baseArgs,
+      form: named("Heavy equipment pre-use inspection", municipalForm),
+      maintenanceEnabled: true,
+      values: allFail(municipalForm),
+    });
+    const text = (id: string) => result.followUps.find((followUp) => followUp.form_item_id === id)?.description;
+
+    expect(text("tires")).toBe(
+      "Tires failed the Heavy equipment pre-use inspection. Critical defect; the unit is taken out of service until the repair is verified.",
+    );
+    expect(text("wipers")).toBe("Wipers failed the Heavy equipment pre-use inspection. Major defect; a work order has been raised for the repair.");
+    expect(text("decals")).toBe("Decals failed the Heavy equipment pre-use inspection. Minor defect; a work order has been raised for the repair.");
+    expect(result.followUps.some((followUp) => followUp.description?.includes("NSC"))).toBe(false);
+  });
+
+  it("never says inspection twice", () => {
+    const result = createInspectionDefectFollowUps({
+      ...baseArgs,
+      form: named("Playground Inspection", municipalForm),
+      maintenanceEnabled: true,
+      values: allFail(municipalForm),
+    });
+
+    for (const followUp of result.followUps) {
+      expect(followUp.description).not.toMatch(/inspection inspection/i);
+    }
+  });
+});

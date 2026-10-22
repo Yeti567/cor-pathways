@@ -353,7 +353,8 @@ export default async function PurchaseOrderPage({ params, searchParams }: Detail
         </h3>
         <p className="mt-1 text-sm text-[var(--ink-muted)]">
           {order.approved_at
-            ? `Approved ${dateTime(order.approved_at)}.`
+            ? // en-CA times end in "p.m." already, so no full stop is added after one.
+              `Approved ${dateTime(order.approved_at)}`
             : describeApprovalRequirement(approval.requirement)}
         </p>
         {waitingForApproval && !approval.step.done ? (
