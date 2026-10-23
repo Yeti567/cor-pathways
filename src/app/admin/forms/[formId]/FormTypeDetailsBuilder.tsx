@@ -956,6 +956,69 @@ function ShowWhenEditor({
   );
 }
 
+const SEVERITY_OPTIONS = [
+  { label: "Not set", value: "" },
+  { label: "Minor: fix when convenient", value: "minor" },
+  { label: "Major: fix soon", value: "major" },
+  { label: "Critical: take the unit out of service", value: "critical" },
+] as const;
+
+/**
+ * What a fail on a pass/fail item sets off. `severity` and `autoWorkOrder` live in the
+ * item's settings, where the maintenance trigger and the phone already read them; until
+ * now only a form installed from a JSON definition could carry them.
+ */
+function FailureSettings({
+  item,
+  onChange,
+}: {
+  item: BuilderItem;
+  onChange: (patch: Record<string, Json | undefined>) => void;
+}) {
+  const severity = stringSetting(item.settings, "severity");
+  const autoWorkOrder = booleanSetting(item.settings, "autoWorkOrder");
+
+  return (
+    <fieldset className="grid gap-2 rounded-md border border-[var(--border)] bg-white p-3">
+      <legend className="px-1 text-xs font-semibold uppercase text-[var(--ink-muted)]">When this item fails</legend>
+      <label className="grid gap-1 text-sm text-[var(--ink)]">
+        Severity
+        <select
+          className="h-9 rounded-md border border-[var(--border)] bg-white px-2 text-sm"
+          onChange={(event) => onChange({ severity: event.target.value || undefined })}
+          value={severity}
+        >
+          {SEVERITY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="inline-flex items-start gap-2 text-sm text-[var(--ink)]">
+        <input
+          checked={autoWorkOrder}
+          className="mt-1"
+          onChange={(event) => onChange({ autoWorkOrder: event.target.checked ? true : undefined })}
+          type="checkbox"
+        />
+        <span>
+          Raise a maintenance work order
+          <span className="block text-xs text-[var(--ink-muted)]">
+            When the inspection is tied to a unit and the Maintenance module is on. Severity sets its priority: critical
+            is urgent, major is high, otherwise normal.
+          </span>
+        </span>
+      </label>
+      {autoWorkOrder && !item.flaggable ? (
+        <p className="text-xs font-semibold text-[var(--warning)]">
+          Turn the flag on for this item. A work order is only raised from a flagged item.
+        </p>
+      ) : null}
+    </fieldset>
+  );
+}
+
 function ItemDetails({
   allItems,
   availableLists,
@@ -1008,6 +1071,8 @@ function ItemDetails({
           item={item}
           onChange={(rule) => void onPatchItem(item.id, { config: buildShowWhenSettings(item.settings, rule) })}
         />
+
+        {item.field_type === "pass_fail_na" ? <FailureSettings item={item} onChange={patchConfig} /> : null}
 
         {item.field_type === "text_info" ? (
           <label className="grid gap-1 text-xs font-semibold uppercase text-[var(--ink-muted)]">
