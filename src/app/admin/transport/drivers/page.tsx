@@ -5,7 +5,7 @@ import { createTransportDriver } from "@/app/admin/actions";
 import { AdminShell } from "@/app/admin/_components/AdminShell";
 import { canUseAdminPanel } from "@/lib/access-control";
 import { requireAppUser } from "@/lib/current-user";
-import { AWAITING_PROOF_CLASS, AWAITING_PROOF_DESCRIPTION, hasAttachedProof } from "@/lib/proof-status";
+import { AWAITING_PROOF_CLASS, AWAITING_PROOF_DESCRIPTION, hasTransportDocumentProof } from "@/lib/proof-status";
 import { driverDeficiencies, driverProofGaps, type TransportDocumentRecord } from "@/lib/transport-registry";
 import { selectAllRowsResult } from "@/lib/supabase/select-all-result";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -20,7 +20,7 @@ type DriversPageProps = {
 type DriverRow = Database["public"]["Tables"]["transport_driver"]["Row"];
 type DocumentRow = Pick<
   Database["public"]["Tables"]["transport_document"]["Row"],
-  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date" | "attachment_ids"
+  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date" | "attachment_ids" | "storage_path"
 >;
 type UserRow = Pick<Database["public"]["Tables"]["users"]["Row"], "full_name" | "id">;
 
@@ -62,7 +62,7 @@ export default async function TransportDriversPage({ searchParams }: DriversPage
     selectAllRowsResult<DocumentRow>((from, to) =>
       supabase
         .from("transport_document")
-        .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+        .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids, storage_path")
         .eq("tenant_id", context.appUser.tenant_id)
         .eq("scope", "driver")
         .is("deleted_at", null)
@@ -91,7 +91,7 @@ export default async function TransportDriversPage({ searchParams }: DriversPage
       subjectId: document.subject_id,
       status: document.status,
       expiryDate: document.expiry_date,
-      hasProof: hasAttachedProof(document.attachment_ids),
+      hasProof: hasTransportDocumentProof(document),
     };
     documentsByDriver.set(document.subject_id, [...(documentsByDriver.get(document.subject_id) ?? []), record]);
   }

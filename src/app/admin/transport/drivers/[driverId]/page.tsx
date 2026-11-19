@@ -19,7 +19,7 @@ import {
   AWAITING_PROOF_CLASS,
   AWAITING_PROOF_DESCRIPTION,
   AWAITING_PROOF_LABEL,
-  hasAttachedProof,
+  hasTransportDocumentProof,
 } from "@/lib/proof-status";
 import {
   TRANSPORT_REGISTRIES,
@@ -159,7 +159,7 @@ export default async function TransportDriverDetailPage({ params, searchParams }
     subjectId: document.subject_id,
     status: document.status,
     expiryDate: document.expiry_date,
-    hasProof: hasAttachedProof(document.attachment_ids),
+    hasProof: hasTransportDocumentProof(document),
   }));
   const deficiencies = driverDeficiencies(records);
   const deficiencyBySlot = new Map(

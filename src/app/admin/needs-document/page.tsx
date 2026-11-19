@@ -16,6 +16,7 @@ import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification
 import {
   AWAITING_PROOF_DESCRIPTION,
   hasAttachedProof,
+  hasTransportDocumentProof,
   sortProofGaps,
   type ProofGap,
   type ProofSubject,
@@ -65,7 +66,7 @@ type EquipmentDocumentRow = Pick<
 >;
 type TransportDocumentRow = Pick<
   Database["public"]["Tables"]["transport_document"]["Row"],
-  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date" | "attachment_ids"
+  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date" | "attachment_ids" | "storage_path"
 >;
 type TransportDriverRow = Pick<Database["public"]["Tables"]["transport_driver"]["Row"], "id" | "full_name">;
 
@@ -186,7 +187,7 @@ export default async function NeedsDocumentPage() {
         selectAllRows<TransportDocumentRow>((from, to) =>
           supabase
             .from("transport_document")
-            .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+            .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids, storage_path")
             .eq("tenant_id", tenantId)
             .eq("scope", "driver")
             .is("deleted_at", null)
@@ -203,7 +204,7 @@ export default async function NeedsDocumentPage() {
         selectAllRows<TransportDocumentRow>((from, to) =>
           supabase
             .from("transport_document")
-            .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+            .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids, storage_path")
             .eq("tenant_id", tenantId)
             .eq("scope", "company")
             .is("deleted_at", null)
@@ -329,7 +330,7 @@ export default async function NeedsDocumentPage() {
         subjectId: document.subject_id,
         status: document.status,
         expiryDate: document.expiry_date,
-        hasProof: hasAttachedProof(document.attachment_ids),
+        hasProof: hasTransportDocumentProof(document),
       },
     ]);
   }
@@ -356,7 +357,7 @@ export default async function NeedsDocumentPage() {
     subjectId: document.subject_id,
     status: document.status,
     expiryDate: document.expiry_date,
-    hasProof: hasAttachedProof(document.attachment_ids),
+    hasProof: hasTransportDocumentProof(document),
   }));
 
   for (const gap of companyProofGaps(companyRecords)) {

@@ -95,3 +95,18 @@ export function sortProofGaps(gaps: readonly ProofGap[]): ProofGap[] {
       left.label.localeCompare(right.label),
   );
 }
+
+/**
+ * Whether a transport document (driver DQ/HOS file or company record) has its file.
+ *
+ * Transport uploads store the file at `storage_path`, one file per row, and never
+ * fill `attachment_ids`, so checking the array alone reads every filed driver
+ * document as "No document". Either one counts. Taking the row (not a bare value)
+ * makes a page that forgets to select `storage_path` a compile error.
+ */
+export function hasTransportDocumentProof(document: {
+  storage_path: string | null;
+  attachment_ids: readonly (string | null)[] | null;
+}): boolean {
+  return hasAttachedProof(document.storage_path) || hasAttachedProof(document.attachment_ids);
+}

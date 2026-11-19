@@ -7,7 +7,7 @@ import {
   vehicleFileGaps,
   type UnitCertificationDocumentInput,
 } from "@/lib/equipment";
-import { hasAttachedProof, sortProofGaps, type ProofGap } from "@/lib/proof-status";
+import { hasAttachedProof, hasTransportDocumentProof, sortProofGaps, type ProofGap } from "@/lib/proof-status";
 import { computeProofGaps, driverProofGaps, requirementsForScope, type TransportDocumentRecord } from "@/lib/transport-registry";
 import { certificationStatus } from "@/lib/workers";
 
@@ -278,5 +278,20 @@ describe("sortProofGaps", () => {
     ];
 
     expect(sortProofGaps(gaps).map((gap) => gap.label)).toEqual(["Registration", "H2S Alive", "CVIP"]);
+  });
+});
+
+describe("hasTransportDocumentProof", () => {
+  it("counts the stored file, which is how transport uploads keep it", () => {
+    expect(hasTransportDocumentProof({ storage_path: "t/transport/dq/medical/1-med.pdf", attachment_ids: [] })).toBe(true);
+  });
+
+  it("still counts attachment ids", () => {
+    expect(hasTransportDocumentProof({ storage_path: null, attachment_ids: ["abc"] })).toBe(true);
+  });
+
+  it("reads a row with neither as no document", () => {
+    expect(hasTransportDocumentProof({ storage_path: "  ", attachment_ids: [] })).toBe(false);
+    expect(hasTransportDocumentProof({ storage_path: null, attachment_ids: null })).toBe(false);
   });
 });

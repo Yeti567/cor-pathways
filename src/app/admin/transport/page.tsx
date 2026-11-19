@@ -28,7 +28,7 @@ import {
 } from "@/lib/equipment";
 import { fetchUnitCertificationRequirements } from "@/lib/equipment-certification-requirements";
 import { ensureEquipmentCertificationTypes } from "@/lib/equipment-certification-types";
-import { hasAttachedProof } from "@/lib/proof-status";
+import { hasAttachedProof, hasTransportDocumentProof } from "@/lib/proof-status";
 import {
   companyDeficiencies,
   companyProofGaps,
@@ -58,7 +58,7 @@ type HosEventRow = Pick<
 >;
 type TransportDocRow = Pick<
   Database["public"]["Tables"]["transport_document"]["Row"],
-  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date" | "attachment_ids"
+  "registry_key" | "slot_key" | "scope" | "subject_id" | "status" | "expiry_date" | "attachment_ids" | "storage_path"
 >;
 type FleetEquipmentRow = Database["public"]["Tables"]["equipment"]["Row"];
 type FleetServiceRow = Pick<
@@ -190,7 +190,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
       selectAllRows<TransportDocRow>((from, to) =>
         supabase
           .from("transport_document")
-          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids, storage_path")
           .eq("tenant_id", tenantId)
           .eq("scope", "driver")
           .is("deleted_at", null)
@@ -201,7 +201,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
       selectAllRows<TransportDocRow>((from, to) =>
         supabase
           .from("transport_document")
-          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids")
+          .select("registry_key, slot_key, scope, subject_id, status, expiry_date, attachment_ids, storage_path")
           .eq("tenant_id", tenantId)
           .eq("scope", "company")
           .is("deleted_at", null)
@@ -298,7 +298,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
         subjectId: document.subject_id,
         status: document.status,
         expiryDate: document.expiry_date,
-        hasProof: hasAttachedProof(document.attachment_ids),
+        hasProof: hasTransportDocumentProof(document),
       },
     ]);
   }
@@ -324,7 +324,7 @@ export default async function TransportPage({ searchParams }: TransportPageProps
     subjectId: document.subject_id,
     status: document.status,
     expiryDate: document.expiry_date,
-    hasProof: hasAttachedProof(document.attachment_ids),
+    hasProof: hasTransportDocumentProof(document),
   }));
   const companyDeficiencyTotal = companyDeficiencies(companyRecords).length;
 
