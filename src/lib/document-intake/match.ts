@@ -61,6 +61,37 @@ export function normalizeVin(value: string | null | undefined): string {
   return normalizeIdentifier(value).toUpperCase().replace(/I/g, "1").replace(/[OQ]/g, "0");
 }
 
+const VIN_LENGTH = 17;
+
+/**
+ * The VINs a stored `vin_or_serial` can stand for, normalized.
+ *
+ * The field often holds more than one identifier: "<chassis VIN> / <crane serial>", or both
+ * trailers' VINs on a Super B. Comparing a document's VIN against the whole field then reads
+ * a correct registration as a mismatch. So the field is split on "/", ",", ";", whitespace and
+ * the word "and", and every 17-character token counts as a VIN of the unit. The whole field,
+ * normalized, is kept too, so a plain serial (or a VIN typed with spaces in it) still matches
+ * the way it always did. Exact tokens only: a token one character off is still a near miss.
+ */
+export function storedVinCandidates(value: string | null | undefined): string[] {
+  const candidates = new Set<string>();
+  const whole = normalizeVin(value);
+
+  if (whole) {
+    candidates.add(whole);
+  }
+
+  for (const token of (value ?? "").split(/[\/,;\s]+|\band\b/i)) {
+    const vin = normalizeVin(token);
+
+    if (vin.length === VIN_LENGTH) {
+      candidates.add(vin);
+    }
+  }
+
+  return [...candidates];
+}
+
 // Below this a "VIN" is a fragment and only counts as a weak lead.
 const FULL_VIN_MIN = 11;
 const VIN_SUFFIX_MIN = 6;
@@ -114,16 +145,17 @@ export function matchUnit(identifiers: MatchableIdentifiers, fleet: readonly Mat
   const plateHits = new Set<string>();
   const unitHits = new Set<string>();
 
-  for (const unit of fleet) {
-    const unitVin = normalizeVin(unit.vin_or_serial);
+  const isSuffixOf = (stored: string) =>
+    vin.length >= VIN_SUFFIX_MIN &&
+    stored.length >= VIN_SUFFIX_MIN &&
+    (stored.endsWith(vin) || vin.endsWith(stored));
 
-    if (vin.length >= FULL_VIN_MIN && unitVin && unitVin === vin) {
+  for (const unit of fleet) {
+    const unitVins = storedVinCandidates(unit.vin_or_serial);
+
+    if (vin.length >= FULL_VIN_MIN && unitVins.includes(vin)) {
       vinHits.add(unit.id);
-    } else if (
-      vin.length >= VIN_SUFFIX_MIN &&
-      unitVin.length >= VIN_SUFFIX_MIN &&
-      (unitVin.endsWith(vin) || vin.endsWith(unitVin))
-    ) {
+    } else if (unitVins.some(isSuffixOf)) {
       suffixHits.add(unit.id);
     }
 
@@ -212,10 +244,10 @@ export function matchUnit(identifiers: MatchableIdentifiers, fleet: readonly Mat
 
   if (vin.length >= FULL_VIN_MIN) {
     for (const id of lead) {
-      const storedVin = normalizeVin(byId.get(id)!.vin_or_serial);
+      const storedVins = storedVinCandidates(byId.get(id)!.vin_or_serial);
 
-      if (storedVin && storedVin !== vin && !storedVin.endsWith(vin) && !vin.endsWith(storedVin)) {
-        const distance = editDistance(vin, storedVin, NEAR_VIN_MAX_DISTANCE);
+      if (storedVins.length > 0 && !storedVins.some((stored) => stored === vin || isSuffixOf(stored))) {
+        const distance = Math.min(...storedVins.map((stored) => editDistance(vin, stored, NEAR_VIN_MAX_DISTANCE)));
 
         if (distance <= NEAR_VIN_MAX_DISTANCE && lead.size === 1) {
           return suggested(id, ["plate or unit number"], [
@@ -239,10 +271,10 @@ export function matchUnit(identifiers: MatchableIdentifiers, fleet: readonly Mat
     const near: { distance: number; id: string }[] = [];
 
     for (const unit of fleet) {
-      const unitVin = normalizeVin(unit.vin_or_serial);
+      const unitVins = storedVinCandidates(unit.vin_or_serial).filter((stored) => stored.length >= FULL_VIN_MIN);
 
-      if (unitVin.length >= FULL_VIN_MIN) {
-        const distance = editDistance(vin, unitVin, NEAR_VIN_MAX_DISTANCE);
+      if (unitVins.length > 0) {
+        const distance = Math.min(...unitVins.map((stored) => editDistance(vin, stored, NEAR_VIN_MAX_DISTANCE)));
 
         if (distance <= NEAR_VIN_MAX_DISTANCE) {
           near.push({ distance, id: unit.id });
